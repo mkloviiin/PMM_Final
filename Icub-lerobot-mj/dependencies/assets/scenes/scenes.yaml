@@ -1,0 +1,30 @@
+# Manifiesto de escenas seleccionables para iCub Simulacion (MuJoCo).
+#
+# Esta carpeta tambien contiene XMLs que NO son escenas elegibles (includes
+# compartidos como icub_visuomanip_ikin_limits.xml, o versiones viejas como
+# scene_icub_lift.xml / scene.xml) -- por eso las escenas se declaran a mano
+# aca en vez de auto-detectar todos los *.xml de la carpeta.
+#
+# Para agregar una escena nueva: soltar el XML en esta carpeta y agregar una
+# entrada aca. launcher_gui avisa (en el log) si encuentra un *.xml suelto en
+# la carpeta que no este listado aca, para no dejar escenas "huerfanas".
+#
+# - file: nombre del XML dentro de esta misma carpeta
+# - label: texto que se muestra en el dropdown "Escena"
+# - task: instruccion (language instruction) por defecto para esa escena
+
+- file: icub_table_scene_lift.xml
+  label: "1 - Lift (levantar cubo)"
+  task: "levantar el cubo"
+
+- file: icub_table_scene_stack.xml
+  label: "2 - Stack (apilar cubo)"
+  task: "apilar el cubo"
+
+- file: icub_table_scene_drag.xml
+  label: "3 - Drag (arrastrar cubo)"
+  task: "arrastrar el cubo"
+
+- file: icub_table_scene.xml
+  label: "Default (mesa vacia)"
+  task: "tarea libre"
