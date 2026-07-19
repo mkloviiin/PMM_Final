@@ -114,42 +114,12 @@ def _trim_episode_video(video_key: str, ep_row: dict) -> str | None:
     return str(dst) if dst.exists() else None
 
 
-def _build_plotly_charts(ep_row: dict):
-    """Lee el parquet del episodio y construye figuras interactivas de accion y estado.
-
-    Plotly renderiza leyendas cliqueables de fabrica: tocar un nombre en la
-    leyenda oculta/muestra esa senal, funcionando como un checkbox interactivo
-    sin necesitar un componente Gradio custom.
-    """
-    if state.viz_dataset_path is None:
-        return None, None
-
-    chunk_idx = int(ep_row["data/chunk_index"])
-    file_idx = int(ep_row["data/file_index"])
-    ep_idx = int(ep_row["episode_index"])
-
-    parquet = (state.viz_dataset_path / "data"
-               / f"chunk-{chunk_idx:03d}" / f"file-{file_idx:03d}.parquet")
-    if not parquet.exists():
-        return None, None
-
-    df = pd.read_parquet(parquet)
-    ep_df = df[df["episode_index"] == ep_idx].reset_index(drop=True)
-    if ep_df.empty:
-        return None, None
-
-    timestamps = ep_df["timestamp"].astype(float).values
-
-    def _line_chart(values: np.ndarray, names: list[str], title: str,
-                     default_visible_names: set[str] | None = None) -> go.Figure:
+    def _line_chart(values_list: list[np.ndarray], names: list[str], title: str) -> go.Figure:
         fig = go.Figure()
-        for i, name in enumerate(names):
-            visible = True
-            if default_visible_names is not None:
-                visible = True if name in default_visible_names else "legendonly"
-            fig.add_trace(go.Scatter(x=timestamps, y=values[:, i], mode="lines", name=name, visible=visible))
+        for i, (values, name) in enumerate(zip(values_list, names)):
+            fig.add_trace(go.Scatter(x=timestamps, y=values, mode="lines", name=name))
         fig.update_layout(
-            title=f"{title} — {len(names)} senal(es), clickea la leyenda para mostrar/ocultar",
+            title=title,
             xaxis_title="Tiempo (s)",
             yaxis_title="Valor",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
@@ -158,30 +128,66 @@ def _build_plotly_charts(ep_row: dict):
         )
         return fig
 
-    # Grafica de acciones: todas las dimensiones, todas visibles (son pocas)
-    fig_action = None
-    action_feat = state.viz_info.get("features", {}).get("action", {})
-    action_names = action_feat.get("names") or []
-    if "action" in ep_df.columns and action_names:
-        actions = np.stack(ep_df["action"].values)
-        fig_action = _line_chart(actions, action_names, f"Acciones — Episodio {ep_idx}")
+    return None
 
-    # Grafica de estado: TODAS las dimensiones estan en la leyenda (118 tipicamente),
-    # pero solo unas pocas claves (EE + objeto + gripper) arrancan visibles para que
-    # el grafico sea legible; el resto se puede activar clickeando su nombre.
-    fig_state = None
-    state_feat = state.viz_info.get("features", {}).get("observation.state", {})
-    state_names = state_feat.get("names") or []
-    if "observation.state" in ep_df.columns and state_names:
-        states = np.stack(ep_df["observation.state"].values)
-        key_terms = ["rh_ee_pos", "rh_gripper", "object_pos"]
-        default_visible = {n for n in state_names if any(k in n for k in key_terms)}
-        fig_state = _line_chart(
-            states, state_names, f"Estado — Episodio {ep_idx}",
-            default_visible_names=default_visible or None,
-        )
+def build_custom_plotly_chart(ep_idx: int, variables: list[str]) -> go.Figure | None:
+    if state.viz_dataset_path is None or not variables or not state.viz_ep_rows:
+        return None
 
-    return fig_action, fig_state
+    if ep_idx < 0 or ep_idx >= len(state.viz_ep_rows):
+        return None
+
+    ep_row = state.viz_ep_rows[ep_idx]
+    chunk_idx = int(ep_row["data/chunk_index"])
+    file_idx = int(ep_row["data/file_index"])
+
+    parquet = (state.viz_dataset_path / "data"
+               / f"chunk-{chunk_idx:03d}" / f"file-{file_idx:03d}.parquet")
+    if not parquet.exists():
+        return None
+
+    df = pd.read_parquet(parquet)
+    ep_df = df[df["episode_index"] == ep_idx].reset_index(drop=True)
+    if ep_df.empty:
+        return None
+
+    timestamps = ep_df["timestamp"].astype(float).values
+    
+    values_list = []
+    names = []
+    
+    action_names = state.viz_info.get("features", {}).get("action", {}).get("names") or []
+    state_names = state.viz_info.get("features", {}).get("observation.state", {}).get("names") or []
+
+    for var in variables:
+        if var.startswith("action/"):
+            var_name = var.split("action/")[1]
+            if "action" in ep_df.columns and var_name in action_names:
+                idx = action_names.index(var_name)
+                values_list.append(np.stack(ep_df["action"].values)[:, idx])
+                names.append(var)
+        elif var.startswith("observation.state/"):
+            var_name = var.split("observation.state/")[1]
+            if "observation.state" in ep_df.columns and var_name in state_names:
+                idx = state_names.index(var_name)
+                values_list.append(np.stack(ep_df["observation.state"].values)[:, idx])
+                names.append(var)
+
+    if not values_list:
+        return None
+
+    fig = go.Figure()
+    for values, name in zip(values_list, names):
+        fig.add_trace(go.Scatter(x=timestamps, y=values, mode="lines", name=name))
+    fig.update_layout(
+        title=f"Gráfico Personalizado — Episodio {ep_idx}",
+        xaxis_title="Tiempo (s)",
+        yaxis_title="Valor",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(l=40, r=10, t=60, b=40),
+        height=420,
+    )
+    return fig
 
 
 def _ep_info_str(ep_row: dict) -> str:
@@ -207,9 +213,9 @@ def _marked_summary() -> str:
 
 def _goto_episode(idx):
     """Devuelve todos los outputs de la vista de un episodio (numero clamped,
-    info, videos, graficos, estado del boton eliminar y resumen de marcados)."""
+    info, videos, estado del boton eliminar y resumen de marcados)."""
     if not state.viz_ep_rows or state.viz_dataset_path is None:
-        return (0, "Sin dataset cargado.", None, None, None, None, None,
+        return (0, "Sin dataset cargado.", None, None, None,
                 gr.update(value="🗑️ Eliminar este episodio"), "Episodios no incluidos: ninguno.")
 
     ep_idx = min(max(int(idx), 0), len(state.viz_ep_rows) - 1)
@@ -218,10 +224,8 @@ def _goto_episode(idx):
     cam_keys = (state.viz_video_keys + [None, None, None])[:3]
     v0, v1, v2 = [_trim_episode_video(k, ep_row) if k else None for k in cam_keys]
 
-    fig_a, fig_s = _build_plotly_charts(ep_row)
-
     del_label = "↩️ Deshacer eliminacion" if ep_idx in state.curation_marked_delete else "🗑️ Eliminar este episodio"
-    return ep_idx, _ep_info_str(ep_row), v0, v1, v2, fig_a, fig_s, gr.update(value=del_label), _marked_summary()
+    return ep_idx, _ep_info_str(ep_row), v0, v1, v2, gr.update(value=del_label), _marked_summary()
 
 
 def ep_goto(idx):
@@ -251,7 +255,7 @@ def load_viz_dataset(dataset_path: str):
     """Carga un dataset y resetea todo el estado de curacion (episodios marcados,
     edicion de tarea pendiente) asociado a la carga anterior."""
     _empty_nav = (
-        0, "", None, None, None, None, None,
+        0, "", None, None, None,
         gr.update(value="🗑️ Eliminar este episodio"), "Episodios no incluidos: ninguno.",
     )
     _empty_curation = (
@@ -262,6 +266,8 @@ def load_viz_dataset(dataset_path: str):
         gr.update(visible=True), gr.update(visible=False),
         False,
         gr.update(value=""),
+        gr.update(choices=[]), # new_plot_vars
+        [], # dynamic_plots_state
     )
 
     if not dataset_path or not dataset_path.strip():
@@ -307,6 +313,8 @@ def load_viz_dataset(dataset_path: str):
         first_task = (state.viz_ep_rows[0].get("tasks") or ["-"])[0]
         suggested_repo_id = f"{_extract_repo_id(dataset_path)}_curated"
 
+        all_plotable_vars = [f"action/{n}" for n in action_names] + [f"observation.state/{n}" for n in state_names]
+
         curation = (
             gr.update(choices=whole_choices, value=list(whole_choices)),
             gr.update(choices=action_names, value=list(action_names)),
@@ -315,6 +323,8 @@ def load_viz_dataset(dataset_path: str):
             gr.update(visible=True), gr.update(visible=False),
             False,
             gr.update(value=suggested_repo_id),
+            gr.update(choices=all_plotable_vars, value=[]),
+            [],
         )
 
         return (status,) + nav + curation
