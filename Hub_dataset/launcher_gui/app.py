@@ -99,10 +99,11 @@ def build_ui() -> gr.Blocks:
 
         # ── Visualizar y curar (generico, no depende del robot) ──────────
         nav_outputs = [c["ep_num_nb"], c["ep_info_tb"], c["vid0"], c["vid1"], c["vid2"],
-                       c["plot_action"], c["plot_state"], c["ep_delete_btn"], c["marked_summary_tb"]]
+                       c["ep_delete_btn"], c["marked_summary_tb"]]
         curation_outputs = [c["whole_feature_cbg"], c["dims_action_cbg"], c["dims_state_cbg"],
                             c["task_tb"], c["task_edit_btn"], c["task_save_btn"],
-                            c["task_dirty_state"], c["new_repo_id_tb"]]
+                            c["task_dirty_state"], c["new_repo_id_tb"],
+                            c["new_plot_vars"], c["dynamic_plots_state"]]
 
         c["refresh_btn"].click(fn=curation.refresh_datasets, inputs=[c["viz_root_tb"]],
                                 outputs=[c["dataset_dd"], c["viz_status"]])
@@ -111,6 +112,30 @@ def build_ui() -> gr.Blocks:
             fn=curation.load_viz_dataset, inputs=[c["dataset_dd"]],
             outputs=[c["viz_status"]] + nav_outputs + curation_outputs,
         )
+
+        c["add_plot_btn"].click(
+            fn=lambda: gr.update(visible=True),
+            inputs=[], outputs=[c["new_plot_group"]]
+        )
+        c["cancel_plot_btn"].click(
+            fn=lambda: (gr.update(visible=False), gr.update(value=[])),
+            inputs=[], outputs=[c["new_plot_group"], c["new_plot_vars"]]
+        )
+        
+        def confirm_plot(plots_state, selected_vars):
+            if not selected_vars:
+                return plots_state, gr.update(visible=False), gr.update(value=[])
+            new_state = plots_state.copy()
+            new_state.append(selected_vars)
+            return new_state, gr.update(visible=False), gr.update(value=[])
+
+        c["confirm_plot_btn"].click(
+            fn=confirm_plot,
+            inputs=[c["dynamic_plots_state"], c["new_plot_vars"]],
+            outputs=[c["dynamic_plots_state"], c["new_plot_group"], c["new_plot_vars"]]
+        )
+
+
 
         c["ep_prev_btn"].click(fn=curation.ep_prev, inputs=[c["ep_num_nb"]], outputs=nav_outputs)
         c["ep_next_btn"].click(fn=curation.ep_next, inputs=[c["ep_num_nb"]], outputs=nav_outputs)

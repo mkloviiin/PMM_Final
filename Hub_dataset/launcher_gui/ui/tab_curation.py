@@ -8,6 +8,7 @@ from __future__ import annotations
 import gradio as gr
 
 from ..paths import HUB_ROOT
+from ..curation import build_custom_plotly_chart
 
 
 def build_curation_tab():
@@ -52,8 +53,45 @@ def build_curation_tab():
             vid1 = gr.Video(label="Camara 1", autoplay=True, loop=True)
             vid2 = gr.Video(label="Camara 2", autoplay=True, loop=True)
 
-        plot_action = gr.Plot(label="Acciones")
-        plot_state = gr.Plot(label="Estado")
+        with gr.Row():
+            gr.Markdown("### Gráficos Dinámicos")
+            add_plot_btn = gr.Button("➕ Agregar Gráfico", size="sm", scale=0)
+            
+        with gr.Group(visible=False) as new_plot_group:
+            gr.Markdown("Selecciona las variables para el nuevo gráfico:")
+            new_plot_vars = gr.Dropdown(choices=[], multiselect=True, label="Variables")
+            with gr.Row():
+                confirm_plot_btn = gr.Button("Generar Gráfico", variant="primary")
+                cancel_plot_btn = gr.Button("Cancelar")
+                
+        dynamic_plots_state = gr.State([])
+
+        @gr.render(inputs=[dynamic_plots_state, ep_num_nb])
+        def render_dynamic_plots(plots_config, ep_idx):
+            for i, vars_list in enumerate(plots_config):
+                with gr.Group():
+                    with gr.Row():
+                        gr.Markdown(f"**Gráfico Personalizado {i+1}**: {', '.join(vars_list)}")
+                        del_btn = gr.Button("❌ Eliminar", size="sm", scale=0)
+                    
+                    fig = build_custom_plotly_chart(int(ep_idx), vars_list)
+                    if fig:
+                        gr.Plot(value=fig)
+                    else:
+                        gr.Markdown("*(No hay datos o variables no disponibles)*")
+
+                    def make_del_fn(index):
+                        def del_fn(current_state):
+                            new_state = current_state.copy()
+                            new_state.pop(index)
+                            return new_state
+                        return del_fn
+                    
+                    del_btn.click(
+                        fn=make_del_fn(i),
+                        inputs=[dynamic_plots_state],
+                        outputs=[dynamic_plots_state]
+                    )
 
         gr.Markdown("---")
         gr.Markdown("### Senales a integrar en el dataset final")
@@ -136,7 +174,9 @@ def build_curation_tab():
         ep_prev_btn=ep_prev_btn, ep_num_nb=ep_num_nb, ep_next_btn=ep_next_btn,
         ep_delete_btn=ep_delete_btn, ep_info_tb=ep_info_tb, marked_summary_tb=marked_summary_tb,
         vid0=vid0, vid1=vid1, vid2=vid2,
-        plot_action=plot_action, plot_state=plot_state,
+        add_plot_btn=add_plot_btn, new_plot_group=new_plot_group, new_plot_vars=new_plot_vars,
+        confirm_plot_btn=confirm_plot_btn, cancel_plot_btn=cancel_plot_btn,
+        dynamic_plots_state=dynamic_plots_state,
         whole_all_btn=whole_all_btn, whole_none_btn=whole_none_btn, whole_feature_cbg=whole_feature_cbg,
         action_all_btn=action_all_btn, action_none_btn=action_none_btn, dims_action_cbg=dims_action_cbg,
         state_all_btn=state_all_btn, state_none_btn=state_none_btn, dims_state_cbg=dims_state_cbg,
