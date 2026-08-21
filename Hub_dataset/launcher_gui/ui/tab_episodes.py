@@ -9,18 +9,18 @@ import gradio as gr
 
 
 def build_episodes_tab(num_eps_component: gr.components.Component):
-    with gr.Tab("Control de episodios"):
+    with gr.Tab("Episode Control"):
         with gr.Row():
             status_lbl = gr.Textbox(
-                value="En espera", label="Estado",
+                value="Idle", label="Status",
                 interactive=False, scale=2,
             )
             progress_lbl = gr.Textbox(
-                value="Episodio: 0 / 0  (0%)", label="Progreso",
+                value="Episode: 0 / 0  (0%)", label="Progress",
                 interactive=False, scale=3,
             )
         progress_bar = gr.Slider(
-            0, num_eps_component.value, value=0, label="Completado", interactive=False,
+            0, num_eps_component.value, value=0, label="Completed", interactive=False,
             buttons=[], elem_classes=["progress-completado"],
         )
 
@@ -31,16 +31,23 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
         )
 
         gr.Markdown("---")
-        gr.Markdown("### Controles de episodio")
+        gr.Markdown("### Real-time Metrics")
         with gr.Row():
-            start_btn = gr.Button("GRABAR episodio", variant="primary", scale=2)
-            stop_btn = gr.Button("PARAR episodio", variant="secondary", scale=2)
-            exit_btn = gr.Button("TERMINAR sesion", variant="stop", scale=1)
-        cmd_feedback = gr.Textbox(label="Respuesta", interactive=False)
+            fps_nb = gr.Number(label="FPS", value=0.0, interactive=False, precision=1, scale=1)
+            lat_nb = gr.Number(label="Latency (ms)", value=0.0, interactive=False, precision=1, scale=1)
+            size_nb = gr.Number(label="Dataset size (MB)", value=0.0, interactive=False, precision=2, scale=1)
+
+        gr.Markdown("---")
+        gr.Markdown("### Episode Controls")
+        with gr.Row():
+            start_btn = gr.Button("RECORD episode", variant="primary", scale=2)
+            stop_btn = gr.Button("STOP episode", variant="secondary", scale=2)
+            exit_btn = gr.Button("End session", variant="stop", scale=1)
+        cmd_feedback = gr.Textbox(label="Response", interactive=False)
 
         gr.Markdown("---")
         log_box = gr.Textbox(
-            label="Log en vivo  (ultimas 80 lineas)",
+            label="Live log  (last 80 lines)",
             lines=22,
             max_lines=22,
             interactive=False,
@@ -50,4 +57,5 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
         status_lbl=status_lbl, progress_lbl=progress_lbl, progress_bar=progress_bar,
         start_btn=start_btn, stop_btn=stop_btn, exit_btn=exit_btn,
         cmd_feedback=cmd_feedback, log_box=log_box,
+        fps_nb=fps_nb, lat_nb=lat_nb, size_nb=size_nb
     )

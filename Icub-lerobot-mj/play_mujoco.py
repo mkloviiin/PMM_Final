@@ -243,9 +243,13 @@ def _manual_vr_record(
         print(f"[Manual] dataset root: {dataset_root}")
 
         recorded = 0
+        smooth_fps = args.fps
+        smooth_latency = 0.0
+        size_mb = 0.0
+
         while recorded < args.num_episodes:
             if on_status is not None:
-                on_status("waiting")
+                on_status({"status": "waiting", "metrics": {"fps": 0.0, "latency_ms": 0.0, "size_mb": size_mb}})
             print(f"\n[Manual] Waiting START for episode {dataset.num_episodes}...")
             while True:
                 with cmd_lock:
@@ -285,9 +289,10 @@ def _manual_vr_record(
                 precise_sleep(max(1.0 / args.fps - (time.perf_counter() - start_t), 0.0))
 
             if on_status is not None:
-                on_status("recording")
+                on_status({"status": "recording", "metrics": {"fps": smooth_fps, "latency_ms": smooth_latency * 1000, "size_mb": size_mb}})
             print(f"[Manual] Recording episode {dataset.num_episodes}...")
             episode_start = time.perf_counter()
+            frame_idx = 0
 
             while True:
                 with cmd_lock:
@@ -314,10 +319,12 @@ def _manual_vr_record(
                         print(f"[Record] Sync failed: {e}")
                     teleop._reset_request = False
 
+                latency_start = time.perf_counter()
                 act = teleop.get_action()
                 act_processed = teleop_action_processor((act, obs))
                 robot_action_to_send = robot_action_processor((act_processed, obs))
                 robot.send_action(robot_action_to_send)
+                current_latency = time.perf_counter() - latency_start
 
                 observation_frame = build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR)
                 action_frame = build_dataset_frame(dataset.features, act_processed, prefix=ACTION)
@@ -346,6 +353,23 @@ def _manual_vr_record(
 
                 precise_sleep(max(1.0 / args.fps - (time.perf_counter() - loop_start), 0.0))
 
+                loop_end = time.perf_counter()
+                current_fps = 1.0 / (loop_end - loop_start) if (loop_end - loop_start) > 0 else 0.0
+                smooth_fps = 0.9 * smooth_fps + 0.1 * current_fps
+                smooth_latency = 0.9 * smooth_latency + 0.1 * current_latency
+
+                if frame_idx % 30 == 0:
+                    try:
+                        size_bytes = sum(f.stat().st_size for f in dataset_root.rglob('*') if f.is_file())
+                        size_mb = size_bytes / (1024 * 1024)
+                    except Exception:
+                        pass
+
+                if on_status is not None and frame_idx % 5 == 0:
+                    on_status({"status": "recording", "metrics": {"fps": smooth_fps, "latency_ms": smooth_latency * 1000, "size_mb": size_mb}})
+                
+                frame_idx += 1
+
             if discard_ev:
                 continue   # no guardar, volver al bucle de espera
 
@@ -356,10 +380,19 @@ def _manual_vr_record(
             print(f"[Manual] Episode saved ({recorded}/{args.num_episodes})")
 
     finally:
-        try:
-            dataset.finalize()
-        except Exception:
-            pass
+        if recorded == 0:
+            # Nothing was saved — clean up the empty dataset folder
+            import shutil
+            try:
+                shutil.rmtree(dataset_root, ignore_errors=True)
+                print(f"[Manual] No se grabó nada — carpeta eliminada: {dataset_root}")
+            except Exception as e:
+                print(f"[Manual] No se pudo eliminar la carpeta vacía: {e}")
+        else:
+            try:
+                dataset.finalize()
+            except Exception:
+                pass
         if robot.is_connected:
             robot.disconnect()
         if teleop.is_connected:

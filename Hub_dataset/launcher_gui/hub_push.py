@@ -16,17 +16,17 @@ from .curation import log_curation
 
 def push_to_hub_action(hf_repo_id: str, hf_token: str, private: bool):
     if state.curation_last_output is None:
-        return gr.update(value="Primero empaqueta un dataset en esta pestaña.")
+        return gr.update(value="Package a dataset first in this tab.")
 
     hf_repo_id = (hf_repo_id or "").strip()
     if hf_repo_id.startswith("local/"):
-        return gr.update(value="Usa tu usuario/organizacion real de Hugging Face (no 'local/...').")
+        return gr.update(value="Use your real Hugging Face user/organization (not 'local/...').")
     if "/" not in hf_repo_id:
-        return gr.update(value="Repo ID invalido. Formato: usuario/nombre_dataset")
+        return gr.update(value="Invalid Repo ID. Format: user/dataset_name")
     if not (hf_token or "").strip():
-        return gr.update(value="Ingresa tu token de Hugging Face antes de subir.")
+        return gr.update(value="Enter your Hugging Face token before uploading.")
     if state.push_running:
-        return gr.update(value="Ya hay una subida en curso.")
+        return gr.update(value="An upload is already in progress.")
 
     state.push_running = True
     threading.Thread(

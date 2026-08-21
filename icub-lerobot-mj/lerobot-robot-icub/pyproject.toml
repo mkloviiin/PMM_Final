@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_robot_icub"
+version = "0.1.0"
+description = "iCub MuJoCo Robot Interface for LeRobot"
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+    "lerobot",
+    "numpy",
+    "torch",
+    "pyyaml",
+    "mujoco",
+    "glfw"
+]
+
+# --- Puntos de Entrada (Crucial para el Registro) ---
+# Registra tu clase de configuración bajo el grupo de ROBOTS de Lerobot.
+# Sintaxis: nombre_identificador = "paquete.archivo:ClaseConfig"
+# Esto permite usar: --robot.type=lerobot_robot_icub
+[project.entry-points."lerobot.robot_devices.robots"]
+icub_mujoco = "lerobot_robot_icub.config_icub_mujoco:iCubMuJoCoConfig"
+lerobot_robot_icub_mujoco = "lerobot_robot_icub.config_icub_mujoco:iCubMuJoCoConfig"
+
+# Configuración para que setuptools encuentre la carpeta del paquete
+[tool.setuptools.packages.find]
+include = ["lerobot_robot_icub*"]

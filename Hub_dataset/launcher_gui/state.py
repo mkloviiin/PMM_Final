@@ -21,6 +21,7 @@ running = False
 ep_current = 0
 ep_total = 50
 status = "idle"  # idle | waiting | recording | done | error
+live_metrics = {"fps": 0.0, "latency_ms": 0.0, "size_mb": 0.0}
 last_dataset_root: Path | None = None
 last_repo_id: str | None = None
 
@@ -47,9 +48,9 @@ push_status = "idle"  # idle | uploading | done | error
 
 # ── Etiquetas de estado compartidas por los pollers ───────────────────────────
 STATUS_LABEL = {
-    "idle": "En espera",
-    "waiting": "Esperando START",
-    "recording": "Grabando",
-    "done": "Terminado",
+    "idle": "Idle",
+    "waiting": "Waiting for START",
+    "recording": "Recording",
+    "done": "Done",
     "error": "Error",
 }

@@ -68,8 +68,8 @@ def _extract_repo_id(dataset_path: str) -> str:
 def refresh_datasets(root_dir: str):
     datasets = _scan_datasets(root_dir)
     if not datasets:
-        return gr.update(choices=[], value=None), "No se encontraron datasets en esa carpeta."
-    return gr.update(choices=datasets, value=datasets[0]), f"{len(datasets)} dataset(s) encontrado(s)."
+        return gr.update(choices=[], value=None), "No datasets found in that folder."
+    return gr.update(choices=datasets, value=datasets[0]), f"{len(datasets)} dataset(s) found."
 
 
 def use_last_dataset(root_dir: str):
@@ -120,8 +120,8 @@ def _trim_episode_video(video_key: str, ep_row: dict) -> str | None:
             fig.add_trace(go.Scatter(x=timestamps, y=values, mode="lines", name=name))
         fig.update_layout(
             title=title,
-            xaxis_title="Tiempo (s)",
-            yaxis_title="Valor",
+            xaxis_title="Time (s)",
+            yaxis_title="Value",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
             margin=dict(l=40, r=10, t=60, b=40),
             height=420,
@@ -130,7 +130,7 @@ def _trim_episode_video(video_key: str, ep_row: dict) -> str | None:
 
     return None
 
-def build_custom_plotly_chart(ep_idx: int, variables: list[str]) -> go.Figure | None:
+def build_custom_plotly_chart(ep_idx: int, variables: list[str], title: str = "") -> go.Figure | None:
     if state.viz_dataset_path is None or not variables or not state.viz_ep_rows:
         return None
 
@@ -179,13 +179,15 @@ def build_custom_plotly_chart(ep_idx: int, variables: list[str]) -> go.Figure | 
     fig = go.Figure()
     for values, name in zip(values_list, names):
         fig.add_trace(go.Scatter(x=timestamps, y=values, mode="lines", name=name))
+    display_title = title if title else f"Custom Plot — Episode {ep_idx}"
     fig.update_layout(
-        title=f"Gráfico Personalizado — Episodio {ep_idx}",
-        xaxis_title="Tiempo (s)",
-        yaxis_title="Valor",
+        title=display_title,
+        xaxis_title="Time (s)",
+        yaxis_title="Value",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
         margin=dict(l=40, r=10, t=60, b=40),
         height=420,
+        template="plotly_dark"
     )
     return fig
 
@@ -199,24 +201,24 @@ def _ep_info_str(ep_row: dict) -> str:
     fps = state.viz_info.get("fps", 30)
     duration = n_frames / fps if fps else 0
     ep_idx = int(ep_row["episode_index"])
-    return f"Episodio {ep_idx}  |  {n_frames} frames  |  {duration:.1f} s  |  Tarea: {task_str}"
+    return f"Episode {ep_idx}  |  {n_frames} frames  |  {duration:.1f} s  |  Task: {task_str}"
 
 
 def _marked_summary() -> str:
     if not state.curation_marked_delete:
-        return "Episodios no incluidos: ninguno."
+        return "Excluded episodes: none."
     if state.viz_ep_rows and len(state.curation_marked_delete) == len(state.viz_ep_rows):
-        return "Episodios no incluidos: todos."
+        return "Excluded episodes: all."
     excluded = ", ".join(str(i) for i in sorted(state.curation_marked_delete))
-    return f"Episodios no incluidos: {excluded}"
+    return f"Excluded episodes: {excluded}"
 
 
 def _goto_episode(idx):
     """Devuelve todos los outputs de la vista de un episodio (numero clamped,
     info, videos, estado del boton eliminar y resumen de marcados)."""
     if not state.viz_ep_rows or state.viz_dataset_path is None:
-        return (0, "Sin dataset cargado.", None, None, None,
-                gr.update(value="🗑️ Eliminar este episodio"), "Episodios no incluidos: ninguno.")
+        return (0, "No dataset loaded.", None, None, None,
+                gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.")
 
     ep_idx = min(max(int(idx), 0), len(state.viz_ep_rows) - 1)
     ep_row = state.viz_ep_rows[ep_idx]
@@ -224,7 +226,7 @@ def _goto_episode(idx):
     cam_keys = (state.viz_video_keys + [None, None, None])[:3]
     v0, v1, v2 = [_trim_episode_video(k, ep_row) if k else None for k in cam_keys]
 
-    del_label = "↩️ Deshacer eliminacion" if ep_idx in state.curation_marked_delete else "🗑️ Eliminar este episodio"
+    del_label = "↩️ Undo delete" if ep_idx in state.curation_marked_delete else "🗑️ Delete this episode"
     return ep_idx, _ep_info_str(ep_row), v0, v1, v2, gr.update(value=del_label), _marked_summary()
 
 
@@ -244,10 +246,10 @@ def toggle_delete_episode(idx):
     ep_idx = int(idx)
     if ep_idx in state.curation_marked_delete:
         state.curation_marked_delete.discard(ep_idx)
-        label = "🗑️ Eliminar este episodio"
+        label = "🗑️ Delete this episode"
     else:
         state.curation_marked_delete.add(ep_idx)
-        label = "↩️ Deshacer eliminacion"
+        label = "↩️ Undo delete"
     return gr.update(value=label), _marked_summary()
 
 
@@ -256,7 +258,7 @@ def load_viz_dataset(dataset_path: str):
     edicion de tarea pendiente) asociado a la carga anterior."""
     _empty_nav = (
         0, "", None, None, None,
-        gr.update(value="🗑️ Eliminar este episodio"), "Episodios no incluidos: ninguno.",
+        gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.",
     )
     _empty_curation = (
         gr.update(choices=[], value=[]),
@@ -268,20 +270,21 @@ def load_viz_dataset(dataset_path: str):
         gr.update(value=""),
         gr.update(choices=[]), # new_plot_vars
         [], # dynamic_plots_state
+        gr.update(value=""), # new_plot_title
     )
 
     if not dataset_path or not dataset_path.strip():
-        return ("Selecciona un dataset.",) + _empty_nav + _empty_curation
+        return ("Select a dataset.",) + _empty_nav + _empty_curation
     path = Path(dataset_path.strip())
     if not (path / "meta" / "info.json").exists():
-        return (f"No es un dataset LeRobot valido: {path}",) + _empty_nav + _empty_curation
+        return (f"Not a valid LeRobot dataset: {path}",) + _empty_nav + _empty_curation
 
     try:
         state.viz_info = json.loads((path / "meta" / "info.json").read_text())
 
         ep_files = sorted((path / "meta" / "episodes").rglob("*.parquet"))
         if not ep_files:
-            return ("No se encontraron archivos de episodios.",) + _empty_nav + _empty_curation
+            return ("No episode files found.",) + _empty_nav + _empty_curation
 
         df = (
             pd.concat([pd.read_parquet(f) for f in ep_files])
@@ -300,9 +303,9 @@ def load_viz_dataset(dataset_path: str):
         fps = state.viz_info.get("fps", 30)
         total_frames = state.viz_info.get("total_frames",
                                            sum(int(r.get("length", 0)) for r in state.viz_ep_rows))
-        status = (f"Dataset cargado | {n_ep} episodio(s) | "
+        status = (f"Dataset loaded | {n_ep} episode(s) | "
                   f"{total_frames} frames | {fps} FPS | "
-                  f"{len(state.viz_video_keys)} camara(s)")
+                  f"{len(state.viz_video_keys)} camera(s)")
 
         nav = _goto_episode(0)
 
@@ -325,15 +328,48 @@ def load_viz_dataset(dataset_path: str):
             gr.update(value=suggested_repo_id),
             gr.update(choices=all_plotable_vars, value=[]),
             [],
+            gr.update(value=""),
         )
 
         return (status,) + nav + curation
     except Exception as e:
         state.viz_dataset_path = None
-        return (f"Error al cargar: {e}\n{traceback.format_exc()}",) + _empty_nav + _empty_curation
+        return (f"Error loading: {e}\n{traceback.format_exc()}",) + _empty_nav + _empty_curation
 
 
-# ── Seleccionar todo/ninguno para las listas de integracion ──────────────────
+# ── Search filters for signal lists ──────────────────────────────────────────
+
+def filter_whole_features(query: str, current_value: list) -> dict:
+    all_choices = [k for k in state.viz_info.get("features", {}) if k not in state.RESERVED_FEATURES]
+    if not query or not query.strip():
+        return gr.update(choices=all_choices)
+    q = query.strip().lower()
+    kept = [c for c in (current_value or []) if c in all_choices]
+    matched = [c for c in all_choices if q in c.lower() and c not in kept]
+    return gr.update(choices=kept + matched)
+
+
+def filter_action_dims(query: str, current_value: list) -> dict:
+    all_choices = list(state.viz_info.get("features", {}).get("action", {}).get("names") or [])
+    if not query or not query.strip():
+        return gr.update(choices=all_choices)
+    q = query.strip().lower()
+    kept = [c for c in (current_value or []) if c in all_choices]
+    matched = [c for c in all_choices if q in c.lower() and c not in kept]
+    return gr.update(choices=kept + matched)
+
+
+def filter_state_dims(query: str, current_value: list) -> dict:
+    all_choices = list(state.viz_info.get("features", {}).get("observation.state", {}).get("names") or [])
+    if not query or not query.strip():
+        return gr.update(choices=all_choices)
+    q = query.strip().lower()
+    kept = [c for c in (current_value or []) if c in all_choices]
+    matched = [c for c in all_choices if q in c.lower() and c not in kept]
+    return gr.update(choices=kept + matched)
+
+
+# ── Select all/none helpers ───────────────────────────────────────────────────
 
 def select_all_whole():
     return gr.update(value=[k for k in state.viz_info.get("features", {}) if k not in state.RESERVED_FEATURES])
@@ -366,9 +402,9 @@ def task_save(text):
 def run_packaging(dataset_path, whole_kept, action_kept, state_kept,
                    task_text, task_dirty, new_repo_id, curated_root_dir):
     if state.curation_running:
-        return gr.update(value="Ya hay un empaquetado en curso.")
+        return gr.update(value="A packaging process is already running.")
     if state.viz_dataset_path is None or not dataset_path:
-        return gr.update(value="Carga un dataset primero.")
+        return gr.update(value="Load a dataset first.")
 
     rid = (new_repo_id.strip() or f"{_extract_repo_id(dataset_path)}_curated")
     rid = rid if "/" in rid else f"local/{rid}"
@@ -417,7 +453,7 @@ def run_packaging(dataset_path, whole_kept, action_kept, state_kept,
         daemon=True,
     ).start()
 
-    return gr.update(value=f"Empaquetando en segundo plano -> {final_root}")
+    return gr.update(value=f"Packaging in background -> {final_root}")
 
 
 def _run_packaging_thread(src_root, src_repo_id, episodes_drop, whole_features,
@@ -441,7 +477,7 @@ def _run_packaging_thread(src_root, src_repo_id, episodes_drop, whole_features,
         state.curation_last_output = final_path
         state.curation_last_repo_id = rid
         state.curation_status = "done"
-        log_curation(f"Empaquetado completo: {final_path}")
+        log_curation(f"Packaging complete: {final_path}")
     except Exception:
         state.curation_status = "error"
         log_curation(traceback.format_exc())

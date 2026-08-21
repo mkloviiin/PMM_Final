@@ -2,7 +2,7 @@
 pestanas, y conecta cada componente con session.py / curation.py / hub_push.py
 y con el `launch()` de cada robot disponible en robots.registry.
 
-Agregar un robot nuevo no requiere tocar este archivo: alcanza con sumarlo al
+Agregar un robot nuevo: basta con sumarlo al
 registro (robots/registry.py) con su propio `build_config_form`/`launch`/
 `config_input_order` (ver robots/base.py). Este modulo itera ese registro
 para construir la pantalla de bienvenida, las columnas de "Configuración" y
@@ -44,6 +44,31 @@ WELCOME_CSS = """
 .progress-completado input[data-testid="number-input"] {
     display: none !important;
 }
+/* Scrollable vertical CheckboxGroup */
+.scrollable-list .wrap {
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    max-height: 200px !important;
+    overflow-y: auto !important;
+    gap: 2px !important;
+    padding: 4px 8px !important;
+}
+.scrollable-list .wrap label {
+    width: 100% !important;
+    min-width: unset !important;
+    padding: 3px 0 !important;
+}
+/* Episode navigation row: force all children to the same height */
+.ep-nav-row > div {
+    align-items: stretch !important;
+}
+.ep-nav-row button,
+.ep-nav-row input[type="number"],
+.ep-nav-row .wrap {
+    height: 42px !important;
+    min-height: 42px !important;
+    box-sizing: border-box !important;
+}
 """
 
 
@@ -52,8 +77,8 @@ def build_ui() -> gr.Blocks:
         welcome_col, welcome_buttons = build_welcome_screen()
 
         with gr.Column(visible=False) as main_col:
-            back_btn = gr.Button("⬅ Volver a seleccion de robot", size="sm")
-            gr.Markdown("# iCub Simulación MujoCo  —  Hub de experimentación")
+            back_btn = gr.Button("⬅ Back to robot selection", size="sm")
+            gr.Markdown("# iCub MuJoCo Simulation  —  Experimentation Hub")
 
             with gr.Tabs():
                 config_columns, config_forms = build_config_tab()
@@ -78,7 +103,7 @@ def build_ui() -> gr.Blocks:
                 btn.click(fn=_select_robot, outputs=[welcome_col, main_col, *config_columns.values()])
             else:
                 label = robot.label
-                btn.click(fn=lambda label=label: gr.Warning(f"{label} — aún no disponible."))
+                btn.click(fn=lambda label=label: gr.Warning(f"{label} — not yet available."))
 
         # ── Lanzamiento de sesion (uno por robot disponible) ──────────────
         for robot in available_robots:
@@ -94,7 +119,9 @@ def build_ui() -> gr.Blocks:
         gr.Timer(0.5).tick(
             fn=session.poll_status,
             outputs=[episodes["status_lbl"], episodes["progress_lbl"],
-                     episodes["progress_bar"], episodes["log_box"]],
+                     episodes["progress_bar"], episodes["log_box"],
+                     episodes["fps_nb"], episodes["lat_nb"], episodes["size_nb"],
+                     back_btn],
         )
 
         # ── Visualizar y curar (generico, no depende del robot) ──────────
@@ -103,7 +130,7 @@ def build_ui() -> gr.Blocks:
         curation_outputs = [c["whole_feature_cbg"], c["dims_action_cbg"], c["dims_state_cbg"],
                             c["task_tb"], c["task_edit_btn"], c["task_save_btn"],
                             c["task_dirty_state"], c["new_repo_id_tb"],
-                            c["new_plot_vars"], c["dynamic_plots_state"]]
+                            c["new_plot_vars"], c["dynamic_plots_state"], c["new_plot_title"]]
 
         c["refresh_btn"].click(fn=curation.refresh_datasets, inputs=[c["viz_root_tb"]],
                                 outputs=[c["dataset_dd"], c["viz_status"]])
@@ -118,21 +145,21 @@ def build_ui() -> gr.Blocks:
             inputs=[], outputs=[c["new_plot_group"]]
         )
         c["cancel_plot_btn"].click(
-            fn=lambda: (gr.update(visible=False), gr.update(value=[])),
-            inputs=[], outputs=[c["new_plot_group"], c["new_plot_vars"]]
+            fn=lambda: (gr.update(visible=False), gr.update(value=[]), gr.update(value="")),
+            inputs=[], outputs=[c["new_plot_group"], c["new_plot_vars"], c["new_plot_title"]]
         )
         
-        def confirm_plot(plots_state, selected_vars):
+        def confirm_plot(plots_state, selected_vars, title):
             if not selected_vars:
-                return plots_state, gr.update(visible=False), gr.update(value=[])
+                return plots_state, gr.update(visible=False), gr.update(value=[]), gr.update(value="")
             new_state = plots_state.copy()
-            new_state.append(selected_vars)
-            return new_state, gr.update(visible=False), gr.update(value=[])
+            new_state.append({"vars": selected_vars, "title": title.strip()})
+            return new_state, gr.update(visible=False), gr.update(value=[]), gr.update(value="")
 
         c["confirm_plot_btn"].click(
             fn=confirm_plot,
-            inputs=[c["dynamic_plots_state"], c["new_plot_vars"]],
-            outputs=[c["dynamic_plots_state"], c["new_plot_group"], c["new_plot_vars"]]
+            inputs=[c["dynamic_plots_state"], c["new_plot_vars"], c["new_plot_title"]],
+            outputs=[c["dynamic_plots_state"], c["new_plot_group"], c["new_plot_vars"], c["new_plot_title"]]
         )
 
 
@@ -149,6 +176,22 @@ def build_ui() -> gr.Blocks:
         c["action_none_btn"].click(fn=curation.select_none_list, outputs=[c["dims_action_cbg"]])
         c["state_all_btn"].click(fn=curation.select_all_state_dims, outputs=[c["dims_state_cbg"]])
         c["state_none_btn"].click(fn=curation.select_none_list, outputs=[c["dims_state_cbg"]])
+
+        c["whole_search_tb"].change(
+            fn=curation.filter_whole_features,
+            inputs=[c["whole_search_tb"], c["whole_feature_cbg"]],
+            outputs=[c["whole_feature_cbg"]],
+        )
+        c["action_search_tb"].change(
+            fn=curation.filter_action_dims,
+            inputs=[c["action_search_tb"], c["dims_action_cbg"]],
+            outputs=[c["dims_action_cbg"]],
+        )
+        c["state_search_tb"].change(
+            fn=curation.filter_state_dims,
+            inputs=[c["state_search_tb"], c["dims_state_cbg"]],
+            outputs=[c["dims_state_cbg"]],
+        )
 
         c["task_edit_btn"].click(fn=curation.task_start_edit,
                                   outputs=[c["task_tb"], c["task_edit_btn"], c["task_save_btn"]])

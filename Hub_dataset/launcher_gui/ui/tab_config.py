@@ -18,7 +18,7 @@ def build_config_tab():
     columns: dict[str, gr.Column] = {}
     forms: dict[str, dict] = {}
 
-    with gr.Tab("Configuración"):
+    with gr.Tab("Configuration"):
         available = [r for r in REGISTRY if r.available and r.build_config_form]
         for i, robot in enumerate(available):
             with gr.Column(visible=(i == 0)) as col:

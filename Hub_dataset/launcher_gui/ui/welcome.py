@@ -48,10 +48,10 @@ def build_welcome_screen():
             )
         gr.Markdown(
             "<h1 style='text-align:center; margin-bottom:0; font-size:3.2rem;'>"
-            "Bienvenido/a al Hub de Experimentación</h1>"
+            "Welcome to the Experimentation Hub</h1>"
             "<h3 style='text-align:center; font-weight:normal; font-size:1.5rem; "
             "color:var(--body-text-color-subdued);'>"
-            "Selecciona tu robot</h3>"
+            "Select your robot</h3>"
         )
         with gr.Row():
             for robot in REGISTRY:

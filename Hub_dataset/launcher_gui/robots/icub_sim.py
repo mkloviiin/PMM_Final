@@ -42,9 +42,10 @@ def _load_scenes() -> dict[str, tuple[str, str]]:
     all_xml = {p.name for p in _SCENES_DIR.glob("*.xml")}
     orphans = all_xml - declared_files
     if orphans:
-        print(f"[icub_sim] Aviso: {len(orphans)} XML en {_SCENES_DIR} no estan "
-              f"declarados en scenes.yaml y no apareceran en el dropdown: "
+        print(f"[icub_sim] Warning: {len(orphans)} XML(s) in {_SCENES_DIR} are not "
+              f"declared in scenes.yaml and will not appear in the dropdown: "
               f"{', '.join(sorted(orphans))}")
+
 
     return scenes
 
@@ -57,48 +58,53 @@ def build_config_form() -> dict[str, gr.components.Component]:
         with gr.Column(scale=1):
             scene_dd = gr.Dropdown(
                 choices=list(SCENES), value=list(SCENES)[0],
-                label="Escena",
-                info="Determina el XML de MuJoCo y la tarea",
+                label="Scene",
+                info="Determines the MuJoCo XML and the task",
             )
             repo_id_tb = gr.Textbox(
                 value="local/icub_mujoco_demo", label="Repo ID",
-                info="Nombre del dataset (ej: local/mi_dataset)",
+                info="Dataset name (e.g. local/my_dataset)",
             )
             num_eps_nb = gr.Number(
-                value=50, label="Numero de episodios (Default: 50)",
+                value=50, label="Number of episodes (Default: 50)",
                 precision=0, minimum=1,
             )
             fps_nb = gr.Number(
-                value=30, label="FPS del dataset (Default: 30)",
+                value=30, label="Dataset FPS (Default: 30)",
                 precision=0, minimum=5, maximum=60,
             )
 
         with gr.Column(scale=1):
             ep_time_sl = gr.Number(
-                value=0, label="Duracion máxima por episodio (s)", placeholder="Sin límite",
-                precision=0, minimum=0, info="0 = sin limite de tiempo"
+                value=0, label="Max episode duration (s)", placeholder="No limit",
+                precision=0, minimum=0, info="0 = no time limit"
             )
             root_tb = gr.Textbox(
                 value=str(HUB_ROOT.parent / "data"),
-                label="Directorio raiz del dataset",
+                label="Dataset root directory",
             )
-            vr_cb = gr.Checkbox(value=False, label="Activar VR")
+            vr_cb = gr.Checkbox(value=False, label="Enable VR")
             vr_cable_cb = gr.Checkbox(
                 value=False, visible=False,
-                label="Conectar MetaQuest por cable USB",
-                info="Tuneliza los puertos VR por USB; en BeaVR pon IP = 127.0.0.1",
+                label="Connect MetaQuest via USB cable",
+                info="Tunnels VR ports over USB; set IP = 127.0.0.1 in BeaVR",
             )
             vr_ip_tb = gr.Textbox(
                 value="", placeholder="192.168.x.x", visible=False,
-                label="IP del headset VR",
+                label="VR headset IP",
             )
 
     gr.Markdown("---")
-    launch_btn = gr.Button("LANZAR SESIÓN", variant="primary", size="lg")
-    launch_status = gr.Textbox(label="Estado del lanzamiento", interactive=False)
+    launch_btn = gr.Button("LAUNCH SESSION", variant="primary", size="lg")
+    launch_status = gr.Textbox(label="Launch status", interactive=False)
+
+    def _on_vr_toggle(enabled):
+        if enabled:
+            return gr.update(visible=True), gr.update(visible=True)
+        return gr.update(visible=False, value=False), gr.update(visible=False, value="")
 
     vr_cb.change(
-        fn=lambda enabled: (gr.update(visible=enabled), gr.update(visible=enabled)),
+        fn=_on_vr_toggle,
         inputs=[vr_cb],
         outputs=[vr_cable_cb, vr_ip_tb],
     )
@@ -120,16 +126,16 @@ def build_config_form() -> dict[str, gr.components.Component]:
 
 def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, root_dir) -> str:
     if session.state.running:
-        return "Ya hay una sesion en curso."
+        return "A session is already running."
 
     xml_file, default_task = SCENES.get(scene_name, ("icub_table_scene.xml", "tarea libre"))
     model_path = _SCENES_DIR / xml_file
     cfg_path = PROJECT_ROOT / "utils" / "control_config.yaml"
 
     if not model_path.exists():
-        return f"Escena no encontrada: {model_path}"
+        return f"Scene not found: {model_path}"
     if not cfg_path.exists():
-        return f"Config no encontrada: {cfg_path}"
+        return f"Config not found: {cfg_path}"
 
     rid = (repo_id.strip() or "local/icub_mujoco_demo")
     rid = rid if "/" in rid else f"local/{rid}"
@@ -140,8 +146,8 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, root
     if vr_cable:
         from dependencies.vr_usb import connect_cable, CABLE_IP
         if not connect_cable(log=session.log):
-            return ("Conexion USB fallida. Revisa el log: conecta el Quest, "
-                     "activa 'Depuracion USB' y acepta el popup en el visor.")
+            return ("USB connection failed. Check the log: connect the Quest, "
+                     "enable 'USB Debugging' and accept the popup on the headset.")
         resolved_vr_ip = CABLE_IP
         resolved_vr = True
         session.log(f"[USB] Cable listo. En BeaVR, pon la IP en {CABLE_IP}.")
@@ -184,7 +190,8 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, root
 
 BACKEND = RobotBackend(
     id="icub_sim",
-    label="iCub Simulado MJ",
+    label="iCub Simulated MJ",
+
     image=ASSETS_DIR / "icubsim.png",
     available=True,
     build_config_form=build_config_form,

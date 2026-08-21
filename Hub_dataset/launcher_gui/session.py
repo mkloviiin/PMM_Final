@@ -19,6 +19,8 @@ import time
 import traceback
 from pathlib import Path
 from typing import Callable
+import gradio as gr
+
 
 from . import state
 
@@ -56,19 +58,37 @@ def _cmd_source() -> str | None:
         return None
 
 
-def _on_status(event: str) -> None:
-    if event == "waiting":
-        state.status = "waiting"
-    elif event == "recording":
-        state.status = "recording"
-    elif event.startswith("saved:"):
-        state.ep_current = int(event.split(":")[1])
-        state.status = "waiting"
+def _on_status(event: str | dict) -> None:
+    if isinstance(event, dict):
+        if "status" in event:
+            state.status = event["status"]
+        if "metrics" in event:
+            state.live_metrics.update(event["metrics"])
+    else:
+        if event == "waiting":
+            state.status = "waiting"
+        elif event == "recording":
+            state.status = "recording"
+        elif event.startswith("saved:"):
+            state.ep_current = int(event.split(":")[1])
+            state.status = "waiting"
+
+
+def cmd_close_window() -> str:
+    """Cierra la ventana MuJoCo y termina la sesion activa inmediatamente."""
+    if state.running:
+        state.cmd_queue.put("3")
+        return "Closing window and session..."
+    return "No active session."
 
 
 def start_session(record_fn: Callable[..., None], *, repo_id: str,
                    dataset_root: Path, num_episodes: int) -> str:
     """Arranca `record_fn(cmd_source=..., on_status=...)` en un thread propio.
+
+    Si ya hay una sesion activa, le envia EXIT y espera hasta 15 s a que
+    termine antes de lanzar la nueva. Esto permite relanzar con otra escena
+    sin necesidad de terminar manualmente la sesion anterior.
 
     `record_fn` es responsabilidad exclusiva del backend del robot: recibe los
     callbacks del protocolo de sesion y debe dejar el dataset final en formato
@@ -76,7 +96,14 @@ def start_session(record_fn: Callable[..., None], *, repo_id: str,
     launcher.
     """
     if state.running:
-        return "Ya hay una sesion en curso."
+        # Terminar sesion activa antes de lanzar la nueva
+        log("[Hub] Previous session active — sending EXIT to relaunch with new scene.")
+        state.cmd_queue.put("3")
+        deadline = time.time() + 15
+        while state.running and time.time() < deadline:
+            time.sleep(0.1)
+        if state.running:
+            return "Could not close the previous session in time. Please retry in a few seconds."
 
     while not state.cmd_queue.empty():
         state.cmd_queue.get_nowait()
@@ -92,16 +119,16 @@ def start_session(record_fn: Callable[..., None], *, repo_id: str,
         sys.stdout = _Tee(orig)
         try:
             state.status = "waiting"
-            log(f"Sesion iniciada - repo: {repo_id}")
+            log(f"Session started - repo: {repo_id}")
             log(f"  dataset: {dataset_root}")
             log(f"  conda env: {os.environ.get('CONDA_DEFAULT_ENV', '?')}  ({sys.executable})")
             record_fn(cmd_source=_cmd_source, on_status=_on_status)
             state.status = "done"
             state.last_dataset_root = dataset_root
             state.last_repo_id = repo_id
-            log("Sesion terminada correctamente.")
+            log("Session ended correctly.")
         except Exception:
-            log("Error en la sesion:")
+            log("Error in session:")
             log(traceback.format_exc())
             state.status = "error"
         finally:
@@ -109,36 +136,40 @@ def start_session(record_fn: Callable[..., None], *, repo_id: str,
             state.running = False
 
     threading.Thread(target=_thread_body, daemon=True).start()
-    return "Lanzando... aguarda que el robot conecte (~10-20 s)"
+    return "Launching... waiting for robot to connect (~10-20 s)"
 
 
 def cmd_start() -> str:
     if state.running:
         state.cmd_queue.put("1")
-        return "Iniciando episodio..."
-    return "Sin sesion activa."
+        return "Starting episode..."
+    return "No active session."
 
 
 def cmd_stop() -> str:
     if state.running:
         state.cmd_queue.put("2")
-        return "Deteniendo episodio..."
-    return "Sin sesion activa."
+        return "Stopping episode..."
+    return "No active session."
 
 
 def cmd_exit() -> str:
     if state.running:
         state.cmd_queue.put("3")
-        return "Cerrando sesión..."
-    return "Sin sesion activa."
+        return "Closing session..."
+    return "No active session."
 
 
 def poll_status():
     label = state.STATUS_LABEL.get(state.status, state.status)
     pct = state.ep_current / max(state.ep_total, 1)
-    progress = f"Episodio: {state.ep_current} / {state.ep_total}  ({int(pct * 100)}%)"
+    progress = f"Episode: {state.ep_current} / {state.ep_total}  ({int(pct * 100)}%)"
 
     with state.log_lock:
         log_text = "\n".join(state.log_lines[-80:])
 
-    return label, progress, state.ep_current, log_text
+    return (
+        label, progress, state.ep_current, log_text,
+        state.live_metrics["fps"], state.live_metrics["latency_ms"], state.live_metrics["size_mb"],
+        gr.update(interactive=not state.running)
+    )
