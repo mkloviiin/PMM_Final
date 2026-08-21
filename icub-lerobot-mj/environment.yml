@@ -1,0 +1,26 @@
+name: icub_lerobot_env
+channels:
+  - conda-forge
+  - https://repo.prefix.dev/robotology 
+  - pytorch
+dependencies:
+  # --- Dependencias de Sistema (Conda) ---
+  - python=3.10
+  - ffmpeg               # Lerobot suele necesitarlo para grabar videos
+  - pytorch              # Mejor instalarlo por conda para compatibilidad con CUDA
+  - torchvision
+  - yarp
+  - icub-main
+  - icub-models
+  - mujoco               # Motor de física
+  - pyquaternion
+  - numpy
+  - pyyaml
+  - idyntree
+  - opencv
+  # --- Dependencias de Python (Pip) ---
+  - pip
+  - pip:
+    - lerobot            # Instala el framework base
+    - -e ./lerobot-robot-icub              # Instala tu robot
+    - -e ./lerobot-teleoperator-icubteleop # Instala tu teleoperador

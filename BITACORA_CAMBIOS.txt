@@ -1,0 +1,209 @@
+﻿================================================================================
+  BITACORA DE CAMBIOS -- PMM_Final
+================================================================================
+  Repositorio : c:\Users\nasho\Downloads\ICUB\final\PMM_Final
+  Rama activa : graphs
+  Generado    : 2026-08-20
+================================================================================
+
+
+--------------------------------------------------------------------------------
+  RAMAS DEL REPOSITORIO
+--------------------------------------------------------------------------------
+
+  * graphs   (activa)  -- desarrollo de graficas dinamicas
+    main               -- rama principal / origin HEAD
+
+
+================================================================================
+  COMMIT 1 -- Commit Inicial
+================================================================================
+
+  Hash    : 3b299766f6332cab7ef9f74e46fa83083a162e6e
+  Fecha   : 2026-07-14  16:40:34  -0400
+  Autor   : Ignacio Avila <ignacio.avilas@sansano.usm.cl>
+  Rama    : main
+  Mensaje : Initial commit: Icub-lerobot-mj and Hub_dataset
+            (assets, launcher_gui, hub_experimentacion.py)
+
+  Estadisticas: 323 archivos agregados, 14 317 lineas insertadas
+
+  -- Icub-lerobot-mj / Scripts principales ----------------------------------
+
+  [+] dependencies/teleop_mujoco.py           1 496 lineas  Tele-operacion MuJoCo
+  [+] eval_policy_mujoco.py                     788 lineas  Evaluacion de politica
+  [+] lerobot-teleoperator-icubteleop/
+        icubteleop.py                           871 lineas  Teleoperador LeRobot
+  [+] lerobot-robot-icub/
+        icub_mujoco.py                          623 lineas  Interfaz iCub-MuJoCo
+  [+] eval_mujoco.py                            434 lineas  Evaluador MuJoCo
+  [+] play_mujoco.py                            426 lineas  Script play/reproduccion
+  [+] dependencies/mujoco_ik.py                 359 lineas  Cinematica inversa
+  [+] dependencies/dataset_curation.py          313 lineas  Curacion de datasets
+  [+] dependencies/recorder_mujoco.py           243 lineas  Grabador de episodios
+  [+] replay_mujoco.py                          189 lineas  Replay de episodios
+  [+] dependencies/zmq_image_publisher.py       117 lineas  Publicador ZMQ de imgs
+  [+] dependencies/vr_usb.py                     99 lineas  Interfaz VR por USB
+  [+] utils/control_config.yaml                 119 lineas  Config de control
+  [+] environment.yml                            26 lineas  Dependencias conda
+  [+] episode_plots.ipynb                             Notebook visualizacion episodios
+
+  -- Icub-lerobot-mj / Escenas MuJoCo (XML) --------------------------------
+
+  [+] dependencies/assets/scenes/scene.xml
+  [+] dependencies/assets/scenes/scene_icub_lift.xml
+  [+] dependencies/assets/scenes/scene_icub_stack.xml
+  [+] dependencies/assets/scenes/icub_table_scene.xml
+  [+] dependencies/assets/scenes/icub_table_scene_drag.xml
+  [+] dependencies/assets/scenes/icub_table_scene_lift.xml
+  [+] dependencies/assets/scenes/icub_table_scene_stack.xml
+  [+] dependencies/assets/scenes/icub_visuomanip_ikin_limits.xml
+  [+] dependencies/assets/scenes/scenes.yaml              30 lineas
+
+  -- Icub-lerobot-mj / Meshes iCub -----------------------------------------
+
+  [+] ~100 archivos .stl  (mallas 3D del robot: brazos, manos, piernas,
+                           cabeza, torso, munecas, hombros, tobillos, etc.)
+
+  -- Icub-lerobot-mj / Texturas --------------------------------------------
+
+  [+] ~25 archivos .png  (materiales: madera, metal, ceramica, plastico,
+                           ladrillos, azulejos, vidrio, tierra, etc.)
+
+  -- Hub_dataset -----------------------------------------------------------
+
+  [+] hub_experimentacion.py              Script de experimentacion
+  [+] launcher_gui/app.py                 Aplicacion GUI principal
+  [+] launcher_gui/curation.py            Logica de curacion de datos
+
+
+================================================================================
+  COMMIT 2 -- Graficas dinamicas Plotly en pestana de curacion
+================================================================================
+
+  Hash    : 39e5735e5a44ee762f7ee51ceab5c05dc855030b
+  Fecha   : 2026-07-19  14:55:19  -0400
+  Autor   : Ignacio <ignacio.avilas@sansano.usm.cl>
+  Rama    : graphs
+  Mensaje : feat: enable dynamic plotly graphs in curation tab
+
+  Estadisticas: 19 archivos modificados, +139 lineas / -64 lineas
+
+  -- Archivos fuente modificados -------------------------------------------
+
+  [M] Hub_dataset/launcher_gui/ui/tab_curation.py    +46 lineas
+      -> Integracion de graficas Plotly interactivas en pestana de curacion
+
+  [M] Hub_dataset/launcher_gui/curation.py           +/- 128 lineas
+      -> Refactorizacion del pipeline de curacion de datos
+
+  [M] Hub_dataset/launcher_gui/app.py                +29 lineas
+      -> Soporte para nueva pestana con graficas dinamicas
+
+  -- Bytecode compilado agregado -------------------------------------------
+
+  [+] Hub_dataset/launcher_gui/__pycache__/__init__.cpython-312.pyc
+  [+] Hub_dataset/launcher_gui/__pycache__/app.cpython-312.pyc
+  [+] Hub_dataset/launcher_gui/__pycache__/curation.cpython-312.pyc
+  [+] Hub_dataset/launcher_gui/__pycache__/hub_push.cpython-312.pyc
+  [+] Hub_dataset/launcher_gui/__pycache__/paths.cpython-312.pyc
+  [+] Hub_dataset/launcher_gui/__pycache__/session.cpython-312.pyc
+  [+] Hub_dataset/launcher_gui/__pycache__/state.cpython-312.pyc
+  [+] Hub_dataset/launcher_gui/robots/__pycache__/*.pyc
+  [+] Hub_dataset/launcher_gui/ui/__pycache__/*.pyc
+
+
+================================================================================
+  CAMBIOS SIN CONFIRMAR (Working Tree -- pendientes de commit)
+================================================================================
+
+  Rama    : graphs
+  Fecha   : 2026-08-20  (estado actual)
+  Estado  : 10 archivos modificados, +246 lineas / -77 lineas
+            17 escenas nuevas sin rastrear
+
+  -- Archivos modificados --------------------------------------------------
+
+  [M] Hub_dataset/launcher_gui/session.py             +50 / -3
+  [M] Hub_dataset/launcher_gui/ui/tab_curation.py     +55 / -2
+  [M] Hub_dataset/launcher_gui/app.py                 +23 / -6
+  [M] Hub_dataset/launcher_gui/ui/tab_episodes.py     +10 / -1
+  [M] Hub_dataset/launcher_gui/curation.py            +8
+  [M] Hub_dataset/launcher_gui/robots/icub_sim.py     +7 / -1
+  [M] Hub_dataset/launcher_gui/state.py               +1
+  [M] Icub-lerobot-mj/dependencies/assets/scenes/scenes.yaml      +92 / -2
+  [M] Icub-lerobot-mj/dependencies/assets/scenes/scene_icub_stack.xml  -32
+  [M] Icub-lerobot-mj/play_mujoco.py                  +45 / -2
+
+  -- Nuevas escenas MuJoCo sin rastrear (Untracked) -----------------------
+
+  [?] scene_icub_box_cleanup_extra.xml
+  [?] scene_icub_can_sorting_extra.xml
+  [?] scene_icub_coffee_extra.xml
+  [?] scene_icub_door.xml
+  [?] scene_icub_drag.xml
+  [?] scene_icub_drawer_cleanup_extra.xml
+  [?] scene_icub_nut_assembly_extra.xml
+  [?] scene_icub_peginhole.xml
+  [?] scene_icub_pickplace.xml
+  [?] scene_icub_piece_assembly_extra.xml
+  [?] scene_icub_pouring_extra.xml
+  [?] scene_icub_table_wiping_extra.xml
+  [?] scene_icub_threading_extra.xml
+  [?] scene_icub_transport_extra.xml
+  [?] scene_icub_tray_lift_extra.xml
+  [?] scene_icub_two_arm_handover_extra.xml
+  [?] scene_icub_twoarmlift.xml
+
+  -- Directorios nuevos sin rastrear --------------------------------------
+
+  [?] Icub-lerobot-mj/dependencies/assets/escenas-mujoco/
+  [?] Icub-lerobot-mj/dependencies/assets/meshes/objaverse/
+  [?] data/
+
+
+================================================================================
+  RESUMEN GENERAL
+================================================================================
+
+  Total de commits                    :  2
+  Ramas                               :  2  (main, graphs)
+  Primer commit                       :  2026-07-14
+  Ultimo commit registrado            :  2026-07-19
+  Archivos modificados sin commit     : 10  (sin pycache)
+  Escenas nuevas sin rastrear         : 17
+  Directorios nuevos sin rastrear     :  3
+  Lineas totales comprometidas        : ~14 456
+
+  ADVERTENCIA: El archivo scenes.yaml tiene diferencia de fin de linea
+               (LF vs CRLF). Git lo ajustara automaticamente al proximo
+               commit en Windows.
+
+================================================================================
+  LEYENDA
+================================================================================
+
+  [+]  Archivo agregado (nuevo)
+  [M]  Archivo modificado
+  [?]  Archivo no rastreado (untracked)
+  [D]  Archivo eliminado
+
+================================================================================
+  FIN DE BITACORA
+================================================================================
+
+================================================================================
+  SESION DE CAMBIOS -- 21 de Agosto de 2026
+================================================================================
+
+  - Internacionalización: Traducción completa de la aplicación al inglés (etiquetas de UI, logs, mensajes, y descripciones de tareas en scenes.yaml).
+  - Mejora de UI (Curación de Datos): Implementación de listas verticales con scroll y barras de búsqueda en tiempo real para las señales (features, action, state) usando CSS personalizado (.scrollable-list) y callbacks de filtrado.
+  - Ajustes de Layout (Curación de Datos):
+    * Organización de las tres listas de selección en 3 columnas de igual altura.
+    * Separación de los títulos y los botones 'All/None' para mejor distribución.
+    * Reorganización de la sección de carga de datasets en dos columnas (inputs a la izquierda, botones apilados a la derecha).
+    * La sección de 'Language Instruction' ahora muestra el botón de editar/guardar en la misma fila que el campo de texto.
+  - Navegación de Episodios: Alineación de altura de los botones y el campo numérico (min_width=80px, height=42px), centrado del texto 'Episode', y restricción de valores negativos (minimum=0).
+  - Exportación PDF Plotly: Manejo de error mejorado para Kaleido v1+ (descarga automática de Chrome o instrucciones claras de fallback).
+  - Control de Sesión: Deshabilitación del botón 'Back to robot selection' cuando una sesión de grabación está activa, usando el Timer de estado.
+
