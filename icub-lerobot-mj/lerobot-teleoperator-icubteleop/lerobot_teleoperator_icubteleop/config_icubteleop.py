@@ -90,6 +90,7 @@ class iCubTeleopConfig(TeleoperatorConfig):
     vr_ip: str | None = field(default_factory=_default_vr_ip)
     actuators_to_use: dict[str, list[str]] = field(default_factory=dict)
     cube_spawn: dict = field(default_factory=lambda: {"x": [0.3, 0.4], "y": [-0.2, 0.2], "z": 0.725})
+    scene_objects: list = field(default_factory=list)  # From scenes.yaml: [{body, spawn}, ...]
 
     def __post_init__(self) -> None:
         cfg = load_yarp_config(self.config_path)

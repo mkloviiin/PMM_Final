@@ -110,14 +110,17 @@ class iCubMuJoCo(Robot):
 
         # ── less critical dims below (not needed for training) ──
 
-        # object pose
-        features["object_pos_x"] = float
-        features["object_pos_y"] = float
-        features["object_pos_z"] = float
-        features["object_quat_w"] = float
-        features["object_quat_x"] = float
-        features["object_quat_y"] = float
-        features["object_quat_z"] = float
+        # object poses — indexed by order in scenes.yaml
+        scene_objects = getattr(self.config, "scene_objects", []) or []
+        num_objects = max(len(scene_objects), 1)  # at least 1 slot for legacy compat
+        for i in range(num_objects):
+            features[f"obj{i}_pos_x"] = float
+            features[f"obj{i}_pos_y"] = float
+            features[f"obj{i}_pos_z"] = float
+            features[f"obj{i}_quat_w"] = float
+            features[f"obj{i}_quat_x"] = float
+            features[f"obj{i}_quat_y"] = float
+            features[f"obj{i}_quat_z"] = float
 
         # joint torques / actuator forces
         for name in self.actuator_list:
@@ -507,27 +510,36 @@ class iCubMuJoCo(Robot):
             obs[f"{side}_ext_force_y"] = torch.tensor(float(force[1]), dtype=torch.float32)
             obs[f"{side}_ext_force_z"] = torch.tensor(float(force[2]), dtype=torch.float32)
 
-        # 6. Object pose  (blue-cube)
-        try:
-            cube_id = model.body("blue-cube").id
-            if model.body_jntnum[cube_id] > 0:
-                jnt_adr = model.jnt_qposadr[model.body_jntadr[cube_id]]
-                qpos = data.qpos
-                pos = qpos[jnt_adr:jnt_adr + 3]
-                quat = qpos[jnt_adr + 3:jnt_adr + 7]
-            else:
-                pos = data.xpos[cube_id]
-                quat = data.xquat[cube_id]
+        # 6. Object poses — indexed by order in scenes.yaml
+        scene_objects = getattr(self.config, "scene_objects", []) or []
+        if not scene_objects:
+            # Legacy fallback: try blue-cube as obj0
+            scene_objects = [{"body": "blue-cube"}]
 
-            obs["object_pos_x"] = torch.tensor(float(pos[0]), dtype=torch.float32)
-            obs["object_pos_y"] = torch.tensor(float(pos[1]), dtype=torch.float32)
-            obs["object_pos_z"] = torch.tensor(float(pos[2]), dtype=torch.float32)
-            obs["object_quat_w"] = torch.tensor(float(quat[0]), dtype=torch.float32)
-            obs["object_quat_x"] = torch.tensor(float(quat[1]), dtype=torch.float32)
-            obs["object_quat_y"] = torch.tensor(float(quat[2]), dtype=torch.float32)
-            obs["object_quat_z"] = torch.tensor(float(quat[3]), dtype=torch.float32)
-        except Exception:
-            pass
+        for i, obj_def in enumerate(scene_objects):
+            body_name = obj_def.get("body", "")
+            prefix = f"obj{i}"
+            try:
+                bid = model.body(body_name).id
+                if model.body_jntnum[bid] > 0:
+                    jnt_adr = model.jnt_qposadr[model.body_jntadr[bid]]
+                    pos = data.qpos[jnt_adr:jnt_adr + 3]
+                    quat = data.qpos[jnt_adr + 3:jnt_adr + 7]
+                else:
+                    pos = data.xpos[bid]
+                    quat = data.xquat[bid]
+
+                obs[f"{prefix}_pos_x"] = torch.tensor(float(pos[0]), dtype=torch.float32)
+                obs[f"{prefix}_pos_y"] = torch.tensor(float(pos[1]), dtype=torch.float32)
+                obs[f"{prefix}_pos_z"] = torch.tensor(float(pos[2]), dtype=torch.float32)
+                obs[f"{prefix}_quat_w"] = torch.tensor(float(quat[0]), dtype=torch.float32)
+                obs[f"{prefix}_quat_x"] = torch.tensor(float(quat[1]), dtype=torch.float32)
+                obs[f"{prefix}_quat_y"] = torch.tensor(float(quat[2]), dtype=torch.float32)
+                obs[f"{prefix}_quat_z"] = torch.tensor(float(quat[3]), dtype=torch.float32)
+            except Exception:
+                # Body not in this scene — fill with zeros
+                for suffix in ("pos_x", "pos_y", "pos_z", "quat_w", "quat_x", "quat_y", "quat_z"):
+                    obs[f"{prefix}_{suffix}"] = torch.tensor(0.0, dtype=torch.float32)
 
         # 7. Mocap target positions — always read from data.mocap_pos regardless
         #    of vr_enabled. During VR teleoperation the VR device moves these;

@@ -76,6 +76,8 @@ def build_ui() -> gr.Blocks:
     with gr.Blocks(title="iCub MuJoCo Launcher") as demo:
         welcome_col, welcome_buttons = build_welcome_screen()
 
+
+
         with gr.Column(visible=False) as main_col:
             back_btn = gr.Button("⬅ Back to robot selection", size="sm")
             gr.Markdown("# iCub MuJoCo Simulation  —  Experimentation Hub")
