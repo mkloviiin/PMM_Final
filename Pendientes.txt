@@ -1,0 +1,20 @@
+1. Mensaje de no disponible acumulativo en la pantalla de inicio
+2. No cambia el lenguaje instruction
+3. Al cargar un nuevo dataset, el packaging y el subir a huggin face debe volver a sus valores default, como que no se reinician
+4. Revisar que dataset sube a hugginface, el utlimo curado? que pasa si quiero subir otro?
+5. Problemas con las otras escenas, no graba, no cierra ventana
+
+Dudas
+- Deberiamos tener el observation state del objeto y/o los objetos? Lo colocaré mientras solo para la simulación de MJ, total despues se puede quitar en la curación
+- 
+- 
+
+
+Lo que funciona bien
+- Blocklifting
+- Curación de dataset
+- Publicación en hugginface
+- Teleoperación
+- Escenarios nuevos
+- Interfaz en general
+- Terminar sesión
