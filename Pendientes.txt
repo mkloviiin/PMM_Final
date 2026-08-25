@@ -3,6 +3,7 @@
 3. Al cargar un nuevo dataset, el packaging y el subir a huggin face debe volver a sus valores default, como que no se reinician
 4. Revisar que dataset sube a hugginface, el utlimo curado? que pasa si quiero subir otro?
 5. Problemas con las otras escenas, no graba, no cierra ventana
+6. En los otros escenarios no puedo mover los mockups. Para la entrega 3 probar escenas propuestas con 5-10 episodios.
 
 Dudas
 - Deberiamos tener el observation state del objeto y/o los objetos? Lo colocaré mientras solo para la simulación de MJ, total despues se puede quitar en la curación
