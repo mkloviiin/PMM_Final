@@ -134,18 +134,21 @@ def _manual_vr_record(
     from lerobot_teleoperator_icubteleop.config_icubteleop import iCubTeleopConfig
 
     vr_enabled = bool(args.vr or args.vr_ip)
+    scene_objects = getattr(args, "scene_objects", [])
 
     robot_cfg = iCubMuJoCoConfig(
         model_path=str(model_path),
         config_path=str(cfg_path),
         vr_enabled=vr_enabled,
         vr_ip=args.vr_ip,
+        scene_objects=scene_objects,
     )
     teleop_cfg = iCubTeleopConfig(
         model_path=str(model_path),
         config_path=str(cfg_path),
         vr_enabled=False,
         vr_ip=None,
+        scene_objects=scene_objects,
     )
     teleop_cfg.vr_enabled = False
     teleop_cfg.vr_ip = None
@@ -183,11 +186,13 @@ def _manual_vr_record(
     robot.connect()
     teleop.connect()
 
-    # Initial reset: place cube on table so it's visible from the start
+    # Initial reset: randomize scene objects so they're visible from the start
     teleop._reset_scenario()
-    # Sync initial cube position to physics model too
+    # Sync reset object poses to physics model (only if objects were reset)
     if hasattr(robot, "teleop_core") and robot.teleop_core:
-        robot.teleop_core.set_cube_pose(teleop._last_reset_pos, teleop._last_reset_quat)
+        reset_poses = getattr(teleop, "_last_reset_poses", None)
+        if reset_poses:
+            robot.teleop_core.set_object_poses(reset_poses)
     teleop._reset_request = False
 
     cmd_state = {
@@ -262,13 +267,11 @@ def _manual_vr_record(
                 # Check for reset request (KEY_R from teleop viewer)
                 if getattr(teleop, "_reset_request", False):
                     try:
-                        pos = teleop._last_reset_pos
-                        quat = teleop._last_reset_quat
-                        # Sync cube to physics model (teleop_core)
+                        reset_poses = getattr(teleop, "_last_reset_poses", {})
                         if hasattr(robot, "teleop_core") and robot.teleop_core:
-                            robot.teleop_core.set_cube_pose(pos, quat)
-                        else:
-                            robot.set_cube_pose(pos, quat)
+                            robot.teleop_core.set_object_poses(reset_poses)
+                        elif hasattr(robot, "set_object_poses"):
+                            robot.set_object_poses(reset_poses)
                     except Exception as e:
                         print(f"[Record] Sync failed: {e}")
                     teleop._reset_request = False
@@ -307,14 +310,12 @@ def _manual_vr_record(
                 # Check for reset request (KEY_R from teleop viewer)
                 if getattr(teleop, "_reset_request", False):
                     try:
-                        pos = teleop._last_reset_pos
-                        quat = teleop._last_reset_quat
-                        # Sync cube to physics model (teleop_core)
+                        reset_poses = getattr(teleop, "_last_reset_poses", {})
                         if hasattr(robot, "teleop_core") and robot.teleop_core:
-                            robot.teleop_core.set_cube_pose(pos, quat)
-                        else:
-                            robot.set_cube_pose(pos, quat)
-                        print(f"[Record] Synced cube to {pos}")
+                            robot.teleop_core.set_object_poses(reset_poses)
+                        elif hasattr(robot, "set_object_poses"):
+                            robot.set_object_poses(reset_poses)
+                        print(f"[Record] Synced {len(reset_poses)} object(s)")
                     except Exception as e:
                         print(f"[Record] Sync failed: {e}")
                     teleop._reset_request = False

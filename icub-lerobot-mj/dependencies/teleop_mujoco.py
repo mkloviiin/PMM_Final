@@ -913,48 +913,101 @@ class MuJoCoTeleop:
     # ========================= SCENE RESET =================================
 
     def _reset_scenario(self):
-        """Move the blue cube to a random position on the table."""
-        spawn = getattr(self, "_cube_spawn", {"x": [0.35, 0.45], "y": [-0.15, 0], "z": 0.725})
-        x = np.random.uniform(spawn["x"][0], spawn["x"][1])
-        y = np.random.uniform(spawn["y"][0], spawn["y"][1])
-        z = spawn.get("z", 0.725)  # spawn above table to avoid interpenetration
+        """Randomize all declared scene objects (driven by scenes.yaml).
 
-        try:
-            cube_body_name = "blue-cube"
-            cube_body = self.model.body(cube_body_name)
+        Falls back to legacy _cube_spawn config if no scene_objects are declared
+        but a blue-cube body exists in the model.
+        """
+        objects = getattr(self, "_scene_objects", [])
 
-            cube_body_id = cube_body.id
-            cube_jnt_adr = cube_body.jntadr[0]
-            qpos_adr = self.model.jnt_qposadr[cube_jnt_adr]
-            dof_adr = self.model.jnt_dofadr[cube_jnt_adr]
-
-            self.data.qpos[qpos_adr:qpos_adr + 3] = [x, y, z]
-            self.data.qpos[qpos_adr + 3:qpos_adr + 7] = [1, 0, 0, 0]
-            self.data.qvel[dof_adr:dof_adr + 6] = 0
-            mujoco.mj_forward(self.model, self.data)
-            print(f"[Reset] {cube_body_name} → ({x:.2f}, {y:.2f}, {z:.2f})")
-        except Exception as e:
-            print(f"[Reset] Error: {e}")
-    def set_cube_pose(self, pos, quat):
-        """Force the blue cube to a specific pose."""
-        try:
-            cube_body_name = "blue-cube"
-            cube_body = self.model.body(cube_body_name)
-
-            cube_jnt_adr = cube_body.jntadr[0]
-            qpos_adr = self.model.jnt_qposadr[cube_jnt_adr]
-            dof_adr = self.model.jnt_dofadr[cube_jnt_adr]
-
-            self.data.qpos[qpos_adr:qpos_adr + 3] = pos
-            if quat is not None:
-                self.data.qpos[qpos_adr + 3:qpos_adr + 7] = quat
+        # Legacy fallback: if no scene_objects declared, try blue-cube with _cube_spawn
+        if not objects:
+            spawn = getattr(self, "_cube_spawn", None)
+            if spawn:
+                objects = [{"body": "blue-cube", "spawn": spawn}]
             else:
-                self.data.qpos[qpos_adr + 3:qpos_adr + 7] = [1, 0, 0, 0]
-            
-            self.data.qvel[dof_adr:dof_adr + 6] = 0
+                return  # Nothing to reset
+
+        def _sample(val, default=0.0):
+            """Uniform random if [min, max], fixed if scalar."""
+            if isinstance(val, list) and len(val) == 2:
+                return np.random.uniform(val[0], val[1])
+            return float(val) if val is not None else default
+
+        reset_poses = {}
+        any_reset = False
+
+        for obj_def in objects:
+            body_name = obj_def.get("body", "")
+            spawn = obj_def.get("spawn", {})
+            try:
+                body = self.model.body(body_name)
+                bid = body.id
+                jnt_adr = body.jntadr[0]
+                if jnt_adr == -1:
+                    continue
+                qpos_adr = self.model.jnt_qposadr[jnt_adr]
+                dof_adr = self.model.jnt_dofadr[jnt_adr]
+
+                # Position: only write axes that are specified
+                if any(k in spawn for k in ("x", "y", "z")):
+                    x = _sample(spawn.get("x"), self.data.qpos[qpos_adr + 0])
+                    y = _sample(spawn.get("y"), self.data.qpos[qpos_adr + 1])
+                    z = _sample(spawn.get("z"), self.data.qpos[qpos_adr + 2])
+                    self.data.qpos[qpos_adr:qpos_adr + 3] = [x, y, z]
+
+                # Orientation
+                quat = spawn.get("quat", [1, 0, 0, 0])
+                self.data.qpos[qpos_adr + 3:qpos_adr + 7] = quat
+
+                # Zero velocities
+                ndof = self.model.jnt_type[self.model.body_jntadr[bid]]
+                num_dof = 6 if ndof == 0 else 1  # mjtJoint.mjJNT_FREE = 0
+                self.data.qvel[dof_adr:dof_adr + num_dof] = 0
+
+                pos_arr = self.data.qpos[qpos_adr:qpos_adr + 3].copy()
+                quat_arr = self.data.qpos[qpos_adr + 3:qpos_adr + 7].copy()
+                reset_poses[body_name] = (pos_arr, quat_arr)
+                any_reset = True
+                print(f"[Reset] {body_name} → ({pos_arr[0]:.2f}, {pos_arr[1]:.2f}, {pos_arr[2]:.2f})")
+            except Exception as e:
+                print(f"[Reset] Skip '{body_name}': {e}")
+
+        if any_reset:
             mujoco.mj_forward(self.model, self.data)
-        except Exception as e:
-            print(f"[Teleop] Error setting cube pose: {e}")
+
+    def set_object_poses(self, poses: dict):
+        """Force one or more objects to specific poses.
+
+        Args:
+            poses: {body_name: (pos_array, quat_array)} dict.
+        """
+        for body_name, (pos, quat) in poses.items():
+            try:
+                body = self.model.body(body_name)
+                jnt_adr = body.jntadr[0]
+                if jnt_adr == -1:
+                    continue
+                qpos_adr = self.model.jnt_qposadr[jnt_adr]
+                dof_adr = self.model.jnt_dofadr[jnt_adr]
+
+                self.data.qpos[qpos_adr:qpos_adr + 3] = pos
+                if quat is not None:
+                    self.data.qpos[qpos_adr + 3:qpos_adr + 7] = quat
+                else:
+                    self.data.qpos[qpos_adr + 3:qpos_adr + 7] = [1, 0, 0, 0]
+
+                ndof = self.model.jnt_type[self.model.body_jntadr[body.id]]
+                num_dof = 6 if ndof == 0 else 1
+                self.data.qvel[dof_adr:dof_adr + num_dof] = 0
+            except Exception as e:
+                print(f"[Teleop] Error setting '{body_name}' pose: {e}")
+
+        mujoco.mj_forward(self.model, self.data)
+
+    def set_cube_pose(self, pos, quat):
+        """Legacy wrapper — delegates to set_object_poses."""
+        self.set_object_poses({"blue-cube": (pos, quat)})
     # ========================= GO HOME =====================================
 
     def _start_go_home(self):

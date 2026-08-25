@@ -97,6 +97,7 @@ class iCubMuJoCoConfig(RobotConfig):
     primary_arm: str = "right"
     vr_enabled: bool = field(default_factory=_default_vr_enabled)
     vr_ip: str | None = field(default_factory=_default_vr_ip)
+    scene_objects: list = field(default_factory=list)  # From scenes.yaml: [{body, spawn}, ...]
 
     def __post_init__(self) -> None:
         cfg = load_control_config(self.config_path)

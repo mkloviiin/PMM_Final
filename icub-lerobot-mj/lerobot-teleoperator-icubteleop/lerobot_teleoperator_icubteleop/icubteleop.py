@@ -97,6 +97,12 @@ class iCubTeleop(Teleoperator):
         self._vr_b_held = False
         self._vr_b_hold_start: float | None = None
 
+        # Reset scenario state — generic for any scene objects from scenes.yaml
+        self._scene_objects: list[dict] = getattr(self.config, "scene_objects", []) or []
+        self._last_reset_poses: dict[str, tuple] = {}  # {body_name: (pos, quat)}
+        self._reset_request = False
+        self._pending_visual_reset = False
+
     @property
     def action_features(self) -> dict[str, type]:
 
@@ -370,25 +376,34 @@ class iCubTeleop(Teleoperator):
         
         update_visuals = False
 
-        # --- Object Sync (blue-cube) ---
-        if "object_pos_x" in feedback and not self._reset_request:
-            try:
-                # Find qpos address for blue-cube freejoint
-                if not hasattr(self, "_cube_jnt_adr"):
-                    cube_id = self.model.body("blue-cube").id
-                    self._cube_jnt_adr = self.model.jnt_qposadr[self.model.body_jntadr[cube_id]]
-                
-                jnt_adr = self._cube_jnt_adr
-                self.data.qpos[jnt_adr+0] = feedback["object_pos_x"].item()
-                self.data.qpos[jnt_adr+1] = feedback["object_pos_y"].item()
-                self.data.qpos[jnt_adr+2] = feedback["object_pos_z"].item()
-                self.data.qpos[jnt_adr+3] = feedback["object_quat_w"].item()
-                self.data.qpos[jnt_adr+4] = feedback["object_quat_x"].item()
-                self.data.qpos[jnt_adr+5] = feedback["object_quat_y"].item()
-                self.data.qpos[jnt_adr+6] = feedback["object_quat_z"].item()
-                update_visuals = True
-            except Exception:
-                pass
+        # --- Object Sync (generic, indexed by scenes.yaml order) ---
+        if not self._reset_request:
+            if not hasattr(self, "_obj_jnt_adrs"):
+                # Cache qpos addresses for each declared scene object
+                self._obj_jnt_adrs: dict[int, int | None] = {}
+                scene_objects = self._scene_objects or [{"body": "blue-cube"}]
+                for i, obj_def in enumerate(scene_objects):
+                    body_name = obj_def.get("body", "")
+                    try:
+                        bid = self.model.body(body_name).id
+                        self._obj_jnt_adrs[i] = self.model.jnt_qposadr[self.model.body_jntadr[bid]]
+                    except Exception:
+                        self._obj_jnt_adrs[i] = None
+
+            for idx, jnt_adr in self._obj_jnt_adrs.items():
+                prefix = f"obj{idx}"
+                if jnt_adr is not None and f"{prefix}_pos_x" in feedback:
+                    try:
+                        self.data.qpos[jnt_adr + 0] = feedback[f"{prefix}_pos_x"].item()
+                        self.data.qpos[jnt_adr + 1] = feedback[f"{prefix}_pos_y"].item()
+                        self.data.qpos[jnt_adr + 2] = feedback[f"{prefix}_pos_z"].item()
+                        self.data.qpos[jnt_adr + 3] = feedback[f"{prefix}_quat_w"].item()
+                        self.data.qpos[jnt_adr + 4] = feedback[f"{prefix}_quat_x"].item()
+                        self.data.qpos[jnt_adr + 5] = feedback[f"{prefix}_quat_y"].item()
+                        self.data.qpos[jnt_adr + 6] = feedback[f"{prefix}_quat_z"].item()
+                        update_visuals = True
+                    except Exception:
+                        pass
 
         # --- VR Mocap Sync ---
         # If the robot is sending VR target positions, update our local mocaps to match
@@ -806,32 +821,71 @@ class iCubTeleop(Teleoperator):
         mujoco.mj_forward(self.model, self.data)
 
     def _reset_scenario(self):
-        """Randomize cube position."""
-        import random
-        spawn = getattr(self.config, "cube_spawn", {"x": [0.3, 0.4], "y": [-0.2, 0.2], "z": 0.725})
-        x = np.random.uniform(spawn["x"][0], spawn["x"][1])
-        y = np.random.uniform(spawn["y"][0], spawn["y"][1])
-        z = spawn.get("z", 0.725)
-        try:
-            cube_body = self.model.body("blue-cube")
-            bid = cube_body.id
-            img_jnt_adr = cube_body.jntadr[0]
-            if img_jnt_adr != -1:
-                qpos_adr = self.model.jnt_qposadr[img_jnt_adr]
-                dof_adr = self.model.jnt_dofadr[img_jnt_adr]
-                self.data.qpos[qpos_adr:qpos_adr+3] = [x, y, z]
-                self.data.qpos[qpos_adr+3:qpos_adr+7] = [1, 0, 0, 0]
-                self.data.qvel[dof_adr:dof_adr+6] = 0
-                
-                # Store explicit reset target to survive send_feedback overwrites
-                self._last_reset_pos = np.array([x, y, z])
-                self._last_reset_quat = np.array([1, 0, 0, 0])
-                
-                self._reset_request = True
-                mujoco.mj_forward(self.model, self.data)
-                print(f"[Teleop] Reset cube -> {x:.2f}, {y:.2f}")
-        except Exception as e:
-            print(f"Reset error: {e}")
+        """Randomize all declared scene objects (driven by scenes.yaml).
+
+        Falls back to legacy cube_spawn config if no scene_objects are declared
+        but a blue-cube body exists in the model.
+        """
+        objects = self._scene_objects
+
+        # Legacy fallback: if no scene_objects declared, try blue-cube with cube_spawn
+        if not objects:
+            spawn = getattr(self.config, "cube_spawn", None)
+            if spawn:
+                objects = [{"body": "blue-cube", "spawn": spawn}]
+            else:
+                return  # Nothing to reset
+
+        def _sample(val, default=0.0):
+            """Uniform random if [min, max], fixed if scalar."""
+            if isinstance(val, list) and len(val) == 2:
+                return np.random.uniform(val[0], val[1])
+            return float(val) if val is not None else default
+
+        reset_poses = {}
+        any_reset = False
+
+        for obj_def in objects:
+            body_name = obj_def.get("body", "")
+            spawn = obj_def.get("spawn", {})
+            try:
+                body = self.model.body(body_name)
+                bid = body.id
+                jnt_adr = body.jntadr[0]
+                if jnt_adr == -1:
+                    continue
+                qpos_adr = self.model.jnt_qposadr[jnt_adr]
+                dof_adr = self.model.jnt_dofadr[jnt_adr]
+
+                # Position: only write axes that are specified
+                if any(k in spawn for k in ("x", "y", "z")):
+                    x = _sample(spawn.get("x"), self.data.qpos[qpos_adr + 0])
+                    y = _sample(spawn.get("y"), self.data.qpos[qpos_adr + 1])
+                    z = _sample(spawn.get("z"), self.data.qpos[qpos_adr + 2])
+                    self.data.qpos[qpos_adr:qpos_adr + 3] = [x, y, z]
+
+                # Orientation
+                quat = spawn.get("quat", [1, 0, 0, 0])
+                self.data.qpos[qpos_adr + 3:qpos_adr + 7] = quat
+
+                # Zero velocities
+                ndof = self.model.jnt_type[self.model.body_jntadr[bid]]
+                # freejoint = 6 DOF, hinge = 1 DOF
+                num_dof = 6 if ndof == 0 else 1  # mjtJoint.mjJNT_FREE = 0
+                self.data.qvel[dof_adr:dof_adr + num_dof] = 0
+
+                pos_arr = self.data.qpos[qpos_adr:qpos_adr + 3].copy()
+                quat_arr = self.data.qpos[qpos_adr + 3:qpos_adr + 7].copy()
+                reset_poses[body_name] = (pos_arr, quat_arr)
+                any_reset = True
+                print(f"[Teleop] Reset {body_name} → ({pos_arr[0]:.2f}, {pos_arr[1]:.2f}, {pos_arr[2]:.2f})")
+            except Exception as e:
+                print(f"[Teleop] Reset skip '{body_name}': {e}")
+
+        if any_reset:
+            self._last_reset_poses = reset_poses
+            self._reset_request = True
+            mujoco.mj_forward(self.model, self.data)
 
     def _key_callback(self, keycode):
         """Callback para el viewer pasivo."""

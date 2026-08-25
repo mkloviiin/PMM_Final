@@ -1,0 +1,209 @@
+================================================================================
+BITÁCORA DE CAMBIOS — 2026-08-25
+================================================================================
+Sesión: Modular Scene Reset + Bug Fixes
+Autor:  Asistente IA (Antigravity)
+Fecha:  2026-08-25 11:20 – 12:10 (hora local)
+================================================================================
+
+OBJETIVO GENERAL:
+  Hacer que el sistema de reset de escenarios sea modular y data-driven,
+  declarando los objetos reseteables en scenes.yaml en vez de hardcodearlos
+  en Python. Además, corregir bugs encontrados en el camino.
+
+================================================================================
+CAMBIO 1 — FIX: Case-sensitivity en paths.py
+================================================================================
+ARCHIVO:  hub_dataset/launcher_gui/paths.py
+LÍNEA:    10
+ANTES:    PROJECT_ROOT = HUB_ROOT.parent / "Icub-lerobot-mj"
+DESPUÉS:  PROJECT_ROOT = HUB_ROOT.parent / "icub-lerobot-mj"
+MOTIVO:   La carpeta en disco se llama "icub-lerobot-mj" (i minúscula) pero
+          el código referenciaba "Icub-lerobot-mj". Linux es case-sensitive,
+          causando FileNotFoundError al leer scenes.yaml.
+
+================================================================================
+CAMBIO 2 — REVERT: gr.Warning restaurado (se intentó Modal y alert)
+================================================================================
+ARCHIVO:  hub_dataset/launcher_gui/app.py
+LÍNEA:    ~107
+ESTADO:   Se restauró el gr.Warning() original para robots no disponibles.
+          Se intentó gr.Modal (no existe en esta versión de Gradio) y luego
+          window.alert() vía js=, pero el usuario prefirió mantener el warning.
+RESULTADO FINAL:
+          btn.click(fn=lambda label=label: gr.Warning(f"{label} — not yet available."))
+
+================================================================================
+CAMBIO 3 — FIX: orjson reinstalado en icubenv
+================================================================================
+COMANDO:  conda run -n icubenv pip install --force-reinstall orjson
+MOTIVO:   orjson estaba corrupto en el entorno icubenv, causando
+          ModuleNotFoundError: No module named 'orjson.orjson'
+
+================================================================================
+CAMBIO 4 — scenes.yaml: Agregado campo `objects` (MODULAR RESET)
+================================================================================
+ARCHIVO:  icub-lerobot-mj/dependencies/assets/scenes/scenes.yaml
+CAMBIO:   Se agregó un bloque `objects:` opcional a cada escena que tiene
+          objetos manipulables. Formato:
+
+            objects:
+              - body: "blue-cube"       # nombre del body en MuJoCo
+                spawn:
+                  x: [0.30, 0.45]       # rango aleatorio
+                  y: [-0.20, 0.20]
+                  z: 0.725              # fijo (escalar)
+
+          Escenas actualizadas:
+            - Block Lifting:    1 objeto (blue-cube)
+            - Block Stacking:   1 objeto (blue-cube)
+            - Pick-and-Place:   sin objects (reset = no-op)
+            - Door Opening:     sin objects (reset = no-op)
+            - Peg-In-Hole:      sin objects (reset = no-op)
+            - Two-Arm Lifting:  sin objects (reset = no-op)
+
+================================================================================
+CAMBIO 5 — config_icubteleop.py: Nuevo campo scene_objects
+================================================================================
+ARCHIVO:  icub-lerobot-mj/lerobot-teleoperator-icubteleop/
+          lerobot_teleoperator_icubteleop/config_icubteleop.py
+LÍNEA:    93 (después de cube_spawn)
+AGREGADO: scene_objects: list = field(default_factory=list)
+MOTIVO:   Para pasar la lista de objetos del YAML hasta el teleop.
+
+================================================================================
+CAMBIO 6 — config_icub_mujoco.py: Nuevo campo scene_objects
+================================================================================
+ARCHIVO:  icub-lerobot-mj/lerobot-robot-icub/
+          lerobot_robot_icub/config_icub_mujoco.py
+LÍNEA:    100 (después de vr_ip)
+AGREGADO: scene_objects: list = field(default_factory=list)
+MOTIVO:   Para que el robot genere observation features indexadas según
+          los objetos declarados en el YAML.
+
+================================================================================
+CAMBIO 7 — icub_sim.py: _load_scenes retorna 3-tuple con objects
+================================================================================
+ARCHIVO:  hub_dataset/launcher_gui/robots/icub_sim.py
+
+  7a. _load_scenes() ahora retorna dict[str, tuple[str, str, list]]
+      ANTES:  scenes = {e["label"]: (e["file"], e["task"]) ...}
+      DESPUÉS: scenes = {e["label"]: (e["file"], e["task"], e.get("objects", [])) ...}
+
+  7b. launch() desempaqueta scene_objects del tuple
+      ANTES:  xml_file, default_task = SCENES.get(...)
+      DESPUÉS: xml_file, default_task, scene_objects = SCENES.get(...)
+
+  7c. launch() pasa scene_objects en args (SimpleNamespace)
+      AGREGADO: scene_objects=scene_objects
+
+================================================================================
+CAMBIO 8 — play_mujoco.py: Pasar scene_objects y sync genérico
+================================================================================
+ARCHIVO:  icub-lerobot-mj/play_mujoco.py
+
+  8a. Línea ~137: Lee scene_objects de args
+      AGREGADO: scene_objects = getattr(args, "scene_objects", [])
+
+  8b. Líneas ~139-152: Pasa scene_objects a robot_cfg y teleop_cfg
+      AGREGADO: scene_objects=scene_objects en ambos constructores
+
+  8c. Líneas ~186-193: Reset inicial genérico
+      ANTES:  robot.teleop_core.set_cube_pose(teleop._last_reset_pos, ...)
+      DESPUÉS: robot.teleop_core.set_object_poses(teleop._last_reset_poses)
+              (con guard getattr(..., None))
+
+  8d. Líneas ~263-274 y ~309-320: Sync durante grabación (2 ocurrencias)
+      ANTES:  set_cube_pose(teleop._last_reset_pos, teleop._last_reset_quat)
+      DESPUÉS: set_object_poses(teleop._last_reset_poses)
+
+================================================================================
+CAMBIO 9 — icubteleop.py: Reset genérico + feedback indexado
+================================================================================
+ARCHIVO:  icub-lerobot-mj/lerobot-teleoperator-icubteleop/
+          lerobot_teleoperator_icubteleop/icubteleop.py
+
+  9a. __init__ (líneas ~100-104):
+      ANTES:  self._last_reset_pos = None
+              self._last_reset_quat = None
+      DESPUÉS: self._scene_objects = getattr(self.config, "scene_objects", [])
+               self._last_reset_poses = {}  # {body_name: (pos, quat)}
+
+  9b. _reset_scenario() (líneas ~814-840):
+      ANTES:  Hardcodeado para "blue-cube" con cube_spawn
+      DESPUÉS: Itera self._scene_objects (del YAML), con fallback a cube_spawn.
+               Usa _sample() para manejar rangos [min,max] o escalares.
+               Guarda resultado en self._last_reset_poses (dict genérico).
+
+  9c. send_feedback() — Object Sync (líneas ~379-397):
+      ANTES:  Hardcodeado "object_pos_x" para blue-cube
+      DESPUÉS: Genérico indexado: busca "obj0_pos_x", "obj1_pos_x", etc.
+               Cachea _obj_jnt_adrs al primer llamado.
+
+================================================================================
+CAMBIO 10 — teleop_mujoco.py: Reset genérico + set_object_poses
+================================================================================
+ARCHIVO:  icub-lerobot-mj/dependencies/teleop_mujoco.py
+
+  10a. _reset_scenario() (líneas ~915-937):
+       ANTES:  Hardcodeado "blue-cube" con _cube_spawn
+       DESPUÉS: Misma lógica genérica que icubteleop.py (itera _scene_objects)
+
+  10b. set_cube_pose() (líneas ~938-957):
+       ANTES:  Método dedicado para blue-cube
+       DESPUÉS: Reemplazado por:
+                - set_object_poses(poses: dict) → genérico para N objetos
+                - set_cube_pose(pos, quat) → wrapper legacy que delega
+                  a set_object_poses({"blue-cube": (pos, quat)})
+
+================================================================================
+CAMBIO 11 — icub_mujoco.py: Observation features indexadas
+================================================================================
+ARCHIVO:  icub-lerobot-mj/lerobot-robot-icub/lerobot_robot_icub/icub_mujoco.py
+
+  11a. observation_features (líneas ~113-120):
+       ANTES:  object_pos_x, object_pos_y, ..., object_quat_z (7 features fijas)
+       DESPUÉS: obj0_pos_x, obj0_pos_y, ..., obj0_quat_z (indexadas)
+                obj1_pos_x, ..., obj1_quat_z (si hay 2 objetos)
+                Genera N×7 features según len(scene_objects), mínimo 1.
+
+  11b. get_observation() (líneas ~510-530):
+       ANTES:  Hardcodeado model.body("blue-cube")
+       DESPUÉS: Itera scene_objects, lee cada body por nombre,
+                escribe obs["obj{i}_pos_x"], etc.
+                Si el body no existe → rellena con ceros (no crashea).
+
+================================================================================
+CÓMO REVERTIR
+================================================================================
+
+Para revertir TODO y volver al estado anterior:
+
+  git checkout -- hub_dataset/launcher_gui/paths.py
+  git checkout -- hub_dataset/launcher_gui/app.py
+  git checkout -- hub_dataset/launcher_gui/robots/icub_sim.py
+  git checkout -- icub-lerobot-mj/dependencies/assets/scenes/scenes.yaml
+  git checkout -- icub-lerobot-mj/dependencies/teleop_mujoco.py
+  git checkout -- icub-lerobot-mj/play_mujoco.py
+  git checkout -- icub-lerobot-mj/lerobot-teleoperator-icubteleop/lerobot_teleoperator_icubteleop/config_icubteleop.py
+  git checkout -- icub-lerobot-mj/lerobot-teleoperator-icubteleop/lerobot_teleoperator_icubteleop/icubteleop.py
+  git checkout -- icub-lerobot-mj/lerobot-robot-icub/lerobot_robot_icub/config_icub_mujoco.py
+  git checkout -- icub-lerobot-mj/lerobot-robot-icub/lerobot_robot_icub/icub_mujoco.py
+
+Para revertir SOLO el modular reset (mantener los bug fixes):
+  Revertir cambios 4-11 (dejar cambios 1-3).
+
+================================================================================
+NOTA IMPORTANTE — Compatibilidad con datasets existentes
+================================================================================
+Los datasets grabados ANTES de estos cambios tienen features llamadas
+"object_pos_x", "object_quat_w", etc. Los datasets NUEVOS tendrán
+"obj0_pos_x", "obj0_quat_w", etc.
+
+replay_mujoco.py sigue usando set_cube_pose() que ahora es un wrapper
+legacy — funciona sin cambios para datasets viejos.
+
+Para reproducir datasets viejos con el código nuevo, replay_mujoco.py
+busca "object_pos_x" en las features del dataset, lo cual seguirá
+funcionando porque lee el dataset tal cual fue grabado.
+================================================================================

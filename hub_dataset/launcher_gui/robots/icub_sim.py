@@ -26,8 +26,8 @@ _SCENES_DIR = PROJECT_ROOT / "dependencies" / "assets" / "scenes"
 _SCENES_MANIFEST = _SCENES_DIR / "scenes.yaml"
 
 
-def _load_scenes() -> dict[str, tuple[str, str]]:
-    """Lee scenes.yaml: {label: (archivo_xml, tarea_default)}.
+def _load_scenes() -> dict[str, tuple[str, str, list]]:
+    """Lee scenes.yaml: {label: (archivo_xml, tarea_default, objects_list)}.
 
     Las escenas se declaran a mano en el manifiesto (no se auto-detectan todos
     los *.xml de la carpeta) porque esa carpeta tambien tiene XMLs que no son
@@ -36,7 +36,7 @@ def _load_scenes() -> dict[str, tuple[str, str]]:
     no quede una escena "huerfana" sin declarar.
     """
     entries = yaml.safe_load(_SCENES_MANIFEST.read_text(encoding="utf-8")) or []
-    scenes = {e["label"]: (e["file"], e["task"]) for e in entries}
+    scenes = {e["label"]: (e["file"], e["task"], e.get("objects", [])) for e in entries}
 
     declared_files = {e["file"] for e in entries}
     all_xml = {p.name for p in _SCENES_DIR.glob("*.xml")}
@@ -128,7 +128,7 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, root
     if session.state.running:
         return "A session is already running."
 
-    xml_file, default_task = SCENES.get(scene_name, ("icub_table_scene.xml", "tarea libre"))
+    xml_file, default_task, scene_objects = SCENES.get(scene_name, ("icub_table_scene.xml", "tarea libre", []))
     model_path = _SCENES_DIR / xml_file
     cfg_path = PROJECT_ROOT / "utils" / "control_config.yaml"
 
@@ -165,6 +165,7 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, root
         vr=resolved_vr,
         vr_ip=resolved_vr_ip,
         push_to_hub=False,
+        scene_objects=scene_objects,
     )
 
     run_suffix = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

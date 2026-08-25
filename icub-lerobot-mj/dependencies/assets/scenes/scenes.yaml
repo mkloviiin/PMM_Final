@@ -14,14 +14,34 @@
 # - task: default language instruction for that scene
 
 # ── Enabled scenes ────────────────────────────────────────────────────────────
+#
+# Optional `objects` list: declares resettable bodies and their spawn ranges.
+# When the user presses R (reset), each object is randomised within its range.
+# If `objects` is absent, pressing R does nothing (correct for fixed scenes).
+#
+# Spawn rules:
+#   x/y/z:  [min, max] → uniform random  |  scalar → fixed  |  absent → unchanged
+#   quat:   [w, x, y, z] reset orientation (default [1, 0, 0, 0])
 
 - file: icub_table_scene_lift.xml
   label: "Block Lifting"
   task: "lift the block"
+  objects:
+    - body: "blue-cube"
+      spawn:
+        x: [0.30, 0.45]
+        y: [-0.20, 0.20]
+        z: 0.725
 
 - file: icub_table_scene_stack.xml
   label: "Block Stacking"
   task: "stack the block"
+  objects:
+    - body: "blue-cube"
+      spawn:
+        x: [0.30, 0.45]
+        y: [-0.20, 0.20]
+        z: 0.725
 
 - file: scene_icub_pickplace.xml
   label: "Pick-and-Place"
