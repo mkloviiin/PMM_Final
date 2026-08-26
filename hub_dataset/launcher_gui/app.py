@@ -69,11 +69,26 @@ WELCOME_CSS = """
     min-height: 42px !important;
     box-sizing: border-box !important;
 }
+/* Task instruction row: align items and fix button height to match textbox */
+.task-row {
+    align-items: center !important;
+}
+.task-row > div {
+    align-items: center !important;
+}
+.task-btn button {
+    height: 40px !important;
+    min-height: 40px !important;
+    max-height: 40px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    box-sizing: border-box !important;
+}
 """
 
 
 def build_ui() -> gr.Blocks:
-    with gr.Blocks(title="iCub MuJoCo Launcher") as demo:
+    with gr.Blocks(title="iCub MuJoCo Launcher", css=WELCOME_CSS) as demo:
         welcome_col, welcome_buttons = build_welcome_screen()
 
 
@@ -132,14 +147,18 @@ def build_ui() -> gr.Blocks:
         curation_outputs = [c["whole_feature_cbg"], c["dims_action_cbg"], c["dims_state_cbg"],
                             c["task_tb"], c["task_edit_btn"], c["task_save_btn"],
                             c["task_dirty_state"], c["new_repo_id_tb"],
-                            c["new_plot_vars"], c["dynamic_plots_state"], c["new_plot_title"]]
+                            c["new_plot_vars"], c["dynamic_plots_state"], c["new_plot_title"],
+                            # Packaging & upload reset al cargar nuevo dataset
+                            c["package_status"], c["curation_log_box"],
+                            c["push_status"], c["push_link_html"],
+                            c["hf_repo_id_tb"]]
 
         c["refresh_btn"].click(fn=curation.refresh_datasets, inputs=[c["viz_root_tb"]],
                                 outputs=[c["dataset_dd"], c["viz_status"]])
         c["last_btn"].click(fn=curation.use_last_dataset, inputs=[c["viz_root_tb"]], outputs=[c["dataset_dd"]])
         c["load_ds_btn"].click(
             fn=curation.load_viz_dataset, inputs=[c["dataset_dd"]],
-            outputs=[c["viz_status"]] + nav_outputs + curation_outputs,
+            outputs=[c["dataset_col"], c["viz_status"]] + nav_outputs + curation_outputs,
         )
 
         c["add_plot_btn"].click(
@@ -196,6 +215,7 @@ def build_ui() -> gr.Blocks:
         )
 
         c["task_edit_btn"].click(fn=curation.task_start_edit,
+                                  inputs=[c["task_tb"]],
                                   outputs=[c["task_tb"], c["task_edit_btn"], c["task_save_btn"]])
         c["task_save_btn"].click(
             fn=curation.task_save, inputs=[c["task_tb"]],
@@ -215,6 +235,6 @@ def build_ui() -> gr.Blocks:
             inputs=[c["hf_repo_id_tb"], c["hf_token_tb"], c["hf_private_cb"]],
             outputs=[c["push_status"]],
         )
-        gr.Timer(0.5).tick(fn=hub_push.poll_push_status, outputs=[c["push_status"]])
+        gr.Timer(0.5).tick(fn=hub_push.poll_push_status, outputs=[c["push_status"], c["push_link_html"]])
 
     return demo

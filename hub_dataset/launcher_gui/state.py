@@ -45,6 +45,7 @@ curation_last_repo_id: str | None = None
 # ── Estado de subida a Hugging Face Hub ───────────────────────────────────────
 push_running = False
 push_status = "idle"  # idle | uploading | done | error
+push_last_repo_id: str | None = None  # repo subido exitosamente (para generar el link)
 
 # ── Etiquetas de estado compartidas por los pollers ───────────────────────────
 STATUS_LABEL = {

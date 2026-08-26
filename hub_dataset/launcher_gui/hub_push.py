@@ -45,6 +45,7 @@ def _run_push_thread(root, hf_repo_id: str, token: str, private: bool):
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
         ds = LeRobotDataset(repo_id=hf_repo_id, root=root)
         ds.push_to_hub(private=private)
+        state.push_last_repo_id = hf_repo_id
         state.push_status = "done"
         log_curation(f"Subido: https://huggingface.co/datasets/{hf_repo_id}")
     except Exception:
@@ -59,4 +60,27 @@ def _run_push_thread(root, hf_repo_id: str, token: str, private: bool):
 
 
 def poll_push_status():
-    return gr.update(value=state.STATUS_LABEL.get(state.push_status, state.push_status))
+    status = state.push_status
+    # En idle no mostramos nada — el campo vacío ya indica que no hay subida en curso
+    status_text = "" if status == "idle" else state.STATUS_LABEL.get(status, status)
+    if state.push_status == "done" and state.push_last_repo_id:
+        url = f"https://huggingface.co/datasets/{state.push_last_repo_id}"
+        link_html = (
+            f'<div style="display:flex;justify-content:center;width:100%;">'
+            f'<a href="{url}" target="_blank" style="'
+            f'display:inline-flex;align-items:center;justify-content:center;gap:6px;'
+            f'width:100%;padding:10px 16px;border-radius:8px;'
+            f'background:linear-gradient(135deg,#ff6f00,#ff9800);'
+            f'color:#fff;font-weight:600;text-decoration:none;'
+            f'font-size:0.95rem;box-shadow:0 2px 8px rgba(255,111,0,.35);'
+            f'transition:opacity .2s;" '
+            f'onmouseover="this.style.opacity=\'0.85\'" '
+            f'onmouseout="this.style.opacity=\'1\'"'
+            f'>'
+            f'&#127760; Open on Hugging Face'
+            f'</a>'
+            f'</div>'
+        )
+    else:
+        link_html = ""
+    return gr.update(value=status_text), gr.update(value=link_html)

@@ -255,7 +255,14 @@ def toggle_delete_episode(idx):
 
 def load_viz_dataset(dataset_path: str):
     """Carga un dataset y resetea todo el estado de curacion (episodios marcados,
-    edicion de tarea pendiente) asociado a la carga anterior."""
+    edicion de tarea pendiente, packaging anterior y estado de subida) asociado
+    a la carga anterior. El token de HF se preserva intencionalmente."""
+    # Resetear estado de packaging/upload de la carga anterior
+    state.curation_last_output = None
+    state.curation_status = "idle"
+    state.push_status = "idle"
+    state.push_last_repo_id = None
+
     _empty_nav = (
         0, "", None, None, None,
         gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.",
@@ -265,26 +272,32 @@ def load_viz_dataset(dataset_path: str):
         gr.update(choices=[], value=[]),
         gr.update(choices=[], value=[]),
         gr.update(value="", interactive=False),
-        gr.update(visible=True), gr.update(visible=False),
+        gr.update(interactive=True), gr.update(interactive=False),
         False,
         gr.update(value=""),
         gr.update(choices=[]), # new_plot_vars
         [], # dynamic_plots_state
         gr.update(value=""), # new_plot_title
+        # ── Packaging & upload reset ──
+        gr.update(value=""),       # package_status
+        gr.update(value=""),       # curation_log_box
+        gr.update(value=""),       # push_status
+        gr.update(value=""),       # push_link_html
+        gr.update(value=""),       # hf_repo_id_tb
     )
 
     if not dataset_path or not dataset_path.strip():
-        return ("Select a dataset.",) + _empty_nav + _empty_curation
+        return (gr.update(), "Select a dataset first.") + _empty_nav + _empty_curation
     path = Path(dataset_path.strip())
     if not (path / "meta" / "info.json").exists():
-        return (f"Not a valid LeRobot dataset: {path}",) + _empty_nav + _empty_curation
+        return (gr.update(), f"Invalid dataset — could not find meta/info.json in: {path}") + _empty_nav + _empty_curation
 
     try:
         state.viz_info = json.loads((path / "meta" / "info.json").read_text())
 
         ep_files = sorted((path / "meta" / "episodes").rglob("*.parquet"))
         if not ep_files:
-            return ("No episode files found.",) + _empty_nav + _empty_curation
+            return (gr.update(), "Invalid dataset — no episode files found (meta/episodes/*.parquet).") + _empty_nav + _empty_curation
 
         df = (
             pd.concat([pd.read_parquet(f) for f in ep_files])
@@ -323,18 +336,24 @@ def load_viz_dataset(dataset_path: str):
             gr.update(choices=action_names, value=list(action_names)),
             gr.update(choices=state_names, value=list(state_names)),
             gr.update(value=first_task, interactive=False),
-            gr.update(visible=True), gr.update(visible=False),
+            gr.update(interactive=True), gr.update(interactive=False),
             False,
             gr.update(value=suggested_repo_id),
             gr.update(choices=all_plotable_vars, value=[]),
             [],
             gr.update(value=""),
+            # ── Packaging & upload reset ──
+            gr.update(value=""),                    # package_status
+            gr.update(value=""),                    # curation_log_box
+            gr.update(value=""),                # push_status
+            gr.update(value=""),                    # push_link_html
+            gr.update(value=suggested_repo_id),     # hf_repo_id_tb (sugerencia)
         )
 
-        return (status,) + nav + curation
+        return (gr.update(visible=True), status) + nav + curation
     except Exception as e:
         state.viz_dataset_path = None
-        return (f"Error loading: {e}\n{traceback.format_exc()}",) + _empty_nav + _empty_curation
+        return (gr.update(), f"Invalid dataset — error while loading: {e}") + _empty_nav + _empty_curation
 
 
 # ── Search filters for signal lists ──────────────────────────────────────────
@@ -389,12 +408,27 @@ def select_none_list():
 
 # ── Edicion de la instruccion global ──────────────────────────────────────────
 
-def task_start_edit():
-    return gr.update(interactive=True), gr.update(visible=False), gr.update(visible=True)
+def task_start_edit(current_text):
+    """Activa el modo edicion del textbox de instruccion.
+    Habilita el textbox y el boton guardar, deshabilita el boton editar.
+    Ambos botones permanecen siempre en el DOM (se controla con interactive,
+    no con visible) para evitar problemas de layout en Gradio.
+    """
+    return (
+        gr.update(value=current_text, interactive=True),
+        gr.update(interactive=False),
+        gr.update(interactive=True),
+    )
 
 
 def task_save(text):
-    return gr.update(value=text, interactive=False), gr.update(visible=True), gr.update(visible=False), True
+    """Guarda el texto, deshabilita el textbox, restaura el boton editar."""
+    return (
+        gr.update(value=text, interactive=False),
+        gr.update(interactive=True),
+        gr.update(interactive=False),
+        True,
+    )
 
 
 # ── Empaquetado ────────────────────────────────────────────────────────────────
@@ -488,4 +522,6 @@ def _run_packaging_thread(src_root, src_repo_id, episodes_drop, whole_features,
 def poll_curation_status():
     with state.curation_log_lock:
         log_text = "\n".join(state.curation_log_lines[-60:])
-    return state.STATUS_LABEL.get(state.curation_status, state.curation_status), log_text
+    curation_status = state.curation_status
+    status_text = "" if curation_status == "idle" else state.STATUS_LABEL.get(curation_status, curation_status)
+    return status_text, log_text
