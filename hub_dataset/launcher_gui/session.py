@@ -161,7 +161,7 @@ def cmd_exit() -> str:
 
 
 def poll_status():
-    label = state.STATUS_LABEL.get(state.status, state.status)
+    label = "" if state.status == "idle" else state.STATUS_LABEL.get(state.status, state.status)
     pct = state.ep_current / max(state.ep_total, 1)
     progress = f"Episode: {state.ep_current} / {state.ep_total}  ({int(pct * 100)}%)"
 
