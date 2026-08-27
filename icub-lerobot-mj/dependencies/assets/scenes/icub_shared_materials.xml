@@ -1,0 +1,26 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="icub_shared_materials">
+  <asset>
+    <texture file="../textures/light-gray-floor-tile.png" type="2d" name="arena_texplane" />
+    <material name="floorplane" reflectance="0.01" shininess="0.0" specular="0.0" texrepeat="2 2" texture="arena_texplane" texuniform="true" />
+    <texture file="../textures/ceramic.png" type="2d" name="tex-ceramic" />
+    <material name="table_ceramic" reflectance="0.0" shininess="0.0" specular="0.2" texrepeat="1 1" texture="tex-ceramic" />
+    <texture file="../textures/steel-brushed.png" type="cube" name="tex-steel-brushed" />
+    <material name="table_legs_metal" reflectance="0.8" shininess="0.8" texrepeat="1 1" texture="tex-steel-brushed" />
+    <texture file="../textures/light-gray-plaster.png" type="2d" name="tex-light-gray-plaster" />
+    <material name="walls_mat" reflectance="0.0" shininess="0.1" specular="0.1" texrepeat="3 3" texture="tex-light-gray-plaster" texuniform="true" />
+    <texture name="textable" builtin="flat" height="512" width="512" rgb1="0.5 0.5 0.5" rgb2="0.5 0.5 0.5" />
+    <material name="table_mat" texture="textable" />
+    <material name="blue" rgba="0 0 1 1" specular="0.1" shininess="0.5" />
+    <material name="red" rgba="1 0 0 1" specular="0.1" shininess="0.5" />
+    <texture file="../textures/dark-wood.png" type="cube" name="tex-door-wood" />
+    <material name="door_wood" reflectance="0.0" shininess="0.1" specular="0.4" texrepeat="2 2" texture="tex-door-wood" />
+    <texture file="../textures/brass-ambra.png" type="cube" name="tex-door-handle" />
+    <material name="door_handle_metal" reflectance="0.8" shininess="0.3" specular="1" texture="tex-door-handle" />
+    <material name="wall_orange" rgba="1 0.5 0.1 1" specular="0.1" shininess="0.1" emission="0.3" />
+    <material name="wall_white" rgba="1 1 1 1" specular="0.1" shininess="0.1" emission="0.3" />
+    <material name="door_gray" rgba="0.5 0.5 0.5 1" specular="0.2" shininess="0.2" emission="0.2" />
+    <texture file="../textures/red-wood.png" type="cube" name="tex-red-wood" />
+    <material name="plate_mat" texture="tex-red-wood" texrepeat="3 3" specular="0.4" shininess="0.1" />
+  </asset>
+</mujoco>

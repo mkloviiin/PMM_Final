@@ -23,29 +23,40 @@
 #   x/y/z:  [min, max] → uniform random  |  scalar → fixed  |  absent → unchanged
 #   quat:   [w, x, y, z] reset orientation (default [1, 0, 0, 0])
 
-- file: icub_table_scene_lift.xml
+- file: scene_icub_lift.xml
   label: "Block Lifting"
   task: "lift the block"
   objects:
     - body: "blue-cube"
       spawn:
-        x: [0.30, 0.45]
+        x: [0.30, 0.60]
         y: [-0.20, 0.20]
         z: 0.725
 
-- file: icub_table_scene_stack.xml
+- file: scene_icub_stack.xml
   label: "Block Stacking"
-  task: "stack the block"
+  task: "stack the blue cube on top of the red cube"
   objects:
     - body: "blue-cube"
       spawn:
-        x: [0.30, 0.45]
-        y: [-0.20, 0.20]
+        x: [0.30, 0.60]
+        y: [-0.20, -0.05]
+        z: 0.725
+    - body: "red-cube"
+      spawn:
+        x: [0.30, 0.60]
+        y: [0.05, 0.20]
         z: 0.725
 
 - file: scene_icub_pickplace.xml
   label: "Pick-and-Place"
   task: "grasp the object and place it at the target position"
+  objects:
+    - body: "pick-cube"
+      spawn:
+        x: [0.30, 0.60]
+        y: [-0.20, -0.05]
+        z: 0.725
 
 - file: scene_icub_door.xml
   label: "Door Opening"
@@ -54,73 +65,76 @@
 - file: scene_icub_peginhole.xml
   label: "Two-Arm Peg-In-Hole"
   task: "insert the peg into the hole"
+  objects:
+    - body: "peg"
+      spawn:
+        x: [0.30, 0.55]
+        y: [-0.15, -0.09]
+        z: 0.74
+        quat: [0.7071, 0, 0.7071, 0]
 
 - file: scene_icub_twoarmlift.xml
   label: "Two-Arm Lifting"
   task: "lift the object using both arms"
+  objects:
+    - body: "lift-pot"
+      spawn:
+        x: [0.30, 0.60]
+        y: [-0.10, 0.10]
+        z: 0.795
 
 # ── Disabled scenes ───────────────────────────────────────────────────────────
+# The following scenes reference XML files not yet present in this folder.
+# Drop the corresponding XML here and uncomment the entry to enable.
 
-# - file: icub_table_scene_drag.xml
+# - file: scene_icub_drag.xml
 #   label: "Drag"
 #   task: "drag the block"
 
-# - file: scene_icub_lift.xml
-#   label: "Lift (alt)"
-#   task: "lift the block"
-
-# - file: scene_icub_drag.xml
-#   label: "Drag (alt)"
-#   task: "drag the block"
-
-# - file: scene_icub_stack.xml
-#   label: "Stack (alt)"
-#   task: "stack the block"
-
-# - file: scene_icub_box_cleanup_extra.xml
+# - file: scene_icub_box_cleanup.xml
 #   label: "Box Cleanup"
 #   task: "clean up the box by placing objects inside"
 
-# - file: scene_icub_can_sorting_extra.xml
+# - file: scene_icub_can_sorting.xml
 #   label: "Can Sorting"
 #   task: "sort the cans by color or type"
 
-# - file: scene_icub_coffee_extra.xml
+# - file: scene_icub_coffee.xml
 #   label: "Coffee Making"
 #   task: "prepare a cup of coffee"
 
-# - file: scene_icub_drawer_cleanup_extra.xml
+# - file: scene_icub_drawer_cleanup.xml
 #   label: "Drawer Cleanup"
 #   task: "clean up the drawer by placing objects inside"
 
-# - file: scene_icub_nut_assembly_extra.xml
+# - file: scene_icub_nut_assembly.xml
 #   label: "Nut Assembly"
 #   task: "assemble the nut onto the bolt"
 
-# - file: scene_icub_piece_assembly_extra.xml
+# - file: scene_icub_piece_assembly.xml
 #   label: "Piece Assembly"
 #   task: "assemble the pieces into the correct position"
 
-# - file: scene_icub_pouring_extra.xml
+# - file: scene_icub_pouring.xml
 #   label: "Pouring"
 #   task: "pour the liquid from the container into the cup"
 
-# - file: scene_icub_table_wiping_extra.xml
+# - file: scene_icub_table_wiping.xml
 #   label: "Table Wiping"
 #   task: "wipe the table with the cloth"
 
-# - file: scene_icub_threading_extra.xml
+# - file: scene_icub_threading.xml
 #   label: "Threading"
 #   task: "thread the string through the ring"
 
-# - file: scene_icub_transport_extra.xml
+# - file: scene_icub_transport.xml
 #   label: "Transport"
 #   task: "transport the object to the destination"
 
-# - file: scene_icub_tray_lift_extra.xml
+# - file: scene_icub_tray_lift.xml
 #   label: "Tray Lift"
 #   task: "lift the tray with both hands without spilling"
 
-# - file: scene_icub_two_arm_handover_extra.xml
+# - file: scene_icub_two_arm_handover.xml
 #   label: "Two-Arm Handover"
 #   task: "transfer the object from one arm to the other"
