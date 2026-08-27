@@ -117,7 +117,7 @@
         <light directional="false" diffuse=".2 .2 .2" specular="0 0 0" pos="0 0 5" dir="0 0 -1" castshadow="false"/>
         <light mode="targetbodycom" target="torso_1" directional="false" diffuse=".8 .8 .8" specular="0.3 0.3 0.3" pos="0 0 4.0" dir="0 0 -1" attenuation="3 0 0"/>
          -->
-        <body name="icub" pos="0.0 0.0 0.63" mocap="true" euler="0 0 3.14159">
+        <body name="icub" pos="0.0 0.0 0.73" mocap="true" euler="0 0 3.14159">
             <inertial pos="0.0248821 0.000103947 -0.0440806" quat="-0.110211 -0.1112 -0.697807 0.698966" mass="5.09143" diaginertia="0.0254684 0.0196552 0.0139679" />
             <geom pos="-0.0364 0 0.032" quat="0.5 0.5 -0.5 -0.5" type="mesh" rgba="0.9 0.9 0.9 1" mesh="sim_sea_2-5_root_link_prt-binary" />
             <body name="r_hip_1" pos="0.0064515 0.026 -0.119913" quat="0 0 0 -1">
@@ -523,11 +523,11 @@
       <geom type="sphere" size=".08" contype="0" conaffinity="0" rgba=".6 .3 .3 .2" group="2" />
       <site type="sphere" size="0.01" rgba="0 0 1 1" group="2" />
     </body>
-    <body name="l_hand_target" pos="0.4 0.2 .7" quat="0.707 -0.707 0 0" mocap="true">
+    <body name="l_hand_target" pos="0.4 0.2 0.90" quat="0.707 -0.707 0 0" mocap="true">
       <geom type="box" size=".04 .04 .04" contype="0" conaffinity="0" rgba=".6 .3 .3 .2" group="2" />
       <site type="sphere" size="0.01" rgba="0 0 1 1" group="2" />
     </body>
-    <body name="r_hand_target" pos="0.4 -0.2 .7" quat="0.707 -0.707 0 0" mocap="true">
+    <body name="r_hand_target" pos="0.4 -0.2 0.90" quat="0.707 -0.707 0 0" mocap="true">
       <geom type="box" size=".04 .04 .04" contype="0" conaffinity="0" rgba=".6 .3 .3 .2" group="2" />
       <site type="sphere" size="0.01" rgba="0 0 1 1" group="2" />
     </body>
