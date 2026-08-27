@@ -61,7 +61,6 @@ def _run_push_thread(root, hf_repo_id: str, token: str, private: bool):
 
 def poll_push_status():
     status = state.push_status
-    # En idle no mostramos nada — el campo vacío ya indica que no hay subida en curso
     status_text = "" if status == "idle" else state.STATUS_LABEL.get(status, status)
     if state.push_status == "done" and state.push_last_repo_id:
         url = f"https://huggingface.co/datasets/{state.push_last_repo_id}"
