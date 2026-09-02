@@ -145,7 +145,7 @@ class MuJoCoTeleop:
     def __init__(self, model_path, vr_enabled=False,
                  record_enabled=False, repo_id="icub_mujoco",
                  control_arms="both", primary_arm="right",
-                 config_path=None, vr_ip=None):
+                 config_path=None, vr_ip=None, scene_objects=None):
         # ----- Load config.yaml (if provided) -----
         cfg = {}
         if config_path is not None:
@@ -177,6 +177,10 @@ class MuJoCoTeleop:
             print("  [Warn] Keyframe 'home' not found. Using current initial state as home.")
 
         self._cube_spawn = cfg.get("cube_spawn", {"x": [0.4, 0.5], "y": [-0.15, 0.15], "z": 0.725})
+        # Modular scene objects from scenes.yaml (overrides _cube_spawn when present)
+        self._scene_objects: list = scene_objects or []
+        # Modular joint resets from scenes.yaml (hinge/slide joints, e.g. door)
+        self._scene_joints: list = []
 
         self._home_pose_overrides: dict[str, float] = {}
         for joint_name, deg_value in (cfg.get("home_pose", {}) or {}).items():
@@ -920,8 +924,10 @@ class MuJoCoTeleop:
         """
         objects = getattr(self, "_scene_objects", [])
 
-        # Legacy fallback: if no scene_objects declared, try blue-cube with _cube_spawn
-        if not objects:
+        # Legacy fallback: only when BOTH scene_objects AND scene_joints are absent.
+        # Joint-only scenes (e.g. door) must not trigger this or they'd try to reset
+        # a 'blue-cube' that doesn't exist in the model.
+        if not objects and not self._scene_joints:
             spawn = getattr(self, "_cube_spawn", None)
             if spawn:
                 objects = [{"body": "blue-cube", "spawn": spawn}]
@@ -974,6 +980,23 @@ class MuJoCoTeleop:
                 print(f"[Reset] Skip '{body_name}': {e}")
 
         if any_reset:
+            mujoco.mj_forward(self.model, self.data)
+
+        # ── Joint reset (hinge/slide joints declared under `joints:` in scenes.yaml) ──
+        for jnt_def in self._scene_joints:
+            jnt_name = jnt_def.get("name", "")
+            target_qpos = float(jnt_def.get("qpos", 0.0))
+            try:
+                jnt_id = self.model.joint(jnt_name).id
+                qpos_adr = self.model.jnt_qposadr[jnt_id]
+                dof_adr = self.model.jnt_dofadr[jnt_id]
+                self.data.qpos[qpos_adr] = target_qpos
+                self.data.qvel[dof_adr] = 0.0
+                print(f"[Reset] Joint '{jnt_name}' → {target_qpos:.3f} rad")
+            except Exception as e:
+                print(f"[Reset] Skip joint '{jnt_name}': {e}")
+
+        if self._scene_joints:
             mujoco.mj_forward(self.model, self.data)
 
     def set_object_poses(self, poses: dict):

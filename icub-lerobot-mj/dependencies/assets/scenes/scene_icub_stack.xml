@@ -21,9 +21,11 @@
       <freejoint />
     </body>
     <body name="red-cube" pos="0.4 0.12 0.745">
+      <inertial pos="0 0 0" mass="0.1" diaginertia="0.000625 0.000729 0.000729" />
       <geom type="box" size="0.025 0.025 0.025" group="0" name="red_cube_collision" friction="1 0.005 0.0001" />
       <geom type="box" size="0.025 0.025 0.025" conaffinity="0" contype="0" group="1" name="red_cube_visual" material="red" />
       <site name="stack_target_top" pos="0 0 0.026" size="0.002 0.002 0.002" rgba="1 0 0 0" />
+      <freejoint />
     </body>
   </worldbody>
 

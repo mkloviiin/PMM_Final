@@ -61,17 +61,17 @@ home_pose:
   torso_pitch: 0.0
   torso_roll: 0.0
   torso_yaw: 0.0
-  l_shoulder_pitch: -20.0
-  l_shoulder_roll: 25.0
+  l_shoulder_pitch: -10.0
+  l_shoulder_roll: 15.0
   l_shoulder_yaw: 0.0
-  l_elbow: 70.0
+  l_elbow: 80.0
   l_wrist_prosup: 0.0
   l_wrist_pitch: 0.0
   l_wrist_yaw: 0.0
-  r_shoulder_pitch: -20.0
-  r_shoulder_roll: 25.0
+  r_shoulder_pitch: -10.0
+  r_shoulder_roll: 15.0
   r_shoulder_yaw: 0.0
-  r_elbow: 70.0
+  r_elbow: 80.0
   r_wrist_prosup: 0.0
   r_wrist_pitch: 0.0
   r_wrist_yaw: 0.0

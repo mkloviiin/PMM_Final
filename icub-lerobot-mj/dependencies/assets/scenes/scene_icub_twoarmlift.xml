@@ -15,6 +15,7 @@
 
   <worldbody>
     <body name="lift-pot" pos="0.4 0 0.795">
+      <inertial pos="0 0 0" mass="1.5" diaginertia="0.006 0.006 0.004" />
       <geom type="box" pos="0 0 -0.065" size="0.07 0.07 0.005" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" name="pot_base" />
       <geom type="box" pos="0 -0.065 0" quat="0.7071 0 0 0.7071" size="0.005 0.07 0.07" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" />
       <geom type="box" pos="-0.065 0 0" quat="1 0 0 0" size="0.005 0.07 0.07" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" />
