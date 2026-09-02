@@ -135,6 +135,7 @@ def _manual_vr_record(
 
     vr_enabled = bool(args.vr or args.vr_ip)
     scene_objects = getattr(args, "scene_objects", [])
+    scene_joints = getattr(args, "scene_joints", [])
 
     robot_cfg = iCubMuJoCoConfig(
         model_path=str(model_path),
@@ -142,6 +143,7 @@ def _manual_vr_record(
         vr_enabled=vr_enabled,
         vr_ip=args.vr_ip,
         scene_objects=scene_objects,
+        scene_joints=scene_joints,
     )
     teleop_cfg = iCubTeleopConfig(
         model_path=str(model_path),
@@ -149,6 +151,7 @@ def _manual_vr_record(
         vr_enabled=False,
         vr_ip=None,
         scene_objects=scene_objects,
+        scene_joints=scene_joints,
     )
     teleop_cfg.vr_enabled = False
     teleop_cfg.vr_ip = None

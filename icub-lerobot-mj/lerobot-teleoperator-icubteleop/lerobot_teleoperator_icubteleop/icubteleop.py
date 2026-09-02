@@ -99,6 +99,7 @@ class iCubTeleop(Teleoperator):
 
         # Reset scenario state — generic for any scene objects from scenes.yaml
         self._scene_objects: list[dict] = getattr(self.config, "scene_objects", []) or []
+        self._scene_joints: list[dict] = getattr(self.config, "scene_joints", []) or []
         self._last_reset_poses: dict[str, tuple] = {}  # {body_name: (pos, quat)}
         self._reset_request = False
         self._pending_visual_reset = False
@@ -221,10 +222,10 @@ class iCubTeleop(Teleoperator):
             show_right_ui=True,
         )
 
-        # Camera — igual que play_controller_sm.py
-        self.viewer.cam.lookat[:] = [-0.1, 0.0, 1.15]
-        self.viewer.cam.distance = 1.0
-        self.viewer.cam.elevation = -10
+        # Camera — vista aérea sobre la mesa (elevation negativo = mirar hacia abajo)
+        self.viewer.cam.lookat[:] = [0.35, 0.0, 0.9]
+        self.viewer.cam.distance = 2.5
+        self.viewer.cam.elevation = -65
         self.viewer.cam.azimuth = 0
 
         # Show sites, hide contact forces
@@ -828,8 +829,10 @@ class iCubTeleop(Teleoperator):
         """
         objects = self._scene_objects
 
-        # Legacy fallback: if no scene_objects declared, try blue-cube with cube_spawn
-        if not objects:
+        # Legacy fallback: only when BOTH scene_objects AND scene_joints are absent.
+        # Joint-only scenes (e.g. door) must not trigger this or they'd try to reset
+        # a 'blue-cube' that doesn't exist in the model.
+        if not objects and not self._scene_joints:
             spawn = getattr(self.config, "cube_spawn", None)
             if spawn:
                 objects = [{"body": "blue-cube", "spawn": spawn}]
@@ -885,6 +888,23 @@ class iCubTeleop(Teleoperator):
         if any_reset:
             self._last_reset_poses = reset_poses
             self._reset_request = True
+            mujoco.mj_forward(self.model, self.data)
+
+        # ── Joint reset (hinge/slide joints declared under `joints:` in scenes.yaml) ──
+        for jnt_def in self._scene_joints:
+            jnt_name = jnt_def.get("name", "")
+            target_qpos = float(jnt_def.get("qpos", 0.0))
+            try:
+                jnt_id = self.model.joint(jnt_name).id
+                qpos_adr = self.model.jnt_qposadr[jnt_id]
+                dof_adr = self.model.jnt_dofadr[jnt_id]
+                self.data.qpos[qpos_adr] = target_qpos
+                self.data.qvel[dof_adr] = 0.0
+                print(f"[Teleop] Reset joint '{jnt_name}' → {target_qpos:.3f} rad")
+            except Exception as e:
+                print(f"[Teleop] Reset joint skip '{jnt_name}': {e}")
+
+        if self._scene_joints:
             mujoco.mj_forward(self.model, self.data)
 
     def _key_callback(self, keycode):

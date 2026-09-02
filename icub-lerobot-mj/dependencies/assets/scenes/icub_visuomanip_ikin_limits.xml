@@ -523,11 +523,11 @@
       <geom type="sphere" size=".08" contype="0" conaffinity="0" rgba=".6 .3 .3 .2" group="2" />
       <site type="sphere" size="0.01" rgba="0 0 1 1" group="2" />
     </body>
-    <body name="l_hand_target" pos="0.4 0.2 0.90" quat="0.707 -0.707 0 0" mocap="true">
+    <body name="l_hand_target" pos="0.25 0.25 0.85" quat="0.707 -0.707 0 0" mocap="true">
       <geom type="box" size=".04 .04 .04" contype="0" conaffinity="0" rgba=".6 .3 .3 .2" group="2" />
       <site type="sphere" size="0.01" rgba="0 0 1 1" group="2" />
     </body>
-    <body name="r_hand_target" pos="0.4 -0.2 0.90" quat="0.707 -0.707 0 0" mocap="true">
+    <body name="r_hand_target" pos="0.25 -0.25 0.85" quat="0.707 -0.707 0 0" mocap="true">
       <geom type="box" size=".04 .04 .04" contype="0" conaffinity="0" rgba=".6 .3 .3 .2" group="2" />
       <site type="sphere" size="0.01" rgba="0 0 1 1" group="2" />
     </body>

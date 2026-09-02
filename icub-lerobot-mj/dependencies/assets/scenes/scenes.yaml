@@ -61,6 +61,11 @@
 - file: scene_icub_door.xml
   label: "Door Opening"
   task: "open the door"
+  joints:
+    - name: "door_hinge"
+      qpos: 0.0
+    - name: "handle_hinge"
+      qpos: 0.0
 
 - file: scene_icub_peginhole.xml
   label: "Two-Arm Peg-In-Hole"
@@ -68,8 +73,8 @@
   objects:
     - body: "peg"
       spawn:
-        x: [0.30, 0.55]
-        y: [-0.15, -0.09]
+        x: 0.40
+        y: -0.12
         z: 0.74
         quat: [0.7071, 0, 0.7071, 0]
 
@@ -79,62 +84,7 @@
   objects:
     - body: "lift-pot"
       spawn:
-        x: [0.30, 0.60]
-        y: [-0.10, 0.10]
+        x: 0.40
+        y: 0.0
         z: 0.795
 
-# ── Disabled scenes ───────────────────────────────────────────────────────────
-# The following scenes reference XML files not yet present in this folder.
-# Drop the corresponding XML here and uncomment the entry to enable.
-
-# - file: scene_icub_drag.xml
-#   label: "Drag"
-#   task: "drag the block"
-
-# - file: scene_icub_box_cleanup.xml
-#   label: "Box Cleanup"
-#   task: "clean up the box by placing objects inside"
-
-# - file: scene_icub_can_sorting.xml
-#   label: "Can Sorting"
-#   task: "sort the cans by color or type"
-
-# - file: scene_icub_coffee.xml
-#   label: "Coffee Making"
-#   task: "prepare a cup of coffee"
-
-# - file: scene_icub_drawer_cleanup.xml
-#   label: "Drawer Cleanup"
-#   task: "clean up the drawer by placing objects inside"
-
-# - file: scene_icub_nut_assembly.xml
-#   label: "Nut Assembly"
-#   task: "assemble the nut onto the bolt"
-
-# - file: scene_icub_piece_assembly.xml
-#   label: "Piece Assembly"
-#   task: "assemble the pieces into the correct position"
-
-# - file: scene_icub_pouring.xml
-#   label: "Pouring"
-#   task: "pour the liquid from the container into the cup"
-
-# - file: scene_icub_table_wiping.xml
-#   label: "Table Wiping"
-#   task: "wipe the table with the cloth"
-
-# - file: scene_icub_threading.xml
-#   label: "Threading"
-#   task: "thread the string through the ring"
-
-# - file: scene_icub_transport.xml
-#   label: "Transport"
-#   task: "transport the object to the destination"
-
-# - file: scene_icub_tray_lift.xml
-#   label: "Tray Lift"
-#   task: "lift the tray with both hands without spilling"
-
-# - file: scene_icub_two_arm_handover.xml
-#   label: "Two-Arm Handover"
-#   task: "transfer the object from one arm to the other"
