@@ -56,26 +56,26 @@ actuators:
     - "r_middle_distal"
     - "r_pinky"
 
-#Pose segura (grados)
+# Pose de trabajo: brazos extendidos hacia adelante sobre la mesa
 home_pose:
-  torso_pitch: 0.0
+  torso_pitch: 10.0
   torso_roll: 0.0
   torso_yaw: 0.0
-  l_shoulder_pitch: -10.0
-  l_shoulder_roll: 15.0
+  l_shoulder_pitch: -60.0
+  l_shoulder_roll: 20.0
   l_shoulder_yaw: 0.0
-  l_elbow: 80.0
+  l_elbow: 70.0
   l_wrist_prosup: 0.0
-  l_wrist_pitch: 0.0
+  l_wrist_pitch: -10.0
   l_wrist_yaw: 0.0
-  r_shoulder_pitch: -10.0
-  r_shoulder_roll: 15.0
+  r_shoulder_pitch: -60.0
+  r_shoulder_roll: 20.0
   r_shoulder_yaw: 0.0
-  r_elbow: 80.0
+  r_elbow: 70.0
   r_wrist_prosup: 0.0
-  r_wrist_pitch: 0.0
+  r_wrist_pitch: -10.0
   r_wrist_yaw: 0.0
-  neck_pitch: 0.0
+  neck_pitch: 15.0
   neck_roll: 0.0
   neck_yaw: 0.0
   eyes_tilt: 0.0
@@ -111,9 +111,9 @@ home_pose:
 hand_open_values:
   - [0, 75, 0, 0, 0, 0, 0, 0, 0]
 hand_close_values:
-  - [60, 40, 10, 70, 50, 120, 60, 100, 160]
+  - [0, 40, 40, 50, 75, 75, 75, 75, 0]
 
 cube_spawn:
   x: [0.35, 0.45]
   y: [-0.15, -0.05]
-  z: 0.627
+  z: 0.725
