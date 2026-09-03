@@ -115,11 +115,11 @@ LEFT_HAND_ACTUATORS = [
     "l_middle_proximal", "l_middle_distal", "l_pinky",
 ]
 
-# Hand open/close ctrl values (radians — converted from test/control_config.yaml)
+# Hand open/close ctrl values (radians)
 # open  (deg):  [  0, 75,  0,  0,  0,   0,  0,   0,   0]
-# close (deg):  [ 60, 40, 10, 70, 50, 120, 60, 100, 160]
+# close (deg):  [  0, 60, 45, 90, 80, 100, 80, 100,   0]
 HAND_OPEN  = np.array([0.000, 1.309, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000])
-HAND_CLOSE = np.array([1.047, 0.698, 0.175, 1.222, 0.873, 2.094, 1.047, 1.745, 2.793])
+HAND_CLOSE = np.array([0.000, 1.047, 0.785, 1.571, 1.396, 1.745, 1.396, 1.745, 0.000])
 
 # VR ZMQ ports (same as vr_controller_sm.py)
 VR_HEAD_PORT       = 8115
@@ -212,6 +212,11 @@ class MuJoCoTeleop:
         # Waist (root body) pose — needed for world ↔ iKin frame transform
         if self.has_home_keyframe:
             mujoco.mj_resetDataKeyframe(self.model, self.data, self.key_id)
+            self._apply_home_pose_to_arrays(self.data.qpos, self.data.ctrl)
+        else:
+            # No keyframe: start from qpos0 then apply home_pose YAML overrides
+            self.data.qpos[:] = self.model.qpos0
+            self.data.qvel[:] = 0
             self._apply_home_pose_to_arrays(self.data.qpos, self.data.ctrl)
         mujoco.mj_forward(self.model, self.data)
         waist_id = self.model.body("icub").id

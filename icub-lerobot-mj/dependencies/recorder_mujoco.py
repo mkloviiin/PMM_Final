@@ -98,6 +98,11 @@ class MuJoCoRecorder:
 
         # MuJoCo offscreen renderer
         self.renderer = mujoco.Renderer(model, height=img_height, width=img_width)
+        
+        # Opciones de escena para ocultar los targets (group 2) en la imagen
+        self.scene_option = mujoco.MjvOption()
+        self.scene_option.geomgroup[2] = 0
+        self.scene_option.sitegroup[2] = 0
 
         # Dataset (lazy init on first start_episode)
         self.dataset = None
@@ -111,6 +116,31 @@ class MuJoCoRecorder:
         logger.info("MuJoCoRecorder ready  "
                      f"(camera={camera_name}, {img_width}×{img_height}, "
                      f"fps={fps})")
+
+    def _get_tactile_state(self) -> np.ndarray:
+        """Get binary contact state for the first 3 fingertips of each hand (6 values)."""
+        if not hasattr(self, "_fingertip_body_ids"):
+            names = [
+                "r_hand_thumb_3", "r_hand_index_3", "r_hand_middle_3",
+                "l_hand_thumb_3", "l_hand_index_3", "l_hand_middle_3"
+            ]
+            self._fingertip_body_ids = []
+            for name in names:
+                try:
+                    self._fingertip_body_ids.append(self.model.body(name).id)
+                except KeyError:
+                    self._fingertip_body_ids.append(-1)
+
+        tactile = np.zeros(6, dtype=np.float32)
+        for i in range(self.data.ncon):
+            contact = self.data.contact[i]
+            b1 = self.model.geom_bodyid[contact.geom1]
+            b2 = self.model.geom_bodyid[contact.geom2]
+            
+            for idx, b_id in enumerate(self._fingertip_body_ids):
+                if b_id != -1 and (b1 == b_id or b2 == b_id):
+                    tactile[idx] = 1.0
+        return tactile
 
     # ------------------------------------------------------------------ #
     #                          Public API                                  #
@@ -133,8 +163,8 @@ class MuJoCoRecorder:
         if self.dataset is None:
             return
 
-        # Render image from MuJoCo camera
-        self.renderer.update_scene(self.data, camera=self.camera_name)
+        # Render image from MuJoCo camera without mocap markers
+        self.renderer.update_scene(self.data, camera=self.camera_name, scene_option=self.scene_option)
         image_rgb = self.renderer.render()  # (H, W, 3) uint8 RGB
         image_tensor = torch.from_numpy(image_rgb.copy()).permute(2, 0, 1)
 
@@ -146,10 +176,14 @@ class MuJoCoRecorder:
                 world_state = np.zeros(len(self.world_feature_names), dtype=np.float32)
             world_state_tensor = torch.from_numpy(np.asarray(world_state, dtype=np.float32))
 
+            tactile_state = self._get_tactile_state()
+            tactile_tensor = torch.from_numpy(tactile_state)
+
             self.dataset.add_frame({
                 "observation.image.front": image_tensor,
                 "observation.state": state_tensor,
                 "observation.state_world": world_state_tensor,
+                "observation.state_tactile": tactile_tensor,
                 "action": action_tensor,
                 "task": "teleoperate icub mujoco",
             })
@@ -207,6 +241,14 @@ class MuJoCoRecorder:
                 "dtype": "float32",
                 "shape": (WORLD_DIM,),
                 "names": self.world_feature_names,
+            },
+            "observation.state_tactile": {
+                "dtype": "float32",
+                "shape": (6,),
+                "names": [
+                    "r_thumb_touch", "r_index_touch", "r_middle_touch",
+                    "l_thumb_touch", "l_index_touch", "l_middle_touch",
+                ],
             },
             "action": {
                 "dtype": "float32",
