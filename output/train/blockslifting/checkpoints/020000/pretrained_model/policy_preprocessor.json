@@ -1,0 +1,90 @@
+{
+  "name": "policy_preprocessor",
+  "steps": [
+    {
+      "registry_name": "rename_observations_processor",
+      "config": {
+        "rename_map": {}
+      }
+    },
+    {
+      "registry_name": "to_batch_processor",
+      "config": {}
+    },
+    {
+      "registry_name": "smolvla_new_line_processor",
+      "config": {}
+    },
+    {
+      "registry_name": "tokenizer_processor",
+      "config": {
+        "max_length": 48,
+        "task_key": "task",
+        "padding_side": "right",
+        "padding": "longest",
+        "truncation": true,
+        "tokenizer_name": "tokenizer"
+      },
+      "artifacts": {
+        "tokenizer_name": "tokenizer"
+      }
+    },
+    {
+      "registry_name": "device_processor",
+      "config": {
+        "device": "cuda",
+        "float_dtype": null
+      }
+    },
+    {
+      "registry_name": "normalizer_processor",
+      "config": {
+        "eps": 1e-08,
+        "features": {
+          "observation.state": {
+            "type": "STATE",
+            "shape": [
+              97
+            ]
+          },
+          "observation.images.head_cam": {
+            "type": "VISUAL",
+            "shape": [
+              320,
+              3,
+              240
+            ]
+          },
+          "observation.images.head_cam_track_hand": {
+            "type": "VISUAL",
+            "shape": [
+              320,
+              3,
+              240
+            ]
+          },
+          "observation.images.frontview": {
+            "type": "VISUAL",
+            "shape": [
+              320,
+              3,
+              240
+            ]
+          },
+          "action": {
+            "type": "ACTION",
+            "shape": [
+              11
+            ]
+          }
+        },
+        "norm_map": {
+          "VISUAL": "IDENTITY",
+          "STATE": "MEAN_STD",
+          "ACTION": "MEAN_STD"
+        }
+      },
+      "state_file": "policy_preprocessor_step_5_normalizer_processor.safetensors"
+    }
+  ]
+}
