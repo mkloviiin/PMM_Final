@@ -305,24 +305,28 @@ class iCubMuJoCo(Robot):
                     self._rh_grip_mode = mode
 
         if self.config.control_arms in ["left", "both"]:
-            lh_pos = np.array([
-                self._action_value(action, "lh_pos_x", "lh_x"),
-                self._action_value(action, "lh_pos_y", "lh_y"),
-                self._action_value(action, "lh_pos_z", "lh_z"),
-            ], dtype=np.float64)
-            lh_quat = np.array([
-                self._action_value(action, "lh_quat_w", "lh_qw"),
-                self._action_value(action, "lh_quat_x", "lh_qx"),
-                self._action_value(action, "lh_quat_y", "lh_qy"),
-                self._action_value(action, "lh_quat_z", "lh_qz"),
-            ], dtype=np.float64)
-            lh_quat_norm = np.linalg.norm(lh_quat)
-            if lh_quat_norm > 1e-6:
-                lh_quat = lh_quat / lh_quat_norm
-            else:
-                lh_quat = np.array([1.0, 0.0, 0.0, 0.0])
-            data.mocap_pos[self.teleop_core.lh_mocap_id] = lh_pos
-            data.mocap_quat[self.teleop_core.lh_mocap_id] = lh_quat
+            # Left-hand keys are optional: if the policy only controls the right
+            # arm, skip updating the left mocap target (it stays in place).
+            _lh_has_pos = any(k in action for k in ("lh_pos_x", "lh_x"))
+            if _lh_has_pos:
+                lh_pos = np.array([
+                    self._action_value(action, "lh_pos_x", "lh_x"),
+                    self._action_value(action, "lh_pos_y", "lh_y"),
+                    self._action_value(action, "lh_pos_z", "lh_z"),
+                ], dtype=np.float64)
+                lh_quat = np.array([
+                    self._action_value(action, "lh_quat_w", "lh_qw"),
+                    self._action_value(action, "lh_quat_x", "lh_qx"),
+                    self._action_value(action, "lh_quat_y", "lh_qy"),
+                    self._action_value(action, "lh_quat_z", "lh_qz"),
+                ], dtype=np.float64)
+                lh_quat_norm = np.linalg.norm(lh_quat)
+                if lh_quat_norm > 1e-6:
+                    lh_quat = lh_quat / lh_quat_norm
+                else:
+                    lh_quat = np.array([1.0, 0.0, 0.0, 0.0])
+                data.mocap_pos[self.teleop_core.lh_mocap_id] = lh_pos
+                data.mocap_quat[self.teleop_core.lh_mocap_id] = lh_quat
 
             if "lh_gripper" in action:
                 grip = self._to_float(action["lh_gripper"])

@@ -66,14 +66,14 @@ if icubenv_sp not in sys.path:
 # Imports that depend on the path setup above
 # ---------------------------------------------------------------------------
 from lerobot.configs.policies import PreTrainedConfig
-from lerobot.datasets.utils import build_dataset_frame
+from lerobot.utils.feature_utils import build_dataset_frame
 from lerobot.policies.factory import get_policy_class, make_pre_post_processors
 from lerobot.policies.utils import make_robot_action
 from lerobot.robots import make_robot_from_config
 from lerobot.utils.constants import ACTION, OBS_STR
-from lerobot.utils.control_utils import predict_action
+from lerobot.common.control_utils import predict_action
 from lerobot.utils.robot_utils import precise_sleep
-from lerobot.utils.utils import get_safe_torch_device
+from lerobot.utils.device_utils import get_safe_torch_device
 
 from lerobot_robot_icub.config_icub_mujoco import iCubMuJoCoConfig
 
@@ -589,8 +589,11 @@ def main() -> None:
                         vid_writers[_cam].write(img_bgr)
                 if cam_imgs:
                     combined = np.concatenate(cam_imgs, axis=0)
-                    cv2.imshow("iCub Cameras: frontview | head_cam | track_hand", combined)
-                    cv2.waitKey(1)
+                    try:
+                        cv2.imshow("iCub Cameras: frontview | head_cam | track_hand", combined)
+                        cv2.waitKey(1)
+                    except cv2.error:
+                        pass  # Headless environment — skip display, videos saved to disk
 
                 # 7) Send action to robot (sets mocap targets + steps physics)
                 robot.send_action(action_dict)
@@ -777,7 +780,10 @@ def main() -> None:
         print(f"[eval] Summary JSON saved → {summary_path}")
 
         print("[eval] Cleaning up ...")
-        cv2.destroyAllWindows()
+        try:
+            cv2.destroyAllWindows()
+        except cv2.error:
+            pass  # Headless environment
         mj_viewer.close()
         if robot.is_connected:
             robot.disconnect()

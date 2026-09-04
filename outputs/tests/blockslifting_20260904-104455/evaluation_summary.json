@@ -1,0 +1,843 @@
+{
+  "run": {
+    "timestamp_start_unix": 1788533095.0112493,
+    "timestamp_end_unix": 1788533202.454262,
+    "duration_s": 107.44301271438599,
+    "output_dir": "/home/icub/Desktop/mkloviiin/PMM_Final/outputs/tests/blockslifting_20260904-104455",
+    "task": "lift the blue block",
+    "scene": null,
+    "model_xml_path": "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/dependencies/assets/scenes/scene_icub_lift.xml",
+    "control_config_path": "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/utils/control_config.yaml",
+    "interrupted": false
+  },
+  "evaluation": {
+    "requested_num_episodes": 5,
+    "executed_episodes": 5,
+    "completed_episodes": 5,
+    "successful_episodes": 5,
+    "success_rate_over_completed": 1.0,
+    "success_rate_over_executed": 1.0,
+    "mean_time_to_take_blue_cube_success_s": 6.966666666666666,
+    "std_time_to_take_blue_cube_success_s": 1.731922502756851,
+    "successful_episodes_with_detected_take": 5,
+    "episode_len_limit_steps": 600,
+    "requested_control_hz": 30.0,
+    "requested_control_dt_s": 0.03333333333333333,
+    "simulation_hz": 200.0,
+    "simulation_dt_s": 0.005,
+    "robot_internal_control_hz": 30.0,
+    "robot_internal_control_dt_s": 0.03333333333333333,
+    "sim_steps_per_action": 7,
+    "success_criterion": {
+      "cube_height_threshold_m": 0.65,
+      "min_hold_time_s": 1.0,
+      "required_consecutive_steps": 30
+    },
+    "touch_detection": {
+      "feature_keys_all": [
+        "rh_touch_thumb",
+        "rh_touch_index",
+        "rh_touch_middle"
+      ],
+      "feature_keys_for_take": [
+        "rh_touch_thumb",
+        "rh_touch_index",
+        "rh_touch_middle"
+      ],
+      "touch_threshold": 0.5,
+      "take_min_fingers": 2,
+      "take_hold_seconds": 0.2,
+      "take_hold_steps": 6,
+      "definition": "Tomar = contacto tactil sostenido con al menos take_min_fingers dedos sobre threshold.",
+      "metric_scope": "Media y desviacion estandar calculadas solo sobre episodios exitosos."
+    }
+  },
+  "model": {
+    "policy_type": "smolvla",
+    "checkpoint_path": "/home/icub/Desktop/mkloviiin/PMM_Final/output/train/blockslifting/checkpoints/020000/pretrained_model",
+    "policy_config_path": "/home/icub/Desktop/mkloviiin/PMM_Final/output/train/blockslifting/checkpoints/020000/pretrained_model/config.json",
+    "policy_config": {
+      "type": "smolvla",
+      "n_obs_steps": 1,
+      "input_features": {
+        "observation.state": {
+          "type": "STATE",
+          "shape": [
+            97
+          ]
+        },
+        "observation.images.head_cam": {
+          "type": "VISUAL",
+          "shape": [
+            320,
+            3,
+            240
+          ]
+        },
+        "observation.images.head_cam_track_hand": {
+          "type": "VISUAL",
+          "shape": [
+            320,
+            3,
+            240
+          ]
+        },
+        "observation.images.frontview": {
+          "type": "VISUAL",
+          "shape": [
+            320,
+            3,
+            240
+          ]
+        }
+      },
+      "output_features": {
+        "action": {
+          "type": "ACTION",
+          "shape": [
+            11
+          ]
+        }
+      },
+      "device": "cuda",
+      "use_amp": true,
+      "use_peft": false,
+      "push_to_hub": false,
+      "repo_id": null,
+      "private": null,
+      "tags": null,
+      "license": null,
+      "pretrained_path": null,
+      "pretrained_revision": null,
+      "chunk_size": 60,
+      "n_action_steps": 60,
+      "normalization_mapping": {
+        "VISUAL": "IDENTITY",
+        "STATE": "MEAN_STD",
+        "ACTION": "MEAN_STD"
+      },
+      "max_state_dim": 97,
+      "max_action_dim": 32,
+      "resize_imgs_with_padding": [
+        512,
+        512
+      ],
+      "empty_cameras": 0,
+      "adapt_to_pi_aloha": false,
+      "use_delta_joint_actions_aloha": false,
+      "tokenizer_max_length": 48,
+      "num_steps": 10,
+      "use_cache": true,
+      "freeze_vision_encoder": true,
+      "train_expert_only": true,
+      "train_state_proj": true,
+      "optimizer_lr": 0.0001,
+      "optimizer_betas": [
+        0.9,
+        0.95
+      ],
+      "optimizer_eps": 1e-08,
+      "optimizer_weight_decay": 1e-10,
+      "optimizer_grad_clip_norm": 10,
+      "scheduler_warmup_steps": 1000,
+      "scheduler_decay_steps": 30000,
+      "scheduler_decay_lr": 2.5e-06,
+      "vlm_model_name": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+      "load_vlm_weights": true,
+      "add_image_special_tokens": false,
+      "attention_mode": "cross_attn",
+      "prefix_length": -1,
+      "pad_language_to": "longest",
+      "num_expert_layers": -1,
+      "num_vlm_layers": 16,
+      "self_attn_every_n_layers": 2,
+      "expert_width_multiplier": 0.75,
+      "min_period": 0.004,
+      "max_period": 4.0,
+      "rtc_config": null,
+      "compile_model": false,
+      "compile_mode": "max-autotune"
+    },
+    "device": "cuda"
+  },
+  "training": {
+    "train_config_path": "/home/icub/Desktop/mkloviiin/PMM_Final/output/train/blockslifting/checkpoints/020000/pretrained_model/train_config.json",
+    "train_config": {
+      "dataset": {
+        "repo_id": "local/prueba/curated",
+        "repo_type": "dataset",
+        "root": "/home/icub/Desktop/mkloviiin/PMM_Final/data_curated/local_prueba_curated_2026-09-03_23-01-02",
+        "episodes": null,
+        "exclude_episodes": null,
+        "image_transforms": {
+          "enable": false,
+          "max_num_transforms": 3,
+          "random_order": false,
+          "tfs": {
+            "brightness": {
+              "weight": 1.0,
+              "type": "ColorJitter",
+              "kwargs": {
+                "brightness": [
+                  0.8,
+                  1.2
+                ]
+              }
+            },
+            "contrast": {
+              "weight": 1.0,
+              "type": "ColorJitter",
+              "kwargs": {
+                "contrast": [
+                  0.8,
+                  1.2
+                ]
+              }
+            },
+            "saturation": {
+              "weight": 1.0,
+              "type": "ColorJitter",
+              "kwargs": {
+                "saturation": [
+                  0.5,
+                  1.5
+                ]
+              }
+            },
+            "hue": {
+              "weight": 1.0,
+              "type": "ColorJitter",
+              "kwargs": {
+                "hue": [
+                  -0.05,
+                  0.05
+                ]
+              }
+            },
+            "sharpness": {
+              "weight": 1.0,
+              "type": "SharpnessJitter",
+              "kwargs": {
+                "sharpness": [
+                  0.5,
+                  1.5
+                ]
+              }
+            },
+            "affine": {
+              "weight": 1.0,
+              "type": "RandomAffine",
+              "kwargs": {
+                "degrees": [
+                  -5.0,
+                  5.0
+                ],
+                "translate": [
+                  0.05,
+                  0.05
+                ]
+              }
+            }
+          }
+        },
+        "revision": null,
+        "use_imagenet_stats": true,
+        "video_backend": "torchcodec",
+        "return_uint8": false,
+        "depth_output_unit": "mm",
+        "streaming": false,
+        "eval_split": 0.0
+      },
+      "env": null,
+      "policy": {
+        "type": "smolvla",
+        "n_obs_steps": 1,
+        "input_features": {
+          "observation.state": {
+            "type": "STATE",
+            "shape": [
+              97
+            ]
+          },
+          "observation.images.head_cam": {
+            "type": "VISUAL",
+            "shape": [
+              320,
+              3,
+              240
+            ]
+          },
+          "observation.images.head_cam_track_hand": {
+            "type": "VISUAL",
+            "shape": [
+              320,
+              3,
+              240
+            ]
+          },
+          "observation.images.frontview": {
+            "type": "VISUAL",
+            "shape": [
+              320,
+              3,
+              240
+            ]
+          }
+        },
+        "output_features": {
+          "action": {
+            "type": "ACTION",
+            "shape": [
+              11
+            ]
+          }
+        },
+        "device": "cuda",
+        "use_amp": true,
+        "use_peft": false,
+        "push_to_hub": false,
+        "repo_id": null,
+        "private": null,
+        "tags": null,
+        "license": null,
+        "pretrained_path": null,
+        "pretrained_revision": null,
+        "chunk_size": 60,
+        "n_action_steps": 60,
+        "normalization_mapping": {
+          "VISUAL": "IDENTITY",
+          "STATE": "MEAN_STD",
+          "ACTION": "MEAN_STD"
+        },
+        "max_state_dim": 97,
+        "max_action_dim": 32,
+        "resize_imgs_with_padding": [
+          512,
+          512
+        ],
+        "empty_cameras": 0,
+        "adapt_to_pi_aloha": false,
+        "use_delta_joint_actions_aloha": false,
+        "tokenizer_max_length": 48,
+        "num_steps": 10,
+        "use_cache": true,
+        "freeze_vision_encoder": true,
+        "train_expert_only": true,
+        "train_state_proj": true,
+        "optimizer_lr": 0.0001,
+        "optimizer_betas": [
+          0.9,
+          0.95
+        ],
+        "optimizer_eps": 1e-08,
+        "optimizer_weight_decay": 1e-10,
+        "optimizer_grad_clip_norm": 10,
+        "scheduler_warmup_steps": 1000,
+        "scheduler_decay_steps": 30000,
+        "scheduler_decay_lr": 2.5e-06,
+        "vlm_model_name": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+        "load_vlm_weights": true,
+        "add_image_special_tokens": false,
+        "attention_mode": "cross_attn",
+        "prefix_length": -1,
+        "pad_language_to": "longest",
+        "num_expert_layers": -1,
+        "num_vlm_layers": 16,
+        "self_attn_every_n_layers": 2,
+        "expert_width_multiplier": 0.75,
+        "min_period": 0.004,
+        "max_period": 4.0,
+        "rtc_config": null,
+        "compile_model": false,
+        "compile_mode": "max-autotune"
+      },
+      "reward_model": null,
+      "output_dir": "/home/icub/Desktop/mkloviiin/PMM_Final/output/train/blockslifting",
+      "job_name": "icub_smolvla_blocklifting",
+      "resume": false,
+      "seed": 1000,
+      "cudnn_deterministic": false,
+      "num_workers": 32,
+      "batch_size": 22,
+      "prefetch_factor": 4,
+      "persistent_workers": true,
+      "dataloader_multiprocessing_context": "spawn",
+      "steps": 20000,
+      "env_eval_freq": 20000,
+      "log_freq": 30,
+      "eval_steps": 0,
+      "max_eval_samples": 0,
+      "tolerance_s": 0.0001,
+      "save_checkpoint": true,
+      "save_freq": 20000,
+      "checkpoint_format": "safetensors",
+      "use_policy_training_preset": true,
+      "optimizer": {
+        "type": "adamw",
+        "lr": 0.0001,
+        "weight_decay": 1e-10,
+        "grad_clip_norm": 10,
+        "betas": [
+          0.9,
+          0.95
+        ],
+        "eps": 1e-08
+      },
+      "scheduler": {
+        "type": "cosine_decay_with_warmup",
+        "num_warmup_steps": 1000,
+        "num_decay_steps": 30000,
+        "peak_lr": 0.0001,
+        "decay_lr": 2.5e-06
+      },
+      "parallelism": {
+        "dp_replicate": 1,
+        "dp_shard": 1,
+        "context_parallel": {
+          "ring_degree": 1,
+          "ulysses_degree": 1
+        },
+        "cfg_parallel": 1
+      },
+      "accelerator": {
+        "mixed_precision": "no",
+        "gradient_accumulation": {
+          "steps": 1
+        },
+        "fsdp": {
+          "reshard_after_forward": true,
+          "wrap_modules": null,
+          "min_num_params": null,
+          "cpu_offload": false,
+          "ignored_modules": null
+        },
+        "ddp": {
+          "find_unused_parameters": true,
+          "gradient_as_bucket_view": false,
+          "static_graph": false
+        },
+        "compile": {
+          "enabled": false,
+          "backend": "inductor",
+          "mode": null,
+          "regional": true
+        },
+        "activation_checkpointing": {
+          "mode": "none"
+        }
+      },
+      "eval": {
+        "n_episodes": 50,
+        "batch_size": 22,
+        "use_async_envs": true,
+        "recording": false,
+        "recording_repo_id": null,
+        "recording_private": false
+      },
+      "ema": {
+        "enable": false,
+        "decay": null,
+        "update_after_step": 0,
+        "inv_gamma": 1.0,
+        "power": 0.75,
+        "min_decay": 0.0,
+        "max_decay": 0.9999,
+        "use_for_eval": true
+      },
+      "wandb": {
+        "enable": true,
+        "disable_artifact": false,
+        "project": "icub_smolvla_blocklifting",
+        "entity": null,
+        "notes": null,
+        "run_id": "eoedpw79",
+        "mode": null,
+        "add_tags": true
+      },
+      "peft": null,
+      "job": {
+        "target": null,
+        "image": "huggingface/lerobot-gpu:latest",
+        "timeout": "2d",
+        "detach": false,
+        "tags": []
+      },
+      "save_checkpoint_to_hub": false,
+      "sample_weighting": null,
+      "rename_map": {},
+      "checkpoint_path": null
+    }
+  },
+  "dataset_used_for_training": {
+    "repo_id": "local/prueba/curated",
+    "root": "/home/icub/Desktop/mkloviiin/PMM_Final/data_curated/local_prueba_curated_2026-09-03_23-01-02",
+    "meta_info_path": "/home/icub/Desktop/mkloviiin/PMM_Final/data_curated/local_prueba_curated_2026-09-03_23-01-02/meta/info.json",
+    "meta_stats_path": "/home/icub/Desktop/mkloviiin/PMM_Final/data_curated/local_prueba_curated_2026-09-03_23-01-02/meta/stats.json",
+    "meta_info_summary": {
+      "total_episodes": 26,
+      "total_frames": 14592,
+      "fps": 30,
+      "robot_type": "icub_mujoco",
+      "codebase_version": "v3.0",
+      "chunks_size": 1000,
+      "total_tasks": 1,
+      "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
+      "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet"
+    },
+    "meta_info": {
+      "codebase_version": "v3.0",
+      "robot_type": "icub_mujoco",
+      "total_episodes": 26,
+      "total_frames": 14592,
+      "total_tasks": 1,
+      "chunks_size": 1000,
+      "data_files_size_in_mb": 100,
+      "video_files_size_in_mb": 200,
+      "fps": 30,
+      "splits": {
+        "train": "0:26"
+      },
+      "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
+      "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
+      "features": {
+        "action": {
+          "dtype": "float32",
+          "names": [
+            "rh_pos_x",
+            "rh_pos_y",
+            "rh_pos_z",
+            "rh_quat_w",
+            "rh_quat_x",
+            "rh_quat_y",
+            "rh_quat_z",
+            "rh_gripper",
+            "gaze_x",
+            "gaze_y",
+            "gaze_z"
+          ],
+          "shape": [
+            11
+          ]
+        },
+        "observation.state": {
+          "dtype": "float32",
+          "names": [
+            "torso_pitch",
+            "torso_roll",
+            "torso_yaw",
+            "r_shoulder_pitch",
+            "r_shoulder_roll",
+            "r_shoulder_yaw",
+            "r_elbow",
+            "r_wrist_prosup",
+            "r_wrist_pitch",
+            "r_wrist_yaw",
+            "r_hand_finger",
+            "r_thumb_oppose",
+            "r_thumb_proximal",
+            "r_thumb_distal",
+            "r_index_proximal",
+            "r_index_distal",
+            "r_middle_proximal",
+            "r_middle_distal",
+            "r_pinky",
+            "neck_pitch",
+            "neck_roll",
+            "neck_yaw",
+            "torso_pitch_vel",
+            "torso_roll_vel",
+            "torso_yaw_vel",
+            "r_shoulder_pitch_vel",
+            "r_shoulder_roll_vel",
+            "r_shoulder_yaw_vel",
+            "r_elbow_vel",
+            "r_wrist_prosup_vel",
+            "r_wrist_pitch_vel",
+            "r_wrist_yaw_vel",
+            "r_hand_finger_vel",
+            "r_thumb_oppose_vel",
+            "r_thumb_proximal_vel",
+            "r_thumb_distal_vel",
+            "r_index_proximal_vel",
+            "r_index_distal_vel",
+            "r_middle_proximal_vel",
+            "r_middle_distal_vel",
+            "r_pinky_vel",
+            "neck_pitch_vel",
+            "neck_roll_vel",
+            "neck_yaw_vel",
+            "rh_ee_pos_x",
+            "rh_ee_pos_y",
+            "rh_ee_pos_z",
+            "rh_ee_quat_w",
+            "rh_ee_quat_x",
+            "rh_ee_quat_y",
+            "rh_ee_quat_z",
+            "rh_target_pos_x",
+            "rh_target_pos_y",
+            "rh_target_pos_z",
+            "rh_target_quat_w",
+            "rh_target_quat_x",
+            "rh_target_quat_y",
+            "rh_target_quat_z",
+            "gaze_target_pos_x",
+            "gaze_target_pos_y",
+            "gaze_target_pos_z",
+            "rh_gripper",
+            "rh_touch_thumb",
+            "rh_touch_index",
+            "rh_touch_middle",
+            "obj0_pos_x",
+            "obj0_pos_y",
+            "obj0_pos_z",
+            "obj0_quat_w",
+            "obj0_quat_x",
+            "obj0_quat_y",
+            "obj0_quat_z",
+            "torso_pitch_torque",
+            "torso_roll_torque",
+            "torso_yaw_torque",
+            "r_shoulder_pitch_torque",
+            "r_shoulder_roll_torque",
+            "r_shoulder_yaw_torque",
+            "r_elbow_torque",
+            "r_wrist_prosup_torque",
+            "r_wrist_pitch_torque",
+            "r_wrist_yaw_torque",
+            "r_hand_finger_torque",
+            "r_thumb_oppose_torque",
+            "r_thumb_proximal_torque",
+            "r_thumb_distal_torque",
+            "r_index_proximal_torque",
+            "r_index_distal_torque",
+            "r_middle_proximal_torque",
+            "r_middle_distal_torque",
+            "r_pinky_torque",
+            "neck_pitch_torque",
+            "neck_roll_torque",
+            "neck_yaw_torque",
+            "rh_ext_force_x",
+            "rh_ext_force_y",
+            "rh_ext_force_z"
+          ],
+          "shape": [
+            97
+          ]
+        },
+        "observation.images.head_cam": {
+          "dtype": "video",
+          "shape": [
+            3,
+            240,
+            320
+          ],
+          "names": [
+            "height",
+            "width",
+            "channels"
+          ],
+          "info": {
+            "video.height": 240,
+            "video.width": 320,
+            "video.codec": "av1",
+            "video.pix_fmt": "yuv420p",
+            "video.is_depth_map": false,
+            "video.fps": 30,
+            "video.channels": 3,
+            "has_audio": false
+          }
+        },
+        "observation.images.head_cam_track_hand": {
+          "dtype": "video",
+          "shape": [
+            3,
+            240,
+            320
+          ],
+          "names": [
+            "height",
+            "width",
+            "channels"
+          ],
+          "info": {
+            "video.height": 240,
+            "video.width": 320,
+            "video.codec": "av1",
+            "video.pix_fmt": "yuv420p",
+            "video.is_depth_map": false,
+            "video.fps": 30,
+            "video.channels": 3,
+            "has_audio": false
+          }
+        },
+        "observation.images.frontview": {
+          "dtype": "video",
+          "shape": [
+            3,
+            240,
+            320
+          ],
+          "names": [
+            "height",
+            "width",
+            "channels"
+          ],
+          "info": {
+            "video.height": 240,
+            "video.width": 320,
+            "video.codec": "av1",
+            "video.pix_fmt": "yuv420p",
+            "video.is_depth_map": false,
+            "video.fps": 30,
+            "video.channels": 3,
+            "has_audio": false
+          }
+        },
+        "timestamp": {
+          "dtype": "float32",
+          "shape": [
+            1
+          ],
+          "names": null
+        },
+        "frame_index": {
+          "dtype": "int64",
+          "shape": [
+            1
+          ],
+          "names": null
+        },
+        "episode_index": {
+          "dtype": "int64",
+          "shape": [
+            1
+          ],
+          "names": null
+        },
+        "index": {
+          "dtype": "int64",
+          "shape": [
+            1
+          ],
+          "names": null
+        },
+        "task_index": {
+          "dtype": "int64",
+          "shape": [
+            1
+          ],
+          "names": null
+        }
+      }
+    },
+    "meta_stats_keys": [
+      "action",
+      "episode_index",
+      "frame_index",
+      "index",
+      "observation.images.frontview",
+      "observation.images.head_cam",
+      "observation.images.head_cam_track_hand",
+      "observation.state",
+      "task_index",
+      "timestamp"
+    ]
+  },
+  "episodes": [
+    {
+      "episode_index": 0,
+      "episode_dir": "/home/icub/Desktop/mkloviiin/PMM_Final/outputs/tests/blockslifting_20260904-104455/episode_000",
+      "completed": true,
+      "interrupted": false,
+      "steps_executed": 600,
+      "episode_len_limit": 600,
+      "duration_s": 21.67844820022583,
+      "success": true,
+      "success_threshold_m": 0.65,
+      "success_hold_seconds": 1.0,
+      "success_hold_steps": 30,
+      "first_success_step": 29,
+      "first_success_time_s": 0.9666666666666667,
+      "first_take_step": 234,
+      "first_take_time_s": 7.8,
+      "max_cube_height_m": 0.9153015743152202,
+      "cube_height_samples": 600
+    },
+    {
+      "episode_index": 1,
+      "episode_dir": "/home/icub/Desktop/mkloviiin/PMM_Final/outputs/tests/blockslifting_20260904-104455/episode_001",
+      "completed": true,
+      "interrupted": false,
+      "steps_executed": 600,
+      "episode_len_limit": 600,
+      "duration_s": 21.416807651519775,
+      "success": true,
+      "success_threshold_m": 0.65,
+      "success_hold_seconds": 1.0,
+      "success_hold_steps": 30,
+      "first_success_step": 29,
+      "first_success_time_s": 0.9666666666666667,
+      "first_take_step": 119,
+      "first_take_time_s": 3.966666666666667,
+      "max_cube_height_m": 0.8977714696259751,
+      "cube_height_samples": 600
+    },
+    {
+      "episode_index": 2,
+      "episode_dir": "/home/icub/Desktop/mkloviiin/PMM_Final/outputs/tests/blockslifting_20260904-104455/episode_002",
+      "completed": true,
+      "interrupted": false,
+      "steps_executed": 600,
+      "episode_len_limit": 600,
+      "duration_s": 21.51321268081665,
+      "success": true,
+      "success_threshold_m": 0.65,
+      "success_hold_seconds": 1.0,
+      "success_hold_steps": 30,
+      "first_success_step": 29,
+      "first_success_time_s": 0.9666666666666667,
+      "first_take_step": 261,
+      "first_take_time_s": 8.7,
+      "max_cube_height_m": 0.9053436607936317,
+      "cube_height_samples": 600
+    },
+    {
+      "episode_index": 3,
+      "episode_dir": "/home/icub/Desktop/mkloviiin/PMM_Final/outputs/tests/blockslifting_20260904-104455/episode_003",
+      "completed": true,
+      "interrupted": false,
+      "steps_executed": 600,
+      "episode_len_limit": 600,
+      "duration_s": 21.40832757949829,
+      "success": true,
+      "success_threshold_m": 0.65,
+      "success_hold_seconds": 1.0,
+      "success_hold_steps": 30,
+      "first_success_step": 29,
+      "first_success_time_s": 0.9666666666666667,
+      "first_take_step": 184,
+      "first_take_time_s": 6.133333333333334,
+      "max_cube_height_m": 0.8507299457755214,
+      "cube_height_samples": 600
+    },
+    {
+      "episode_index": 4,
+      "episode_dir": "/home/icub/Desktop/mkloviiin/PMM_Final/outputs/tests/blockslifting_20260904-104455/episode_004",
+      "completed": true,
+      "interrupted": false,
+      "steps_executed": 600,
+      "episode_len_limit": 600,
+      "duration_s": 21.426050901412964,
+      "success": true,
+      "success_threshold_m": 0.65,
+      "success_hold_seconds": 1.0,
+      "success_hold_steps": 30,
+      "first_success_step": 29,
+      "first_success_time_s": 0.9666666666666667,
+      "first_take_step": 247,
+      "first_take_time_s": 8.233333333333333,
+      "max_cube_height_m": 0.8250161307603036,
+      "cube_height_samples": 600
+    }
+  ]
+}

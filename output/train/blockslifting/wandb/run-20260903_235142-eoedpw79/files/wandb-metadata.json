@@ -1,0 +1,58 @@
+{
+  "os":  "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+  "python":  "CPython 3.12.14",
+  "startedAt":  "2026-09-04T03:51:42.485711Z",
+  "args":  [
+    "--policy.type=smolvla",
+    "--policy.vlm_model_name=HuggingFaceTB/SmolVLM2-500M-Video-Instruct",
+    "--policy.load_vlm_weights=true",
+    "--policy.use_amp=true",
+    "--policy.chunk_size=60",
+    "--policy.n_action_steps=60",
+    "--dataset.repo_id=local/prueba/curated",
+    "--dataset.root=/home/icub/Desktop/mkloviiin/PMM_Final/data_curated/local_prueba_curated_2026-09-03_23-01-02",
+    "--policy.max_state_dim=97",
+    "--policy.push_to_hub=false",
+    "--batch_size=22",
+    "--num_workers=32",
+    "--steps=20000",
+    "--log_freq=30",
+    "--output_dir=/home/icub/Desktop/mkloviiin/PMM_Final/output/train/blockslifting",
+    "--job_name=icub_smolvla_blocklifting",
+    "--policy.device=cuda",
+    "--wandb.enable=true",
+    "--wandb.project=icub_smolvla_blocklifting"
+  ],
+  "program":  "-m lerobot.scripts.lerobot_train",
+  "git":  {
+    "remote":  "https://github.com/huggingface/lerobot.git",
+    "commit":  "3f2c29ef7e44b1ddccbcda3b6a63939e53639e9e"
+  },
+  "root":  "/home/icub/Desktop/mkloviiin/PMM_Final/output/train/blockslifting",
+  "host":  "Z790",
+  "executable":  "/home/icub/miniconda3/envs/smolvla/bin/python",
+  "cpu_count":  24,
+  "cpu_count_logical":  32,
+  "gpu":  "NVIDIA GeForce RTX 3070",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "801271234560",
+      "used":  "392970395648"
+    }
+  },
+  "memory":  {
+    "total":  "134886690816"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA GeForce RTX 3070",
+      "memoryTotal":  "8589934592",
+      "cudaCores":  5888,
+      "architecture":  "Ampere",
+      "uuid":  "GPU-0bbdc4f0-759a-9f19-479d-cbafb3b51b95"
+    }
+  ],
+  "cudaVersion":  "13.0",
+  "writerId":  "gmryalzocroftrzy2l3qyucvd9ddzfom"
+}
