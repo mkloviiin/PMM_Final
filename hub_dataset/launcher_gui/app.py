@@ -90,7 +90,44 @@ WELCOME_CSS = """
 def build_ui() -> gr.Blocks:
     with gr.Blocks(title="iCub MuJoCo Launcher", css=WELCOME_CSS) as demo:
         welcome_col, welcome_buttons = build_welcome_screen()
+        demo.load(
+            fn=None,
+            js="""
+            () => {
+                const ids = ['sync-vid-0', 'sync-vid-1', 'sync-vid-2'];
+                let isSyncing = false;
 
+                function syncVideos(e) {
+                    if (isSyncing) return;
+                    if (!ids.includes(e.target.id)) return;
+                    const source = e.target;
+                    isSyncing = true;
+                    ids.forEach(id => {
+                        const v = document.getElementById(id);
+                        if (!v || v === source) return;
+                        if (e.type === 'seeked') {
+                            if (Math.abs(v.currentTime - source.currentTime) > 0.05) {
+                                v.currentTime = source.currentTime;
+                            }
+                        } else if (e.type === 'play') {
+                            if (Math.abs(v.currentTime - source.currentTime) > 0.05) {
+                                v.currentTime = source.currentTime;
+                            }
+                            v.play().catch(() => {});
+                        } else if (e.type === 'pause') {
+                            v.currentTime = source.currentTime;
+                            v.pause();
+                        }
+                    });
+                    setTimeout(() => { isSyncing = false; }, 50);
+                }
+
+                ['play', 'pause', 'seeked'].forEach(evt =>
+                    document.addEventListener(evt, syncVideos, true)
+                );
+            }
+            """
+        )
 
 
         with gr.Column(visible=False) as main_col:
@@ -142,8 +179,7 @@ def build_ui() -> gr.Blocks:
         )
 
         # ── Visualizar y curar (generico, no depende del robot) ──────────
-        nav_outputs = [c["ep_num_nb"], c["ep_info_tb"], c["vid0"], c["vid1"], c["vid2"],
-                       c["ep_delete_btn"], c["marked_summary_tb"]]
+        nav_outputs = [c["ep_num_nb"], c["ep_info_tb"], c["videos_html"],                       c["ep_delete_btn"], c["marked_summary_tb"]]
         curation_outputs = [c["whole_feature_cbg"], c["dims_action_cbg"], c["dims_state_cbg"],
                             c["task_tb"], c["task_edit_btn"], c["task_save_btn"],
                             c["task_dirty_state"], c["new_repo_id_tb"],

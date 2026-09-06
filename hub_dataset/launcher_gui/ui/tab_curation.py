@@ -56,9 +56,7 @@ def build_curation_tab():
             marked_summary_tb = gr.Textbox(label="Episodes excluded from the final dataset", interactive=False)
 
             with gr.Row():
-                vid0 = gr.Video(label="Camera 0", autoplay=True, loop=True)
-                vid1 = gr.Video(label="Camera 1", autoplay=True, loop=True)
-                vid2 = gr.Video(label="Camera 2", autoplay=True, loop=True)
+                videos_html = gr.HTML(value="")
 
             with gr.Row():
                 gr.Markdown("### Dynamic Plots")
@@ -260,7 +258,7 @@ def build_curation_tab():
         load_ds_btn=load_ds_btn, viz_status=viz_status,
         ep_prev_btn=ep_prev_btn, ep_num_nb=ep_num_nb, ep_next_btn=ep_next_btn,
         ep_delete_btn=ep_delete_btn, ep_info_tb=ep_info_tb, marked_summary_tb=marked_summary_tb,
-        vid0=vid0, vid1=vid1, vid2=vid2,
+        videos_html=videos_html,
         add_plot_btn=add_plot_btn, new_plot_group=new_plot_group, new_plot_vars=new_plot_vars,
         new_plot_title=new_plot_title,
         confirm_plot_btn=confirm_plot_btn, cancel_plot_btn=cancel_plot_btn,

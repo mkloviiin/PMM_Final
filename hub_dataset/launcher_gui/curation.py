@@ -19,7 +19,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from . import state
-
+from .video_sync import build_synced_video_html
 
 def log_curation(msg: str) -> None:
     ts = time.strftime("%H:%M:%S")
@@ -215,9 +215,9 @@ def _marked_summary() -> str:
 
 def _goto_episode(idx):
     """Devuelve todos los outputs de la vista de un episodio (numero clamped,
-    info, videos, estado del boton eliminar y resumen de marcados)."""
+    info, HTML de videos sincronizados, estado del boton eliminar y resumen de marcados)."""
     if not state.viz_ep_rows or state.viz_dataset_path is None:
-        return (0, "No dataset loaded.", None, None, None,
+        return (0, "No dataset loaded.", "",
                 gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.")
 
     ep_idx = min(max(int(idx), 0), len(state.viz_ep_rows) - 1)
@@ -225,10 +225,9 @@ def _goto_episode(idx):
 
     cam_keys = (state.viz_video_keys + [None, None, None])[:3]
     v0, v1, v2 = [_trim_episode_video(k, ep_row) if k else None for k in cam_keys]
-
+    videos_html = build_synced_video_html(v0, v1, v2)
     del_label = "↩️ Undo delete" if ep_idx in state.curation_marked_delete else "🗑️ Delete this episode"
-    return ep_idx, _ep_info_str(ep_row), v0, v1, v2, gr.update(value=del_label), _marked_summary()
-
+    return ep_idx, _ep_info_str(ep_row), videos_html, gr.update(value=del_label), _marked_summary()
 
 def ep_goto(idx):
     return _goto_episode(idx)
