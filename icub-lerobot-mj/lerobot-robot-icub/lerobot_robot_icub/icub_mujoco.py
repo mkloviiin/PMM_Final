@@ -8,7 +8,7 @@ from typing import Any
 import mujoco
 import numpy as np
 import torch
-
+import time
 from lerobot.robots.robot import Robot
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 

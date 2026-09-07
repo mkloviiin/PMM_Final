@@ -92,11 +92,11 @@ def copy_previous_note(idx) -> str:
 
 
 def save_recording_note(text) -> None:
-    save_note_for_dataset(state.last_dataset_root, state.ep_current, text)
+    save_note_for_dataset(state.active_dataset_root, state.ep_current, text)
 
 
 def copy_previous_recording_note() -> str:
-    return copy_previous_note_for_dataset(state.last_dataset_root, state.ep_current)
+    return copy_previous_note_for_dataset(state.active_dataset_root, state.ep_current)
 
 def log_curation(msg: str) -> None:
     ts = time.strftime("%H:%M:%S")
