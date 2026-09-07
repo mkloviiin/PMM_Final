@@ -38,6 +38,29 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
             size_nb = gr.Number(label="Dataset size (MB)", value=0.0, interactive=False, precision=2, scale=1, elem_classes=["no-spinner"])
 
         gr.Markdown("---")
+        with gr.Accordion("❓ Help: controls", open=False):
+            gr.Markdown(
+                "**Simulation control:**\n"
+                "- `1`: Open right hand\n"
+                "- `2`: Close right hand\n"
+                "- `3`: Stop right hand\n"
+                "- `4`: Open left hand\n"
+                "- `5`: Close left hand\n"
+                "- `6`: Stop left hand\n"
+                "- `R`: Randomize scene object positions\n"
+                "- `Space`: Reset mocap targets to XML pose\n"
+                "- `Ctrl` + right-click + drag: move the target (hand position)\n"
+                "- `Ctrl` + left-click + drag: rotate the target (hand angle)\n\n"
+                "**VR control (Meta Quest):**\n"
+                "- `A`: Start recording episode\n"
+                "- `B` (short tap): Stop and save episode\n"
+                "- `B` (hold 1.5s+): Discard episode and re-record\n"
+                "- Right index trigger: Close right hand\n"
+                "- Right grip: Open right hand\n"
+                "- Left index trigger: Close left hand\n"
+                "- Left grip: Open left hand\n"
+                "- `Y`: Randomize scene object positions"
+            )
         gr.Markdown("### Episode Controls")
         with gr.Row():
             start_btn = gr.Button("RECORD episode", variant="primary", scale=2)
