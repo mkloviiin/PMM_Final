@@ -33,9 +33,9 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
         gr.Markdown("---")
         gr.Markdown("### Real-time Metrics")
         with gr.Row():
-            fps_nb = gr.Number(label="FPS", value=0.0, interactive=False, precision=1, scale=1)
-            lat_nb = gr.Number(label="Latency (ms)", value=0.0, interactive=False, precision=1, scale=1)
-            size_nb = gr.Number(label="Dataset size (MB)", value=0.0, interactive=False, precision=2, scale=1)
+            fps_nb = gr.Number(label="FPS", value=0.0, interactive=False, precision=1, scale=1, show_label=True, container=True, elem_classes=["no-spinner"])
+            lat_nb = gr.Number(label="Latency (ms)", value=0.0, interactive=False, precision=1, scale=1, elem_classes=["no-spinner"])
+            size_nb = gr.Number(label="Dataset size (MB)", value=0.0, interactive=False, precision=2, scale=1, elem_classes=["no-spinner"])
 
         gr.Markdown("---")
         gr.Markdown("### Episode Controls")
