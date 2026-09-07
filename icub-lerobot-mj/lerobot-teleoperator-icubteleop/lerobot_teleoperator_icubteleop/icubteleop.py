@@ -366,14 +366,12 @@ class iCubTeleop(Teleoperator):
         #Recibe las observaciones del robot y actualiza el modelo visual en Mujoco.        
         if not self.is_connected: return
 
-        if "rh_gripper" in feedback:
+        if "rh_gripper" in feedback and not self._rh_grip_pulse:
             val = feedback["rh_gripper"]
             self.rh_grip_state = float(val.item() if hasattr(val, "item") else val)
-            self._rh_grip_pulse = False
-        if "lh_gripper" in feedback:
+        if "lh_gripper" in feedback and not self._lh_grip_pulse:
             val = feedback["lh_gripper"]
             self.lh_grip_state = float(val.item() if hasattr(val, "item") else val)
-            self._lh_grip_pulse = False
         
         update_visuals = False
 
