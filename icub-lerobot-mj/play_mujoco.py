@@ -123,7 +123,7 @@ def _manual_vr_record(
         aggregate_pipeline_dataset_features,
         create_initial_features,
     )
-    from lerobot.datasets.feature_utils import build_dataset_frame, combine_feature_dicts
+    from lerobot.datasets.utils import build_dataset_frame, combine_feature_dicts
     from lerobot.processor import make_default_processors
     from lerobot.teleoperators import make_teleoperator_from_config
     from lerobot.robots import make_robot_from_config
