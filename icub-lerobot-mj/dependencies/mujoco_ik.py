@@ -87,7 +87,7 @@ class IKinArmSolver:
 
         # Create solver
         self.solver = icub.iKinIpOptMin(
-            self.chain, 0, 1e-2, 1e-2, 5000, verbose=0)
+            self.chain, 0, 1e-2, 1e-2, 200, verbose=0)
 
         self.prev_sol = None
 
