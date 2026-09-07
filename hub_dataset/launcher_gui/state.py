@@ -23,6 +23,8 @@ ep_total = 50
 status = "idle"  # idle | waiting | recording | done | error
 live_metrics = {"fps": 0.0, "latency_ms": 0.0, "size_mb": 0.0}
 last_dataset_root: Path | None = None
+active_dataset_root: Path | None = None
+_last_polled_ep: int = -1
 last_repo_id: str | None = None
 
 # ── Estado del visualizador / curacion ────────────────────────────────────────

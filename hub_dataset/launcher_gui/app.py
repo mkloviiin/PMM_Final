@@ -84,6 +84,15 @@ WELCOME_CSS = """
     padding-bottom: 0 !important;
     box-sizing: border-box !important;
 }
+
+.no-spinner input[type="number"]::-webkit-outer-spin-button,
+.no-spinner input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none !important;
+    margin: 0 !important;
+}
+.no-spinner input[type="number"] {
+    -moz-appearance: textfield !important;
+}
 """
 
 
@@ -175,7 +184,7 @@ def build_ui() -> gr.Blocks:
             outputs=[episodes["status_lbl"], episodes["progress_lbl"],
                      episodes["progress_bar"], episodes["log_box"],
                      episodes["fps_nb"], episodes["lat_nb"], episodes["size_nb"],
-                     back_btn],
+                     back_btn, episodes["episode_note_input_tb"]],
         )
 
         # ── Visualizar y curar (generico, no depende del robot) ──────────

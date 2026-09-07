@@ -119,6 +119,7 @@ def start_session(record_fn: Callable[..., None], *, repo_id: str,
         sys.stdout = _Tee(orig)
         try:
             state.status = "waiting"
+            state.active_dataset_root = dataset_root
             log(f"Session started - repo: {repo_id}")
             log(f"  dataset: {dataset_root}")
             log(f"  conda env: {os.environ.get('CONDA_DEFAULT_ENV', '?')}  ({sys.executable})")
@@ -168,8 +169,16 @@ def poll_status():
     with state.log_lock:
         log_text = "\n".join(state.log_lines[-80:])
 
+    if state.ep_current != state._last_polled_ep:
+        state._last_polled_ep = state.ep_current
+        from .curation import save_note_for_dataset  # noqa: F401 (evita import circular arriba)
+        note_update = gr.update(value="")
+    else:
+        note_update = gr.update()
+
     return (
         label, progress, state.ep_current, log_text,
         state.live_metrics["fps"], state.live_metrics["latency_ms"], state.live_metrics["size_mb"],
-        gr.update(interactive=not state.running)
+        gr.update(interactive=not state.running),
+        note_update,
     )
