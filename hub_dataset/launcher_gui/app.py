@@ -179,7 +179,8 @@ def build_ui() -> gr.Blocks:
         )
 
         # ── Visualizar y curar (generico, no depende del robot) ──────────
-        nav_outputs = [c["ep_num_nb"], c["ep_info_tb"], c["videos_html"],                       c["ep_delete_btn"], c["marked_summary_tb"]]
+        nav_outputs = [c["ep_num_nb"], c["ep_info_tb"], c["videos_html"], c["episode_note_tb"],
+                       c["ep_delete_btn"], c["marked_summary_tb"]]
         curation_outputs = [c["whole_feature_cbg"], c["dims_action_cbg"], c["dims_state_cbg"],
                             c["task_tb"], c["task_edit_btn"], c["task_save_btn"],
                             c["task_dirty_state"], c["new_repo_id_tb"],
@@ -224,6 +225,25 @@ def build_ui() -> gr.Blocks:
         c["ep_prev_btn"].click(fn=curation.ep_prev, inputs=[c["ep_num_nb"]], outputs=nav_outputs)
         c["ep_next_btn"].click(fn=curation.ep_next, inputs=[c["ep_num_nb"]], outputs=nav_outputs)
         c["ep_num_nb"].submit(fn=curation.ep_goto, inputs=[c["ep_num_nb"]], outputs=nav_outputs)
+
+        c["episode_note_tb"].blur(
+            fn=curation.save_current_note,
+            inputs=[c["ep_num_nb"], c["episode_note_tb"]],
+        )
+        c["copy_note_btn"].click(
+            fn=curation.copy_previous_note,
+            inputs=[c["ep_num_nb"]],
+            outputs=[c["episode_note_tb"]],
+        )
+
+        episodes["episode_note_input_tb"].blur(
+            fn=curation.save_recording_note,
+            inputs=[episodes["episode_note_input_tb"]],
+        )
+        episodes["copy_note_recording_btn"].click(
+            fn=curation.copy_previous_recording_note,
+            outputs=[episodes["episode_note_input_tb"]],
+        )
         c["ep_delete_btn"].click(fn=curation.toggle_delete_episode, inputs=[c["ep_num_nb"]],
                                   outputs=[c["ep_delete_btn"], c["marked_summary_tb"]])
 

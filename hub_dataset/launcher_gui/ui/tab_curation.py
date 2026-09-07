@@ -53,6 +53,9 @@ def build_curation_tab():
                 ep_next_btn = gr.Button("►", scale=0, min_width=80)
                 ep_delete_btn = gr.Button("🗑️ Delete this episode", scale=2)
             ep_info_tb = gr.Textbox(label="Episode info", interactive=False)
+            with gr.Row():
+                episode_note_tb = gr.Textbox(label="Episode note", placeholder="Optional notes for this episode", scale=4)
+                copy_note_btn = gr.Button("Copy previous", scale=1)
             marked_summary_tb = gr.Textbox(label="Episodes excluded from the final dataset", interactive=False)
 
             with gr.Row():
@@ -258,6 +261,7 @@ def build_curation_tab():
         load_ds_btn=load_ds_btn, viz_status=viz_status,
         ep_prev_btn=ep_prev_btn, ep_num_nb=ep_num_nb, ep_next_btn=ep_next_btn,
         ep_delete_btn=ep_delete_btn, ep_info_tb=ep_info_tb, marked_summary_tb=marked_summary_tb,
+        episode_note_tb=episode_note_tb, copy_note_btn=copy_note_btn,
         videos_html=videos_html,
         add_plot_btn=add_plot_btn, new_plot_group=new_plot_group, new_plot_vars=new_plot_vars,
         new_plot_title=new_plot_title,

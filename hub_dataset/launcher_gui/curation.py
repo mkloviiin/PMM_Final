@@ -5,6 +5,7 @@ datasets en formato LeRobot, sin saber nunca como se grabaron.
 from __future__ import annotations
 
 import json
+from os import path
 import re
 import subprocess
 import threading
@@ -20,6 +21,82 @@ import plotly.graph_objects as go
 
 from . import state
 from .video_sync import build_synced_video_html
+
+NOTES_FILENAME = "episode_notes.json"
+
+
+def _notes_path(dataset_path: Path) -> Path:
+    return Path(dataset_path) / NOTES_FILENAME
+
+
+def _load_notes(dataset_path: Path | None) -> dict[str, str]:
+    if dataset_path is None:
+        return {}
+    p = _notes_path(dataset_path)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_notes(dataset_path: Path | None, notes: dict[str, str]) -> None:
+    if dataset_path is None:
+        return
+    try:
+        _notes_path(dataset_path).write_text(
+            json.dumps(notes, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError as e:
+        log_curation(f"No se pudo guardar {NOTES_FILENAME}: {e!r}")
+
+
+def save_note_for_dataset(dataset_path, idx, text) -> None:
+    if dataset_path is None:
+        return
+    notes = _load_notes(dataset_path)
+    notes[str(int(idx))] = text or ""
+    _save_notes(dataset_path, notes)
+
+
+def copy_previous_note_for_dataset(dataset_path, idx) -> str:
+    if dataset_path is None:
+        return ""
+    notes = _load_notes(dataset_path)
+    idx = int(idx)
+    for i in range(idx - 1, -1, -1):
+        candidate = notes.get(str(i), "")
+        if candidate.strip():
+            notes[str(idx)] = candidate
+            _save_notes(dataset_path, notes)
+            return candidate
+    return ""
+
+
+def get_episode_note(idx: int) -> str:
+    return state.viz_notes.get(str(int(idx)), "")
+
+
+def save_current_note(idx, text) -> None:
+    save_note_for_dataset(state.viz_dataset_path, idx, text)
+    if state.viz_dataset_path is not None:
+        state.viz_notes[str(int(idx))] = text or ""
+
+
+def copy_previous_note(idx) -> str:
+    note = copy_previous_note_for_dataset(state.viz_dataset_path, idx)
+    if state.viz_dataset_path is not None:
+        state.viz_notes[str(int(idx))] = note
+    return note
+
+
+def save_recording_note(text) -> None:
+    save_note_for_dataset(state.last_dataset_root, state.ep_current, text)
+
+
+def copy_previous_recording_note() -> str:
+    return copy_previous_note_for_dataset(state.last_dataset_root, state.ep_current)
 
 def log_curation(msg: str) -> None:
     ts = time.strftime("%H:%M:%S")
@@ -215,9 +292,9 @@ def _marked_summary() -> str:
 
 def _goto_episode(idx):
     """Devuelve todos los outputs de la vista de un episodio (numero clamped,
-    info, HTML de videos sincronizados, estado del boton eliminar y resumen de marcados)."""
+    info, HTML de videos sincronizados, nota, estado del boton eliminar y resumen de marcados)."""
     if not state.viz_ep_rows or state.viz_dataset_path is None:
-        return (0, "No dataset loaded.", "",
+        return (0, "No dataset loaded.", "", "",
                 gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.")
 
     ep_idx = min(max(int(idx), 0), len(state.viz_ep_rows) - 1)
@@ -226,8 +303,10 @@ def _goto_episode(idx):
     cam_keys = (state.viz_video_keys + [None, None, None])[:3]
     v0, v1, v2 = [_trim_episode_video(k, ep_row) if k else None for k in cam_keys]
     videos_html = build_synced_video_html(v0, v1, v2)
+    note_text = get_episode_note(ep_idx)
+
     del_label = "↩️ Undo delete" if ep_idx in state.curation_marked_delete else "🗑️ Delete this episode"
-    return ep_idx, _ep_info_str(ep_row), videos_html, gr.update(value=del_label), _marked_summary()
+    return ep_idx, _ep_info_str(ep_row), videos_html, note_text, gr.update(value=del_label), _marked_summary()
 
 def ep_goto(idx):
     return _goto_episode(idx)
@@ -263,7 +342,7 @@ def load_viz_dataset(dataset_path: str):
     state.push_last_repo_id = None
 
     _empty_nav = (
-        0, "", None, None, None,
+        0, "", "", "",
         gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.",
     )
     _empty_curation = (
@@ -310,7 +389,7 @@ def load_viz_dataset(dataset_path: str):
         ]
         state.viz_dataset_path = path
         state.curation_marked_delete = set()
-
+        state.viz_notes = _load_notes(path)
         n_ep = len(state.viz_ep_rows)
         fps = state.viz_info.get("fps", 30)
         total_frames = state.viz_info.get("total_frames",
