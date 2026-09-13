@@ -177,7 +177,8 @@ def _trim_episode_video(video_key: str, ep_row: dict) -> str | None:
 
     ep_idx = int(ep_row["episode_index"])
     safe_key = video_key.replace("/", "_").replace(".", "_")
-    dst = state.viz_tmp_dir / f"ep{ep_idx:04d}_{safe_key}.mp4"
+    dataset_tag = state.viz_dataset_path.name
+    dst = state.viz_tmp_dir / f"{dataset_tag}_ep{ep_idx:04d}_{safe_key}.mp4"
 
     if not dst.exists():
         duration = max(t_end - t_start, 0.1)
