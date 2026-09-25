@@ -5,26 +5,19 @@ Para agregar un robot nuevo: crear `robots/<robot>.py` con su propio
 (ver base.py) y sumar su `BACKEND` aca. No hace falta tocar la UI compartida
 (welcome, tab_config, tab_episodes, tab_curation) ni las pestanas de
 curacion/subida a Hub -- se arman solas a partir de esta lista.
+
+Patron para escalar a N robots: cada backend es independiente y decide como
+corre (in-process como `icub_sim`, o en subproceso aislado como `icub_rg`).
+No hay un robot "base". El Hub serializa: solo una sesion de grabacion activa
+a la vez (ver session.py), asi que sumar robots no multiplica procesos vivos.
 """
 
 from __future__ import annotations
 
-from ..paths import ASSETS_DIR
 from .base import RobotBackend
-from . import icub_sim
-
-# Placeholder: iCub real todavia no tiene backend implementado. Cuando se
-# agregue (con su propio control remoto en vez de VR), crear
-# robots/icub_real.py siguiendo el mismo patron que icub_sim.py y reemplazar
-# esta entrada por `icub_real.BACKEND`.
-_ICUB_REAL_PLACEHOLDER = RobotBackend(
-    id="icub_real",
-    label="iCub Real",
-    image=ASSETS_DIR / "icub.png",
-    available=False,
-)
+from . import icub_rg, icub_sim
 
 REGISTRY: list[RobotBackend] = [
-    icub_sim.BACKEND,
-    _ICUB_REAL_PLACEHOLDER,
+    icub_sim.BACKEND,  # iCub MuJoCo (simulacion de fisica, in-process)
+    icub_rg.BACKEND,   # iCub Real / Gazebo (via YARP, subproceso aislado)
 ]

@@ -1,0 +1,90 @@
+# Scene manifest for selectable iCub MuJoCo scenes.
+#
+# This folder also contains XMLs that are NOT selectable scenes (shared
+# includes like icub_visuomanip_ikin_limits.xml, or old versions like
+# scene_icub_lift.xml / scene.xml) -- that is why scenes are declared
+# manually here instead of auto-detecting all *.xml files in the folder.
+#
+# To add a new scene: drop the XML in this folder and add an entry here.
+# launcher_gui will warn (in the log) if it finds a loose *.xml in the
+# folder that is not listed here, to avoid "orphan" scenes.
+#
+# - file: name of the XML inside this same folder
+# - label: text shown in the "Scene" dropdown
+# - task: default language instruction for that scene
+
+# ── Enabled scenes ────────────────────────────────────────────────────────────
+#
+# Optional `objects` list: declares resettable bodies and their spawn ranges.
+# When the user presses R (reset), each object is randomised within its range.
+# If `objects` is absent, pressing R does nothing (correct for fixed scenes).
+#
+# Spawn rules:
+#   x/y/z:  [min, max] → uniform random  |  scalar → fixed  |  absent → unchanged
+#   quat:   [w, x, y, z] reset orientation (default [1, 0, 0, 0])
+
+- file: scene_icub_lift.xml
+  label: "Block Lifting"
+  task: "lift the block"
+  objects:
+    - body: "blue-cube"
+      spawn:
+        x: [0.25, 0.40]
+        y: [-0.20, 0.20]
+        z: 0.725
+
+- file: scene_icub_stack.xml
+  label: "Block Stacking"
+  task: "stack the blue cube on top of the red cube"
+  objects:
+    - body: "blue-cube"
+      spawn:
+        x: [0.25, 0.40]
+        y: [-0.20, -0.05]
+        z: 0.725
+    - body: "red-cube"
+      spawn:
+        x: [0.3025, 0.40]
+        y: [0.05, 0.20]
+        z: 0.725
+
+- file: scene_icub_pickplace.xml
+  label: "Pick-and-Place"
+  task: "grasp the object and place it at the target position"
+  objects:
+    - body: "pick-cube"
+      spawn:
+        x: [0.25, 0.40]
+        y: [-0.20, -0.05]
+        z: 0.725
+
+- file: scene_icub_door.xml
+  label: "Door Opening"
+  task: "open the door"
+  joints:
+    - name: "door_hinge"
+      qpos: 0.0
+    - name: "handle_hinge"
+      qpos: 0.0
+
+- file: scene_icub_peginhole.xml
+  label: "Two-Arm Peg-In-Hole"
+  task: "insert the peg into the hole"
+  objects:
+    - body: "peg"
+      spawn:
+        x: 0.40
+        y: -0.12
+        z: 0.74
+        quat: [0.7071, 0, 0.7071, 0]
+
+- file: scene_icub_twoarmlift.xml
+  label: "Two-Arm Lifting"
+  task: "lift the object using both arms"
+  objects:
+    - body: "lift-pot"
+      spawn:
+        x: 0.40
+        y: 0.0
+        z: 0.795
+

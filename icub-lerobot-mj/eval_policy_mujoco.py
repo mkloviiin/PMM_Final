@@ -357,7 +357,7 @@ def main() -> None:
     print(f"[eval] Saving episode data to {output_base}")
 
     # Success criterion: cube height above threshold for a sustained duration.
-    success_height_threshold_m = 0.65
+    success_height_threshold_m = 0.8
     success_hold_seconds = 1.0
     success_hold_steps = max(1, int(np.ceil(success_hold_seconds * args.fps)))
 
@@ -778,6 +778,18 @@ def main() -> None:
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
         print(f"[eval] Summary JSON saved → {summary_path}")
+
+        # --- Terminal Summary ---
+        success_rate = (successful_episodes / executed_episodes * 100.0) if executed_episodes > 0 else 0.0
+        print(f"\n{'='*60}")
+        print(f"  RESUMEN DE EVALUACIÓN")
+        print(f"{'='*60}")
+        print(f"  Episodios totales ejecutados: {executed_episodes}")
+        print(f"  Episodios exitosos:           {successful_episodes}")
+        print(f"  Tasa de éxito:                {success_rate:.1f}%")
+        if mean_time_to_take_success_s is not None:
+            print(f"  Tiempo prom. hasta contacto inicial (exitosos): {mean_time_to_take_success_s:.2f} s")
+        print(f"{'='*60}\n")
 
         print("[eval] Cleaning up ...")
         try:

@@ -1,0 +1,33 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="scene_icub_peginhole">
+
+  <include file="icub_visuomanip_ikin_limits.xml"/>
+  <include file="icub_shared_materials.xml"/>
+  <include file="icub_room_arena.xml"/>
+  <include file="icub_standard_table.xml"/>
+
+  <visual>
+    <map force="0.1" zfar="30" />
+    <rgba haze="0.15 0.25 0.35 1" />
+    <quality shadowsize="2048" />
+    <global offwidth="800" offheight="800" />
+  </visual>
+
+  <worldbody>
+    <body name="hole-board" pos="0.39 0.15 0.73">
+      <geom pos="0 0 0" size="0.06 0.17 0.01" type="box" group="1" material="plate_mat" />
+      <geom pos="0.22 0 0" size="0.06 0.17 0.01" type="box" group="1" material="plate_mat" />
+      <geom pos="0.11 0.11 0" size="0.05 0.06 0.01" type="box" group="1" material="plate_mat" />
+      <geom pos="0.11 -0.11 0" size="0.05 0.06 0.01" type="box" group="1" material="plate_mat" />
+    </body>
+    <geom type="box" size="0.07 0.005 0.015" pos="0.4 -0.145 0.735" rgba="0.55 0.55 0.55 1" name="peg_cradle_l_extra" />
+    <geom type="box" size="0.07 0.005 0.015" pos="0.4 -0.095 0.735" rgba="0.55 0.55 0.55 1" name="peg_cradle_r_extra" />
+    <body name="peg" pos="0.4 -0.12 0.74" quat="0.7071 0 0.7071 0">
+      <inertial pos="0 0 0" mass="0.12" diaginertia="0.0002 0.0002 0.00005" />
+      <geom type="cylinder" size="0.02 0.065" group="0" name="peg_collision" rgba="0.6 0.6 0.15 1" friction="0.9 0.01 0.001" condim="4" />
+      <geom type="cylinder" size="0.02 0.065" conaffinity="0" contype="0" group="1" name="peg_visual" rgba="0.6 0.6 0.15 1" />
+      <freejoint />
+    </body>
+  </worldbody>
+
+</mujoco>

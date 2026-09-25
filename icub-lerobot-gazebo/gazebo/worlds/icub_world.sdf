@@ -1,0 +1,85 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <world name="default">
+    <physics name="1ms" type="ignored">
+        <max_step_size>0.001</max_step_size>
+        <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin
+        filename="gz-sim-physics-system"
+        name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin
+        filename="gz-sim-user-commands-system"
+        name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin
+        filename="gz-sim-sensors-system"
+        name="gz::sim::systems::Sensors">
+        <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin
+        filename="gz-sim-scene-broadcaster-system"
+        name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin
+        filename="gz-sim-contact-system"
+        name="gz::sim::systems::Contact">
+    </plugin>
+
+    <!-- YARP CLOCK -->
+    <plugin
+        filename="gz-sim-yarp-clock-system"
+        name="gzyarp::Clock">
+    </plugin>
+
+    <include>
+      <uri>model://table</uri>
+      <pose>-0.530772 0 0 0 0 -1.57</pose>
+    </include>
+
+    <!-- Table top at z=0.72, igual que la mesa de MuJoCo (icub_standard_table.xml) -->
+    <include>
+      <uri>model://blue-cube</uri>
+      <pose>-0.4 0.1 0.745 0 0 0</pose>
+    </include>
+
+    <!-- <include>
+      <uri>model://camera-stand</uri>
+      <name>camara_externa</name>
+      <pose>-0.530772 0 1.315 0 0.3 3.14</pose>
+    </include> -->
+
+    <include>
+      <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Sun</uri>
+      <pose>0 0 10 0 -0 3.14</pose>
+    </include>
+
+    <include>
+      <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Ground Plane</uri>
+    </include>
+
+    <state world_name='default'>
+      <!-- <light name='sun'>
+        <pose frame=''>0 0 10 0 -0 3.14</pose>
+      </light> -->
+    </state>
+
+    <model name="iCub">
+      <include>
+        <uri>model://iCubGazeboV2_5_visuomanip_camada</uri>
+        <pose>0.0 0.0 0.63 0.0 0.0 0.0</pose>
+      </include>
+    </model>
+
+    <gui fullscreen='0'>
+      <camera name='user_camera'>
+        <pose frame=''>-1.2 0 0.7 0 0 0</pose>
+        <view_controller>orbit</view_controller>
+        <projection_type>perspective</projection_type>
+      </camera>
+    </gui>
+
+  </world>
+</sdf>
+

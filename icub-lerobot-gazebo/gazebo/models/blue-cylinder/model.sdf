@@ -1,0 +1,41 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <model name="blue-cylinder">
+    <link name="link">
+      <inertial>
+        <mass>0.5</mass>
+        <inertia>
+          <ixx>0.000729</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.000729</iyy>
+          <iyz>0</iyz>
+          <izz>0.000625</izz>
+        </inertia>
+      </inertial>
+      
+      <collision name="collision">
+        <geometry>
+          <cylinder>
+            <radius>0.03</radius>
+            <length>0.1</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      
+      <visual name="visual">
+        <geometry>
+          <cylinder>
+            <radius>0.03</radius>
+            <length>0.1</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0 0 1 1</ambient>
+          <diffuse>0 0 1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="icub_standard_table">
+  <worldbody>
+    <body name="table" pos="0.45 0 0.695">
+      <geom pos="0 0 0" size="0.25 0.4 0.025" type="box" group="0" name="table_collision" friction="1 0.005 0.0001" />
+      <geom pos="0 0 0" size="0.25 0.4 0.025" type="box" conaffinity="0" contype="0" group="1" name="table_visual" material="table_ceramic" />
+      <site pos="0 0 0.025" name="table_top" size="0.001 0.001 0.001" rgba="0 0 0 0" />
+      <geom pos="0.15 0.3 -0.3475" size="0.025 0.3475" type="cylinder" conaffinity="0" contype="0" group="1" name="table_leg1_visual" material="table_legs_metal" />
+      <geom pos="-0.15 0.3 -0.3475" size="0.025 0.3475" type="cylinder" conaffinity="0" contype="0" group="1" name="table_leg2_visual" material="table_legs_metal" />
+      <geom pos="-0.15 -0.3 -0.3475" size="0.025 0.3475" type="cylinder" conaffinity="0" contype="0" group="1" name="table_leg3_visual" material="table_legs_metal" />
+      <geom pos="0.15 -0.3 -0.3475" size="0.025 0.3475" type="cylinder" conaffinity="0" contype="0" group="1" name="table_leg4_visual" material="table_legs_metal" />
+    </body>
+  </worldbody>
+</mujoco>

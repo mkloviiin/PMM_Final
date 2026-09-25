@@ -1,0 +1,31 @@
+Simulado o real: se elige SOLO en config/control_config.yaml -> robot_name
+  "icubSim" = Gazebo   |   "icub" = robot real
+
+conda activate icubenv
+
+--- 1. yarp + gazebo (solo si robot_name = icubSim) ---
+
+cd /home/icub/mujoco_ws/REPO_ICUB/icub-lerobot-gazebo/gazebo/scripts
+./start_sim.sh
+./stop_sim.sh
+
+--- 2. modulo yarp (siempre, sim o real) ---
+
+cd /home/icub/mujoco_ws/REPO_ICUB/icub-lerobot-gazebo/common/yarp_module
+python teleop_module_sm.py
+
+--- 3. teleoperacion ---
+
+cd /home/icub/mujoco_ws/REPO_ICUB/icub-lerobot-gazebo
+
+# Sin grabar
+python play_gazebo.py --no-record
+
+# Grabar sin vr
+python play_gazebo.py --repo-id smoke_test --num-episodes 1 --root /tmp/icub_gazebo_test
+
+# Con vr por wifi
+python play_gazebo.py --vr-ip <IP_DE_TUS_QUEST> --repo-id mi_dataset --num-episodes 5
+
+# Con vr por cable USB (adb reverse; poner 127.0.0.1 como IP en BeaVR)
+python play_gazebo.py --vr-cable --repo-id mi_dataset --num-episodes 5

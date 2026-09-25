@@ -1,0 +1,39 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <model name="blue-cube">
+    <link name="link">
+      <inertial>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>0.000729</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.000729</iyy>
+          <iyz>0</iyz>
+          <izz>0.000625</izz>
+        </inertia>
+      </inertial>
+      
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.05 0.05 0.05</size>
+          </box>
+        </geometry>
+      </collision>
+      
+      <visual name="visual">
+        <geometry>
+          <box>
+            <size>0.05 0.05 0.05</size>
+          </box>  
+        </geometry>
+        <material>
+          <ambient>0 0 1 1</ambient>
+          <diffuse>0 0 1 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

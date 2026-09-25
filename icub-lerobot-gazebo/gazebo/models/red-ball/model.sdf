@@ -1,0 +1,40 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <model name="red-ball">
+    <static>false</static>
+    <link name="link">
+        <visual name="visual">
+            <geometry>
+                <sphere>
+                    <radius> 0.035 </radius>
+                </sphere>
+            </geometry>
+            <material>
+                <script>
+                    <uri>file://media/materials/scripts/gazebo.material</uri>
+                    <name>Gazebo/Red</name>
+                </script>
+            </material>
+        </visual>
+        <collision name="collision">
+            <geometry>
+                <sphere>
+                    <radius> 0.035 </radius>
+                </sphere>
+            </geometry>
+        </collision>
+        <inertial>
+            <mass>0.2</mass>
+            <!-- (2/5)*M*R^2 -->
+            <inertia>
+              <ixx>0.000098</ixx>
+              <ixy>0.0</ixy>
+              <ixz>0.0</ixz>
+              <iyy>0.000098</iyy>
+              <iyz>0.0</iyz>
+              <izz>0.000098</izz>
+            </inertia>
+        </inertial>
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lerobot_robot_icubrg"
+version = "0.1.0"
+description = "iCub Gazebo/Real Robot Interface for LeRobot (via YARP)"
+readme = "README.md"
+requires-python = ">=3.10"
+
+# Dependencias de Python puro necesarias para 'icub.py'.
+dependencies = [
+    "lerobot",
+    "numpy",
+    "torch",
+    "pyyaml",
+]
+
+# --- Puntos de Entrada (Crucial para el Registro) ---
+# Registra tu clase de configuración bajo el grupo de ROBOTS de Lerobot.
+# Sintaxis: nombre_identificador = "paquete.archivo:ClaseConfig"
+# Esto permite usar: --robot.type=lerobot_robot_icubrg
+[project.entry-points."lerobot.robot_devices.robots"]
+icub_remote = "lerobot_robot_icubrg.config_icub:iCubConfig"
+lerobot_robot_icubrg = "lerobot_robot_icubrg.config_icub:iCubConfig"
+
+# Configuración para que setuptools encuentre la carpeta del paquete
+[tool.setuptools.packages.find]
+include = ["lerobot_robot_icubrg*"]
