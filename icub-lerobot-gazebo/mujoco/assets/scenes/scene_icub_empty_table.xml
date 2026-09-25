@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="scene_icub_empty_table">
+
+  <!-- Robot -->
+  <include file="icub_visuomanip_ikin_limits.xml"/>
+
+  <!-- Environment -->
+  <include file="icub_shared_materials.xml"/>
+  <include file="icub_room_arena.xml"/>
+  <include file="icub_standard_table.xml"/>
+
+  <visual>
+    <map force="0.1" zfar="30" />
+    <rgba haze="0.15 0.25 0.35 1" />
+    <quality shadowsize="2048" />
+    <global offwidth="800" offheight="800" />
+  </visual>
+
+</mujoco>

@@ -1,0 +1,110 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ÚNICO switch simulación / robot real.
+# "icubSim" = Gazebo  |  "icub" = robot real.
+# De aquí se derivan TODOS los puertos YARP (/{robot_name}/...): cámaras,
+# encoders, controlador cartesiano, skin. No hardcodear /icub en otro sitio.
+# ─────────────────────────────────────────────────────────────────────────────
+robot_name: "icubSim"
+period: 0.02
+show_cameras: true
+
+# Configuración de Control: 'left', 'right', 'both' o 'none'
+control_arms: "both"
+primary_arm: "right_arm"
+gaze_ctrl: true
+cart_ctrl: true
+strict_xml_init: true
+
+# Tacto (skin) — republicado por teleop_module_sm.py en /teleop/touch:o
+# Los puertos se derivan de robot_name; descomenta solo para forzar otro origen.
+tactile_enabled: true
+tactile_include_palm: true
+tactile_auto_connect: true
+# tactile_source_port: "/icubSim/skin/right_hand_comp"
+# tactile_palm_source_port: "/icubSim/skin/right_hand"
+
+# Definición de articulaciones por parte
+actuators:
+  head:
+    - "neck_pitch"
+    - "neck_roll"
+    - "neck_yaw"
+    - "eyes_tilt"
+    - "eyes_version"
+    - "eyes_vergence"
+  torso:
+    - "torso_pitch"
+    - "torso_roll"
+    - "torso_yaw"
+  left_arm:
+    - "l_shoulder_pitch"
+    - "l_shoulder_roll"
+    - "l_shoulder_yaw"
+    - "l_elbow"
+    - "l_wrist_prosup"
+    - "l_wrist_pitch"
+    - "l_wrist_yaw"
+    - "l_hand_finger"
+    - "l_thumb_oppose"
+    - "l_thumb_proximal"
+    - "l_thumb_distal"
+    - "l_index_proximal"
+    - "l_index_distal"
+    - "l_middle_proximal"
+    - "l_middle_distal"
+    - "l_pinky"
+  right_arm:
+    - "r_shoulder_pitch"
+    - "r_shoulder_roll"
+    - "r_shoulder_yaw"
+    - "r_elbow"
+    - "r_wrist_prosup"
+    - "r_wrist_pitch"
+    - "r_wrist_yaw"
+    - "r_hand_finger"
+    - "r_thumb_oppose"
+    - "r_thumb_proximal"
+    - "r_thumb_distal"
+    - "r_index_proximal"
+    - "r_index_distal"
+    - "r_middle_proximal"
+    - "r_middle_distal"
+    - "r_pinky"
+
+# Pose de trabajo: brazos extendidos hacia adelante sobre la mesa
+home_pose:
+  torso_pitch: 10.0
+  torso_roll: 0.0
+  torso_yaw: 0.0
+  l_shoulder_pitch: -60.0
+  l_shoulder_roll: 20.0
+  l_shoulder_yaw: 0.0
+  l_elbow: 70.0
+  l_wrist_prosup: 0.0
+  l_wrist_pitch: -10.0
+  l_wrist_yaw: 0.0
+  r_shoulder_pitch: -60.0
+  r_shoulder_roll: 20.0
+  r_shoulder_yaw: 0.0
+  r_elbow: 70.0
+  r_wrist_prosup: 0.0
+  r_wrist_pitch: -10.0
+  r_wrist_yaw: 0.0
+  neck_pitch: 15.0
+  neck_roll: 0.0
+  neck_yaw: 0.0
+  eyes_tilt: 0.0
+  eyes_version: 0.0
+  eyes_vergence: 0.0
+
+hand_open_values:
+  - [0, 75, 0, 0, 0, 0, 0, 0, 0]
+hand_close_values:
+  - [0, 40, 40, 50, 75, 75, 75, 75, 0]
+
+# Área donde el visualizador MuJoCo hace aparecer el cubo (solo referencia visual;
+# el robot real/Gazebo no reporta la pose del objeto, ver README para más detalle).
+cube_spawn:
+  x: [0.35, 0.45]
+  y: [-0.15, -0.05]
+  z: 0.725

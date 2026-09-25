@@ -19,11 +19,30 @@ import gradio as gr
 import yaml
 
 from .. import session
-from ..paths import ASSETS_DIR, HUB_ROOT, PROJECT_ROOT
+from ..paths import ASSETS_DIR, HUB_ROOT, MJ_ROOT
 from .base import RobotBackend
+
+# Raíz del proyecto MuJoCo. Este backend corre in-process, así que necesita el
+# proyecto y sus plugins en sys.path — pero solo cuando de verdad va a lanzar
+# (imports perezosos). Antes esto lo hacía hub_experimentacion.py al arrancar,
+# lo que acoplaba todo el Hub a MuJoCo; ahora es responsabilidad de este backend.
+PROJECT_ROOT = MJ_ROOT
 
 _SCENES_DIR = PROJECT_ROOT / "dependencies" / "assets" / "scenes"
 _SCENES_MANIFEST = _SCENES_DIR / "scenes.yaml"
+
+
+def _ensure_mj_on_path() -> None:
+    """Inserta el proyecto MuJoCo y sus plugins al frente de sys.path (idempotente)."""
+    import sys
+    for _p in (
+        PROJECT_ROOT / "lerobot-robot-icub",
+        PROJECT_ROOT / "lerobot-teleoperator-icubteleop",
+        PROJECT_ROOT,
+    ):
+        _s = str(_p)
+        if _s not in sys.path:
+            sys.path.insert(0, _s)
 
 
 def _load_scenes() -> dict[str, tuple[str, str, list]]:
@@ -130,6 +149,8 @@ def build_config_form() -> dict[str, gr.components.Component]:
 def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, root_dir) -> str:
     if session.state.running:
         return "A session is already running."
+
+    _ensure_mj_on_path()
 
     xml_file, default_task, scene_objects, scene_joints = SCENES.get(
         scene_name, ("icub_table_scene.xml", "tarea libre", [], [])

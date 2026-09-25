@@ -1,0 +1,29 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="scene_icub_lift">
+
+  <!-- Robot -->
+  <include file="icub_visuomanip_ikin_limits.xml"/>
+
+  <!-- Environment -->
+  <include file="icub_shared_materials.xml"/>
+  <include file="icub_room_arena.xml"/>
+  <include file="icub_standard_table.xml"/>
+
+  <visual>
+    <map force="0.1" zfar="30" />
+    <rgba haze="0.15 0.25 0.35 1" />
+    <quality shadowsize="2048" />
+    <global offwidth="800" offheight="800" />
+  </visual>
+
+  <worldbody>
+    <body name="blue-cube" pos="0.4 -0.1 0.745">
+      <inertial pos="0 0 0" mass="0.1" diaginertia="0.000625 0.000729 0.000729" />
+      <geom type="box" size="0.025 0.025 0.025" group="0" name="blue_cube_collision" friction="1 0.005 0.0001" />
+      <geom type="box" size="0.025 0.025 0.025" conaffinity="0" contype="0" group="1" name="blue_cube_visual" material="blue" />
+      <site pos="0 0 0.026" name="blue_cube_top" size="0.002 0.002 0.002" rgba="1 0 0 0" />
+      <freejoint />
+    </body>
+  </worldbody>
+
+</mujoco>
