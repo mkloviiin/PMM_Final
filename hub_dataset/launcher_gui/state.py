@@ -31,7 +31,7 @@ viz_info: dict = {}
 viz_ep_rows: list[dict] = []
 viz_video_keys: list[str] = []
 viz_tmp_dir: Path = Path(tempfile.mkdtemp(prefix="icub_viz_"))
-
+viz_notes: dict[str, str] = {}
 RESERVED_FEATURES = {"timestamp", "frame_index", "episode_index", "index", "task_index"}
 curation_marked_delete: set[int] = set()
 

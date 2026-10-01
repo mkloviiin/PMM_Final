@@ -44,7 +44,9 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
             stop_btn = gr.Button("STOP episode", variant="secondary", scale=2)
             exit_btn = gr.Button("End session", variant="stop", scale=1)
         cmd_feedback = gr.Textbox(label="Response", interactive=False)
-
+        with gr.Row():
+            episode_note_input_tb = gr.Textbox(label="Episode note", placeholder="Optional notes for this episode", scale=4)
+            copy_note_recording_btn = gr.Button("Copy previous", scale=1)
         gr.Markdown("---")
         log_box = gr.Textbox(
             label="Live log  (last 80 lines)",
@@ -57,5 +59,6 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
         status_lbl=status_lbl, progress_lbl=progress_lbl, progress_bar=progress_bar,
         start_btn=start_btn, stop_btn=stop_btn, exit_btn=exit_btn,
         cmd_feedback=cmd_feedback, log_box=log_box,
+        episode_note_input_tb=episode_note_input_tb, copy_note_recording_btn=copy_note_recording_btn,
         fps_nb=fps_nb, lat_nb=lat_nb, size_nb=size_nb
     )

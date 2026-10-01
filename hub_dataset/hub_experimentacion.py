@@ -41,10 +41,12 @@ sys.path.append(os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/sit
 warnings.filterwarnings("ignore", message=r".*HTTP_422_UNPROCESSABLE_ENTITY.*")
 
 from launcher_gui.app import build_ui, WELCOME_CSS  # noqa: E402
+from launcher_gui import state  # noqa: E402
 
 if __name__ == "__main__":
     print("Abriendo GUI en: http://localhost:7860")
     build_ui().launch(
         server_name="0.0.0.0", server_port=7860, share=False,
         theme="EGOsnm/AMGBitch", css=WELCOME_CSS,
+        allowed_paths=[str(state.viz_tmp_dir)],
     )
