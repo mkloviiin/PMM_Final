@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE robot PUBLIC "-//YARP//DTD yarprobotinterface 3.0//EN" "http://www.yarp.it/DTD/yarprobotinterfaceV3.0.dtd">
+
+<robot name="camera_stand" build="1" portprefix="/icubSim">
+    <devices>
+        <device name="front_camera_rgb_nws_yarp" type="frameGrabber_nws_yarp">
+            <param name="period">0.033</param>
+            <param name="name"> ${portprefix}/cam/front/rgbImage:o </param>
+            <action phase="startup" level="5" type="attach">
+                <paramlist name="networks">
+                    <elem name="the_device"> front_camera_rgb </elem>
+                </paramlist>
+            </action>
+            <action phase="shutdown" level="5" type="detach" />
+        </device>
+    </devices>
+</robot>

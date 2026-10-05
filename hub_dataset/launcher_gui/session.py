@@ -25,12 +25,33 @@ import gradio as gr
 from . import state
 
 
+# Log completo en disco, uno por ejecución del Hub: la UI solo muestra las últimas
+# líneas. Se escribe línea a línea (no al cerrar) para no perderlo si el Hub se cae.
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+LOG_FILE = LOG_DIR / f"hub_{time.strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+_log_fh = None
+
+
+def _log_to_file(line: str) -> None:
+    """Agrega una línea al archivo de log (llamar con state.log_lock tomado)."""
+    global _log_fh
+    try:
+        if _log_fh is None:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            _log_fh = open(LOG_FILE, "a", encoding="utf-8", buffering=1)
+        _log_fh.write(line + "\n")
+    except Exception:  # noqa: BLE001 -- el log en disco nunca debe tumbar el Hub
+        pass
+
+
 def log(msg: str) -> None:
     ts = time.strftime("%H:%M:%S")
+    line = f"[{ts}] {msg}"
     with state.log_lock:
-        state.log_lines.append(f"[{ts}] {msg}")
+        state.log_lines.append(line)
         if len(state.log_lines) > 600:
             state.log_lines.pop(0)
+        _log_to_file(line)
 
 
 class _Tee:
@@ -109,6 +130,8 @@ def start_session(record_fn: Callable[..., None], *, repo_id: str,
         state.cmd_queue.get_nowait()
     with state.log_lock:
         state.log_lines.clear()
+        _log_to_file(f"\n===== New session: {repo_id} ({time.strftime('%Y-%m-%d %H:%M:%S')}) =====")
+    log(f"[Hub] Full log: {LOG_FILE}")
 
     state.ep_total = num_episodes
     state.ep_current = 0

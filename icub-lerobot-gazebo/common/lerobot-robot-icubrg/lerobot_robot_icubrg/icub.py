@@ -44,6 +44,9 @@ class iCub(Robot):
         self.img_ports = {}
         self.img_buffers = {}
         self.np_arrays = {}
+        # Buffers a la resolución nativa de cada cámara cuando difiere de camera_shapes
+        # (p.ej. el robot real publica 640x480 y Gazebo 320x240): se redimensiona.
+        self._native_bufs: dict[str, tuple] = {}
         self._connected = False
         self._calibrated = True 
         self._prev_r_cmd = None
@@ -62,10 +65,13 @@ class iCub(Robot):
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
-        # Definimos dimensiones esperadas (H, W, C)
+        # Dimensiones esperadas (H, W, C): es el formato que LeRobot exige para imágenes
         return {
-            name: (3, 240, 320) for name in self.config.camera_ports.keys()
+            name: (*self._camera_hw(name), 3) for name in self.config.camera_ports.keys()
         }
+
+    def _camera_hw(self, name: str) -> tuple[int, int]:
+        return tuple(self.config.camera_shapes.get(name, (240, 320)))
 
     @property
     def observation_features(self) -> dict[str, type]:     
@@ -189,9 +195,12 @@ class iCub(Robot):
             local_port_name = f"{prefix}/cam/{name}:i"
             port.open(local_port_name)
             if not yarp.Network.connect(remote_port, local_port_name, 'fast_tcp', False):
-                raise ConnectionError("Failed to connect cam ports.")
-            
-            w=320; h=240
+                raise ConnectionError(
+                    f"Failed to connect camera '{name}' ({remote_port}). Is Gazebo/the robot "
+                    f"publishing it? Check with `yarp name list`, or record with --no-camera."
+                )
+
+            h, w = self._camera_hw(name)
             self.np_arrays[name] = np.zeros((h, w, 3), dtype=np.uint8)
             self.img_buffers[name] = yarp.ImageRgb()
             self.img_buffers[name].resize(w,h)
@@ -201,6 +210,20 @@ class iCub(Robot):
                 self.np_arrays[name].shape[0]
             )
             self.img_ports[name] = port
+
+        # Pose actual de cada mano que publica teleop_module_sm (x y z qw qx qy qz, frame
+        # root). No va al dataset: el teleoperador la usa para arrancar los mocaps donde
+        # está la mano real y evitar el salto inicial.
+        self._current_pose = {}
+        for side in ("rh", "lh"):
+            if self.config.control_arms in (["right", "both"] if side == "rh" else ["left", "both"]):
+                p = yarp.BufferedPortBottle()
+                p.open(f"{prefix}/{side}_current_pose:i")
+                if yarp.Network.connect(f"/teleop/{side}_current_pose:o", f"{prefix}/{side}_current_pose:i"):
+                    self.ports[f"{side}_current_pose"] = p
+                else:
+                    p.close()
+                    print(f"[WARN] /teleop/{side}_current_pose:o not connected: mocaps start at the XML pose.")
 
         # 3. Puertos opcionales de observación
         def _open_optional(key, local_suffix, remote_port):
@@ -300,9 +323,25 @@ class iCub(Robot):
         # Leer Camaras
         for name, port in self.img_ports.items():
             if img_yarp := port.read(True):
-                self.img_buffers[name].copy(img_yarp)
                 img_np = self.np_arrays[name]
-                obs[name] = torch.from_numpy(img_np).permute(2, 0, 1)
+                h_in, w_in = img_yarp.height(), img_yarp.width()
+                if (h_in, w_in) == img_np.shape[:2]:
+                    self.img_buffers[name].copy(img_yarp)
+                else:
+                    # copy() a img_buffers reasignaría memoria fuera del buffer externo:
+                    # se copia a un buffer nativo y se redimensiona a camera_shapes, para
+                    # que el dataset tenga la misma forma en Gazebo y en el robot real.
+                    self._copy_resized(name, img_yarp, h_in, w_in)
+            # HWC uint8 (copia: el buffer se reutiliza en el siguiente frame)
+            obs[name] = self.np_arrays[name].copy()
+
+        # Pose actual de las manos (solo feedback para el teleoperador, no es feature)
+        for side in ("rh", "lh"):
+            port = self.ports.get(f"{side}_current_pose")
+            if port is not None and (b := port.read(False)) is not None and b.size() >= 7:
+                self._current_pose[side] = [b.get(i).asFloat64() for i in range(7)]
+            if side in self._current_pose:
+                obs[f"{side}_current_pose"] = list(self._current_pose[side])
 
         # --- Observaciones opcionales ---
 
@@ -380,6 +419,24 @@ class iCub(Robot):
 
         return obs
 
+    def _copy_resized(self, name: str, img_yarp, h_in: int, w_in: int) -> None:
+        import cv2
+
+        buf = self._native_bufs.get(name)
+        if buf is None or buf[0].shape[:2] != (h_in, w_in):
+            arr = np.zeros((h_in, w_in, 3), dtype=np.uint8)
+            yimg = self.yarp.ImageRgb()
+            yimg.resize(w_in, h_in)
+            yimg.setExternal(arr.data, w_in, h_in)
+            self._native_bufs[name] = buf = (arr, yimg)
+            h, w = self.np_arrays[name].shape[:2]
+            print(f"[iCub] Camera '{name}' sends {w_in}x{h_in}; resizing to {w}x{h} "
+                  f"(set camera_shapes in the YAML to keep the native resolution).")
+        arr, yimg = buf
+        yimg.copy(img_yarp)
+        h, w = self.np_arrays[name].shape[:2]
+        cv2.resize(arr, (w, h), dst=self.np_arrays[name], interpolation=cv2.INTER_AREA)
+
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         if not self.is_connected:
             raise DeviceNotConnectedError("iCub robot is not connected.")
@@ -436,12 +493,15 @@ class iCub(Robot):
                 elif r_cmd == 0.5:   cmd_str = "close_right"
                 elif r_cmd == 1.0:   cmd_str = None
                 else:                cmd_str = None
+                # Se envía en cada flanco (el teleop manda un pulso 0.5/0.0 y vuelve a
+                # 1.0=stop), así cerrar→cerrar también se reenvía.
                 if cmd_str is not None and r_cmd != self._prev_r_cmd:
                     sent_gripper_rpc = send_rpc(cmd_str)
                     if (not sent_gripper_rpc) and self.ports.get("hand_cmd") is not None:
                         cmd = yarp.Bottle(); cmd.addString(cmd_str)
                         self.ports["hand_cmd"].write(cmd)
-                    self._prev_r_cmd = r_cmd
+                    print(f"[Gripper] {cmd_str} -> {'rpc' if sent_gripper_rpc else 'NOT SENT'}", flush=True)
+                self._prev_r_cmd = r_cmd
 
         # Lógica Mano Izquierda
         if self.config.control_arms in ["left", "both"]:
@@ -475,12 +535,15 @@ class iCub(Robot):
                 elif l_cmd == 0.5:   cmd_str = "close_left"
                 elif l_cmd == 1.0:   cmd_str = None
                 else:                cmd_str = None
+                # Se envía en cada flanco (el teleop manda un pulso 0.5/0.0 y vuelve a
+                # 1.0=stop), así cerrar→cerrar también se reenvía.
                 if cmd_str is not None and l_cmd != self._prev_l_cmd:
                     sent_gripper_rpc = send_rpc(cmd_str)
                     if (not sent_gripper_rpc) and self.ports.get("hand_cmd") is not None:
                         cmd = yarp.Bottle(); cmd.addString(cmd_str)
                         self.ports["hand_cmd"].write(cmd)
-                    self._prev_l_cmd = l_cmd
+                    print(f"[Gripper] {cmd_str} -> {'rpc' if sent_gripper_rpc else 'NOT SENT'}", flush=True)
+                self._prev_l_cmd = l_cmd
                     
         # Logica Gaze ctrl
         if getattr(self.config, "use_gaze", False):

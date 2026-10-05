@@ -42,6 +42,14 @@ if local_robot_path.exists():
 # Add icubenv site-packages to sys.path (generic python, not the conda env's own)
 sys.path.append(os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages"))
 
+# PyAV (con el que LeRobot codifica los videos) trae su propio FFmpeg 61, pero
+# los plugins de imagen de YARP enlazan el FFmpeg 62 de conda. Si YARP recibe
+# imágenes antes de que PyAV esté cargado, los símbolos se mezclan y av.open()
+# hace segfault al guardar el episodio. Cargar PyAV primero lo evita.
+import av  # noqa: E402,F401
+import av.container  # noqa: E402,F401
+import av.video  # noqa: E402,F401
+
 SCENES_DIR = repo_root / "mujoco" / "assets" / "scenes"
 
 # The MuJoCo side is only a mirror of the Gazebo robot, so its table is left
@@ -113,9 +121,9 @@ def parse_args() -> argparse.Namespace:
         help="Push dataset to Hugging Face Hub (disabled by default)",
     )
     parser.add_argument(
-        "--test-camera",
+        "--no-camera",
         action="store_true",
-        help="Subscribe to left/right robot cameras (disabled by default to save bandwidth)",
+        help="Do not subscribe to/record the cameras (eyes + Gazebo front camera); saves bandwidth",
     )
     parser.add_argument(
         "--no-record",
@@ -191,13 +199,36 @@ def _build_robot_and_teleop(
             robot_cfg.actuators_to_use = filtered_actuators
             teleop_cfg.actuators_to_use = filtered_actuators
 
-    if not args.test_camera:
+    if args.no_camera:
         robot_cfg.camera_ports = {}
-        print("[play_gazebo] camera subscriptions disabled (use --test-camera to enable)")
+        print("[play_gazebo] camera subscriptions disabled (--no-camera)")
+    else:
+        print(f"[play_gazebo] cameras: {robot_cfg.camera_ports}")
 
     robot = make_robot_from_config(robot_cfg)
     teleop = make_teleoperator_from_config(teleop_cfg)
     return robot, teleop, selected_control, vr_enabled
+
+
+def _vr_status(robot, *lines: str) -> None:
+    """Texto de la pantalla chica del VR cuando no hay cámara frontal (robot real).
+
+    Lo dibuja teleop_module_sm (RPC vr_status). Sin tildes: cv2.putText no las soporta.
+    """
+    text = "|".join(lines).replace('"', "'")
+    robot.send_rpc_command(f'vr_status "{text}"')
+
+
+def _forward_world_reset(robot, teleop) -> None:
+    """Botón de reset (Y en VR / R en el visor) -> reposiciona el cubo en Gazebo.
+
+    El teleoperador solo resetea su espejo MuJoCo (mesa vacía); el objeto real
+    vive en Gazebo, así que se le pide al teleop_module_sm vía RPC, que corre
+    gazebo/scripts/reset_objects.sh (posición aleatoria sobre la mesa).
+    """
+    if hasattr(teleop, "consume_world_reset_event") and teleop.consume_world_reset_event():
+        reply = robot.send_rpc_command("reset_scenario")
+        print(f"[Reset] reset_scenario -> {reply}", flush=True)
 
 
 def _manual_vr_record(
@@ -276,6 +307,8 @@ def _manual_vr_record(
         recorded = 0
         while recorded < args.num_episodes:
             print(f"\n[Manual] Waiting START for episode {dataset.num_episodes}...", flush=True)
+            _vr_status(robot, "EN ESPERA", f"Episodios grabados: {recorded}/{args.num_episodes}",
+                       "A = grabar")
             discard_ev = False
             while True:
                 with cmd_lock:
@@ -288,6 +321,7 @@ def _manual_vr_record(
                 act_processed = teleop_action_processor((act, obs))
                 robot_action_to_send = robot_action_processor((act_processed, obs))
                 robot.send_action(robot_action_to_send)
+                _forward_world_reset(robot, teleop)
 
                 # VR record events (A/B) come from the teleoperator: the real/Gazebo
                 # robot never receives the VR stream directly.
@@ -304,6 +338,8 @@ def _manual_vr_record(
                 precise_sleep(max(1.0 / args.fps - (time.perf_counter() - start_t), 0.0))
 
             print(f"[Manual] Recording episode {dataset.num_episodes}...", flush=True)
+            _vr_status(robot, "GRABANDO", f"Episodio {recorded + 1}/{args.num_episodes}",
+                       f"Episodios grabados: {recorded}", "B = guardar")
             episode_start = time.perf_counter()
 
             while True:
@@ -320,6 +356,7 @@ def _manual_vr_record(
                 act_processed = teleop_action_processor((act, obs))
                 robot_action_to_send = robot_action_processor((act_processed, obs))
                 robot.send_action(robot_action_to_send)
+                _forward_world_reset(robot, teleop)
 
                 observation_frame = build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR)
                 action_frame = build_dataset_frame(dataset.features, act_processed, prefix=ACTION)
@@ -353,8 +390,15 @@ def _manual_vr_record(
             if discard_ev:
                 continue  # Don't save, go back to wait loop
 
-            dataset.save_episode()
+            # Sin pool de procesos: con >1 cámara LeRobot hace fork para codificar en
+            # paralelo, y el fork de un proceso con hilos YARP/CUDA vivos deja a los
+            # hijos bloqueados en un lock heredado (el episodio nunca se guarda).
+            _vr_status(robot, "GUARDANDO...", f"Episodio {recorded + 1}/{args.num_episodes}")
+            dataset.save_episode(parallel_encoding=False)
             recorded += 1
+            if recorded >= args.num_episodes:
+                _vr_status(robot, "SESION COMPLETA",
+                           f"Episodios grabados: {recorded}/{args.num_episodes}")
             print(f"[Manual] Episode saved ({recorded}/{args.num_episodes})", flush=True)
 
     finally:
@@ -382,6 +426,7 @@ def _simple_teleop_loop(*, args, robot, teleop) -> None:
             teleop.send_feedback(obs)
             act = teleop.get_action()
             robot.send_action(act)
+            _forward_world_reset(robot, teleop)
             time.sleep(max(1.0 / args.fps - (time.perf_counter() - start_t), 0.0))
     except KeyboardInterrupt:
         print("\nStopping teleoperation loop...")

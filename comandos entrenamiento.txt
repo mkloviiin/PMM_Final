@@ -1,0 +1,36 @@
+COMANDOS PARA EVALUAR EN MUJOCO
+
+1) eval_mujoco.py
+
+cd /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj
+conda activate icubenv
+python eval_mujoco.py \
+	--policy-repo mklovin/my_smolvla \
+	--scene 1 \
+	--task "lift the blue block" \
+	--n-episodes 5 \
+	--episode-steps 300 \
+	--fps 30
+
+2) eval_policy_mujoco.py
+
+cd /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj
+conda activate icubenv
+python eval_policy_mujoco.py \
+	--checkpoint /home/icub/Desktop/mkloviiin/PMM_Final/output/train/blockslifting/checkpoints/020000/pretrained_model \
+	--scene 1 \
+	--task "lift the blue block" \
+	--num-episodes 5 \
+	--episode-len 600 \
+	--fps 30
+
+3) replay_mujoco.py
+
+cd /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj
+conda activate icubenv
+python replay_mujoco.py \
+	--repo-id mklovin/icub_mujoco_demo \
+	--root /home/icub/Desktop/mkloviiin/PMM_Final/data/local_prueba_2026-09-03_15-41-47 \
+	--fps 30 \
+	--episodes 10 \
+	--model /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/dependencies/assets/scenes/icub_table_scene_lift.xml

@@ -99,7 +99,7 @@ del cubo — ver más abajo — y dos flags propios de YARP):
 | `--vr-cable` | `False` | Conectar el Quest por USB (adb reverse) en vez de WiFi |
 | `--push-to-hub` | `False` | Subir dataset a HuggingFace Hub |
 | `--control-arms` | `auto` | `auto`, `right`, `left`, `both` — detecta brazos disponibles en YARP |
-| `--test-camera` | `False` | Suscribirse a las cámaras del robot |
+| `--no-camera` | `False` | No grabar las cámaras (ojos + cámara frontal de Gazebo) |
 | `--no-record` | `False` | Solo teleoperar, sin grabar dataset |
 
 Sin `--vr`/`--vr-ip`: controles de consola (`1`=iniciar episodio,

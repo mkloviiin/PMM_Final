@@ -80,7 +80,7 @@ def build_config_form() -> dict[str, gr.components.Component]:
         with gr.Column(scale=1):
             scene_dd = gr.Dropdown(
                 choices=list(SCENES), value=list(SCENES)[0],
-                label="Scene",
+                label="Tasks",
                 info="Determines the MuJoCo XML and the task",
             )
             repo_id_tb = gr.Textbox(

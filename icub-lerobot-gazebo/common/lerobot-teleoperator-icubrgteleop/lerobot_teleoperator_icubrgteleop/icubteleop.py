@@ -6,6 +6,7 @@ import glfw
 import time
 import json
 import threading
+from collections import deque
 from typing import Any
 
 try:
@@ -79,7 +80,18 @@ class iCubTeleop(Teleoperator):
         self.latest_lh_data = None
         self.latest_buttons = None
         self._last_btn_recv_time = 0.0
+        # Botones: el hilo VR acumula el estado (BeaVR puede mandar una tecla por
+        # mensaje) y convierte cada pulsación/soltada en un evento. Así ninguna
+        # pulsación se pierde aunque el loop de teleop vaya lento (cámaras Gazebo).
+        self._btn_lock = threading.Lock()
+        self._btn_state: dict = {}
+        self._btn_pressed: dict[str, bool] = {}
+        self._btn_events: deque = deque()  # (name, "press"|"release", t_monotonic)
         self.calibrated_origin_rh = None
+        # Base de los targets VR (mundo MuJoCo). Se reemplaza por la pose real de la mano
+        # en cuanto llega del robot (_init_mocaps_from_robot), así no hay salto al partir.
+        self._vr_home = {"right": np.array([0.4, -0.2, 0.7]), "left": np.array([0.4, 0.2, 0.7])}
+        self._mocap_from_robot = {"right": False, "left": False}
         self.calibrated_origin_lh = None
         self._prev_target_pos = {"right": None, "left": None}
         self._target_filter_alpha = 0.25
@@ -93,8 +105,6 @@ class iCubTeleop(Teleoperator):
         self._vr_rec_start_event = False
         self._vr_rec_stop_event = False
         self._vr_rec_discard_event = False
-        self._vr_a_held = False
-        self._vr_b_held = False
         self._vr_b_hold_start: float | None = None
 
         # Reset scenario state — generic for any scene objects from scenes.yaml
@@ -103,6 +113,10 @@ class iCubTeleop(Teleoperator):
         self._last_reset_poses: dict[str, tuple] = {}  # {body_name: (pos, quat)}
         self._reset_request = False
         self._pending_visual_reset = False
+        # Reset del mundo real/Gazebo: lo consume play_gazebo (RPC reset_scenario).
+        # Con debounce porque el botón Y llega varios frames seguidos mientras se mantiene.
+        self._world_reset_event = False
+        self._last_world_reset_t = 0.0
 
     @property
     def action_features(self) -> dict[str, type]:
@@ -283,6 +297,36 @@ class iCubTeleop(Teleoperator):
                            np.asarray(quat_wxyz, dtype=float))
         return pos_root, quat_root
 
+    def _root_to_world(self, pos_root, quat_root_wxyz):
+        """Inversa de _world_to_root: frame root de iCub -> mundo MuJoCo."""
+        pos_w = self._waist_R @ np.asarray(pos_root, dtype=float) + self._waist_pos
+        waist_quat = np.zeros(4)
+        mujoco.mju_negQuat(waist_quat, self._waist_quat_inv)
+        quat_w = np.zeros(4)
+        mujoco.mju_mulQuat(quat_w, waist_quat, np.asarray(quat_root_wxyz, dtype=float))
+        return pos_w, quat_w
+
+    def _init_mocaps_from_robot(self, feedback: dict[str, Any]) -> None:
+        """Una sola vez por mano: ubica el mocap donde está la mano real y la usa como
+        base del VR. Así el primer target coincide con la pose actual (sin salto)."""
+        for side, key in (("right", "rh_current_pose"), ("left", "lh_current_pose")):
+            if self._mocap_from_robot[side] or side not in self.mocap_ids or key not in feedback:
+                continue
+            vals = feedback[key]
+            pos_w, quat_w = self._root_to_world(vals[:3], vals[3:7])
+            mid = self.mocap_ids[side]
+            self.data.mocap_pos[mid] = pos_w
+            self.data.mocap_quat[mid] = quat_w
+            self._vr_home[side] = pos_w.copy()
+            # Re-anclar el VR a esta pose (por si ya había llegado algún dato del control)
+            self._prev_target_pos[side] = None
+            if side == "right":
+                self.calibrated_origin_rh = None
+            else:
+                self.calibrated_origin_lh = None
+            self._mocap_from_robot[side] = True
+            print(f"[Teleop] {side} mocap starts at the real hand pose: {np.round(pos_w, 3).tolist()}")
+
     def _apply_home_pose_overrides(self, cfg: dict[str, Any]) -> None:
         home_pose = (cfg or {}).get("home_pose", {}) or {}
         if not home_pose:
@@ -317,10 +361,8 @@ class iCubTeleop(Teleoperator):
         if getattr(self.config, "vr_enabled", False):
             self._process_vr_hands()
             self._process_vr_head()
+            self._process_vr_button_commands()
             self._update_vr_record_events()
-            if self.latest_buttons:
-                self._process_vr_button_commands()
-                self.latest_buttons = None
 
         # IMPORTANTE: Sincronizar viewer para recibir inputs del usuario (movimiento de mocap con mouse)
         if self.viewer.is_running():
@@ -336,6 +378,10 @@ class iCubTeleop(Teleoperator):
         if self._pending_visual_reset:
             self._reset_scenario()
             self._pending_visual_reset = False
+            now = time.time()
+            if now - self._last_world_reset_t > 2.0:
+                self._world_reset_event = True
+                self._last_world_reset_t = now
 
         # --- Lectura Mano Derecha ---
         if self.config.control_arms in ["right", "both"]:
@@ -398,6 +444,8 @@ class iCubTeleop(Teleoperator):
             self._lh_grip_pulse = False
         
         update_visuals = False
+
+        self._init_mocaps_from_robot(feedback)
 
         # --- Object Sync (generic, indexed by scenes.yaml order) ---
         if not self._reset_request:
@@ -523,11 +571,38 @@ class iCubTeleop(Teleoperator):
                         elif name == "lh":
                             self.latest_lh_data = self._parse_controller(raw)
                         elif name == "btn":
-                            self.latest_buttons = self._parse_buttons(raw)
+                            parsed = self._parse_buttons(raw)
+                            if parsed:
+                                self._ingest_buttons(parsed)
                             self._last_btn_recv_time = time.time()
                 except Exception:
                     pass
             time.sleep(0.001)
+
+    @staticmethod
+    def _button_levels(b: dict) -> dict[str, bool]:
+        """Estado lógico de cada comando a partir de los valores crudos de BeaVR."""
+        return {
+            "rh_close": b.get("INDEX_RIGHT", 0) > 0.8,
+            "rh_open": b.get("HAND_RIGHT", 0) > 0.8,
+            "lh_close": b.get("INDEX_LEFT", 0) > 0.8,
+            "lh_open": b.get("HAND_LEFT", 0) > 0.8,
+            "reset": b.get("BTN_TWO_LEFT", 0) > 0.5 or b.get("Y", 0) > 0.8,
+            "rec_a": b.get("BTN_ONE_RIGHT", 0) > 0.5 or b.get("A", 0) > 0.8,
+            "rec_b": b.get("BTN_TWO_RIGHT", 0) > 0.5 or b.get("B", 0) > 0.8,
+        }
+
+    def _ingest_buttons(self, parsed: dict) -> None:
+        """(Hilo VR) Acumula el estado de botones y encola flancos de cada comando."""
+        now = time.monotonic()
+        with self._btn_lock:
+            self._btn_state.update(parsed)
+            for name, pressed in self._button_levels(self._btn_state).items():
+                was = self._btn_pressed.get(name, False)
+                if pressed != was:
+                    self._btn_events.append((name, "press" if pressed else "release", now))
+                    self._btn_pressed[name] = pressed
+            self.latest_buttons = dict(self._btn_state)
 
     @staticmethod
     def _parse_controller(data_str):
@@ -634,8 +709,8 @@ class iCubTeleop(Teleoperator):
     def _process_vr_hands(self):
         """Map VR hand controller data → mocap target positions."""
         # Frame del mundo MuJoCo, igual que las mocap y que los clips de abajo.
-        ROBOT_HOME_RH = np.array([0.4, -0.2, 0.7])
-        ROBOT_HOME_LH = np.array([0.4,  0.2, 0.7])
+        ROBOT_HOME_RH = self._vr_home["right"]
+        ROBOT_HOME_LH = self._vr_home["left"]
 
         # Right hand
         if not self.freeze_rh and self.latest_rh_data is not None and "right" in self.mocap_ids:
@@ -719,70 +794,55 @@ class iCubTeleop(Teleoperator):
             self.data.mocap_pos[self.mocap_ids['gaze']] = target
 
     def _process_vr_button_commands(self):
-        """React to VR button states for gripper and freeze."""
-        b = self.latest_buttons
-        if b is None or not isinstance(b, dict):
-            return
+        """Consume los eventos de botones encolados por el hilo VR (gripper, reset, A/B)."""
+        with self._btn_lock:
+            events = list(self._btn_events)
+            self._btn_events.clear()
+            levels = dict(self._btn_pressed)
 
-        # Hands
-        if b.get("INDEX_RIGHT", 0) > 0.8:
-            self.rh_grip_state = 0.5  # close
-            self._rh_grip_pulse = True
-        elif b.get("HAND_RIGHT", 0) > 0.8:
-            self.rh_grip_state = 0.0  # open
-            self._rh_grip_pulse = True
-        if b.get("INDEX_LEFT", 0) > 0.8:
-            self.lh_grip_state = 0.5  # close
-            self._lh_grip_pulse = True
-        elif b.get("HAND_LEFT", 0) > 0.8:
-            self.lh_grip_state = 0.0  # open
-            self._lh_grip_pulse = True
-
-        # Reset
-        if b.get("BTN_TWO_LEFT", 0) > 0.5 or b.get("Y", 0) > 0.8:
-            self._pending_visual_reset = True
+        for name, kind, t in events:
+            if kind == "press":
+                if name == "rh_close":
+                    self.rh_grip_state, self._rh_grip_pulse = 0.5, True
+                    print("[VR] Right hand: CLOSE")
+                elif name == "rh_open":
+                    self.rh_grip_state, self._rh_grip_pulse = 0.0, True
+                    print("[VR] Right hand: OPEN")
+                elif name == "lh_close":
+                    self.lh_grip_state, self._lh_grip_pulse = 0.5, True
+                    print("[VR] Left hand: CLOSE")
+                elif name == "lh_open":
+                    self.lh_grip_state, self._lh_grip_pulse = 0.0, True
+                    print("[VR] Left hand: OPEN")
+                elif name == "reset":
+                    self._pending_visual_reset = True
+                elif name == "rec_a":
+                    self._vr_rec_start_event = True
+                elif name == "rec_b":
+                    self._vr_b_hold_start = t
+            elif kind == "release" and name == "rec_b":
+                # B: tap → stop/save  |  hold 1.5s → discard
+                held_s = t - (self._vr_b_hold_start or t)
+                if held_s >= self._B_HOLD_DISCARD_S:
+                    self._vr_rec_discard_event = True
+                    print(f"[VR] B held {held_s:.1f}s → DISCARD episode")
+                else:
+                    self._vr_rec_stop_event = True
+                self._vr_b_hold_start = None
 
         # Freeze while squeezing triggers
-        any_active = any(b.get(k, 0) > 0.8
-                         for k in ("INDEX_RIGHT", "HAND_RIGHT",
-                                   "INDEX_LEFT", "HAND_LEFT"))
+        any_active = any(levels.get(k, False)
+                         for k in ("rh_close", "rh_open", "lh_close", "lh_open"))
         self.freeze_rh = any_active
         self.freeze_lh = any_active
         self.freeze_head = any_active
 
     def _update_vr_record_events(self) -> None:
-        """Track A/B button presses for recording control."""
-        b = self.latest_buttons
-        if b is None or not isinstance(b, dict):
-            # If button stream is stale, release freeze
-            if self._vr_sockets and (time.time() - self._last_btn_recv_time) > 0.5:
-                self.freeze_rh = False
-                self.freeze_lh = False
-                self.freeze_head = False
-            return
-
-        a_pressed = (b.get("BTN_ONE_RIGHT", 0) > 0.5) or (b.get("A", 0) > 0.8)
-        b_pressed = (b.get("BTN_TWO_RIGHT", 0) > 0.5) or (b.get("B", 0) > 0.8)
-
-        # A: tap → start
-        if a_pressed and not self._vr_a_held:
-            self._vr_rec_start_event = True
-        self._vr_a_held = a_pressed
-
-        # B: tap → stop/save  |  hold 1.5s → discard
-        if b_pressed and not self._vr_b_held:
-            self._vr_b_hold_start = time.monotonic()
-
-        if not b_pressed and self._vr_b_held:
-            held_s = time.monotonic() - (self._vr_b_hold_start or 0.0)
-            if held_s >= self._B_HOLD_DISCARD_S:
-                self._vr_rec_discard_event = True
-                print(f"[VR] B held {held_s:.1f}s → DISCARD episode")
-            else:
-                self._vr_rec_stop_event = True
-            self._vr_b_hold_start = None
-
-        self._vr_b_held = b_pressed
+        """If the button stream is stale, release freeze to avoid latching controls."""
+        if self._vr_sockets and (time.time() - self._last_btn_recv_time) > 0.5:
+            self.freeze_rh = False
+            self.freeze_lh = False
+            self.freeze_head = False
 
     def consume_vr_record_events(self) -> tuple[bool, bool, bool]:
         """Return (start, stop/save, discard/rerecord) and clear flags."""
@@ -793,6 +853,12 @@ class iCubTeleop(Teleoperator):
         self._vr_rec_stop_event = False
         self._vr_rec_discard_event = False
         return start, stop, discard
+
+    def consume_world_reset_event(self) -> bool:
+        """True una vez por cada reset pedido (Y en VR / R en el visor)."""
+        ev = self._world_reset_event
+        self._world_reset_event = False
+        return ev
 
     # ========================= Helpers & Callbacks =========================
 
@@ -855,9 +921,12 @@ class iCubTeleop(Teleoperator):
         # Legacy fallback: only when BOTH scene_objects AND scene_joints are absent.
         # Joint-only scenes (e.g. door) must not trigger this or they'd try to reset
         # a 'blue-cube' that doesn't exist in the model.
+        # Also skipped when the model has no blue-cube (e.g. the empty-table mirror
+        # used by play_gazebo, where the real cube lives in Gazebo / the real world).
         if not objects and not self._scene_joints:
             spawn = getattr(self.config, "cube_spawn", None)
-            if spawn:
+            has_cube = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "blue-cube") != -1
+            if spawn and has_cube:
                 objects = [{"body": "blue-cube", "spawn": spawn}]
             else:
                 return  # Nothing to reset

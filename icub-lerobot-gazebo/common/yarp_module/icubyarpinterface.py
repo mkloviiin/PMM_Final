@@ -3,6 +3,62 @@ import numpy as np
 import yarp
 from pyquaternion import Quaternion
 
+# Tiempo máximo que se espera a que un puerto del robot aparezca. Gazebo levanta
+# yarprobotinterface / iKinCartesianSolver / iKinGazeCtrl 5-15 s después de
+# arrancar: sin esta espera el módulo moría si se lanzaba antes de tiempo.
+PORT_WAIT_TIMEOUT_S = 60.0
+
+
+def _port_responds(port_name, timeout=5.0):
+    """True si el puerto responde a `yarp ping` dentro del timeout.
+
+    Va en un subproceso porque, si el servidor está colgado, la conexión YARP desde
+    Python se bloquea sin respetar timeouts (y con ella todo el módulo).
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+    yarp_bin = Path(sys.executable).parent / "yarp"
+    try:
+        r = subprocess.run([str(yarp_bin) if yarp_bin.exists() else "yarp", "ping", port_name],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           timeout=timeout)
+        return r.returncode == 0 and "This is" in r.stdout
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        return True  # sin `yarp` CLI no se puede comprobar: no bloquear el arranque
+
+
+def _ping_output(port_name, timeout=5.0):
+    """Salida de `yarp ping <port>` (subproceso con timeout), o None si no responde."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    yarp_bin = Path(sys.executable).parent / "yarp"
+    try:
+        r = subprocess.run([str(yarp_bin) if yarp_bin.exists() else "yarp", "ping", port_name],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           timeout=timeout)
+        return r.stdout if "This is" in r.stdout else None
+    except Exception:
+        return None
+
+
+def _wait_for_port(port_name, timeout=PORT_WAIT_TIMEOUT_S):
+    """Espera a que `port_name` esté registrado en el yarpserver. True si aparece."""
+    deadline = time.time() + timeout
+    warned = False
+    while not yarp.Network.exists(port_name, True):
+        if time.time() >= deadline:
+            print(f"  ✗ Timeout ({timeout:.0f} s) waiting for {port_name}")
+            return False
+        if not warned:
+            print(f"  ⏳ Waiting for {port_name} (robot/sim still starting?)...")
+            warned = True
+        time.sleep(1.0)
+    return True
+
 class iCubYARPInterface:
     """Encapsula toda la comunicación con el robot iCub (real o simulado) vía YARP."""
     SHOULDER_YAW_MIN_DEG = -22.0
@@ -45,6 +101,14 @@ class iCubYARPInterface:
         self.pos_direct = {}
         self.pos_control = {}
         self.control_modes = {}
+        # Último modo puesto en cada brazo por _set_arm_control_mode. Cualquier otro
+        # cambio de modo (home, start_teleop, init) lo invalida con pop().
+        self._arm_mode: dict[str, str] = {}
+        # Si es False (por defecto) el módulo NO toca los modos del brazo en modo
+        # cartesiano: el cartesianController elige el suyo (POSITION_DIRECT o VELOCITY
+        # según su config). Forzar POSITION_DIRECT + stop() dejaba quieto el brazo del
+        # robot real. True = comportamiento antiguo (cart_force_position_direct en el YAML).
+        self.cart_force_position_direct = False
         self.axis_info = {}
         self.num_joints_part = {}
         self.joint_processing_map = []
@@ -124,6 +188,7 @@ class iCubYARPInterface:
             # 1. Cambiar modo a POSITION
             modes = yarp.VectorInt(num_j, yarp.VOCAB_CM_POSITION)
             self.control_modes[part].setControlModes(modes.data())
+            self._arm_mode.pop(part, None)
 
             # 2. Preparar vector con valores home o actuales (si no está en home dict)
             # Primero leemos encoders actuales para llenar huecos
@@ -181,6 +246,7 @@ class iCubYARPInterface:
                 else: # Manos se quedan en POSITION
                     modes[i] = yarp.VOCAB_CM_POSITION
             self.control_modes[part].setControlModes(modes.data())
+            self._arm_mode.pop(part, None)
     # ------------------------------------------------------
 
     def get_controllable_joints(self):
@@ -191,7 +257,8 @@ class iCubYARPInterface:
         props.put("device", "remote_controlboard")
         props.put("local", f"/mujoco_sync/{part_name}")
         props.put("remote", f"/{self.robot_name}/{part_name}")
-        
+        _wait_for_port(f"/{self.robot_name}/{part_name}/rpc:i")
+
         driver = yarp.PolyDriver(props)
         if not driver.isValid():
             raise RuntimeError(f"Failed to connect to {part_name}")
@@ -332,8 +399,34 @@ class iCubYARPInterface:
         props.put('local', f'/cartesian_client/{arm_part}')
         props.put('remote', f'/{self.robot_name}/cartesianController/{arm_part}')
         props.put('timeout', 60.0)
+        rpc_port = f'/{self.robot_name}/cartesianController/{arm_part}/rpc:i'
+        _wait_for_port(rpc_port)
+        if not _port_responds(rpc_port):
+            raise RuntimeError(
+                f"Cartesian controller {rpc_port} is registered but NOT responding (hung). "
+                f"Restart the robot's yarprobotinterface (it hosts cartesianController/{arm_part}) "
+                f"with iKinCartesianSolver --part {arm_part} running, then start the module again.")
+        # El puerto del controlador aparece antes de que su solver esté listo
+        # ("unable to connect to solver!"): se reintenta hasta el timeout.
+        deadline = time.time() + PORT_WAIT_TIMEOUT_S
         driver = yarp.PolyDriver(props)
+        while not driver.isValid() and time.time() < deadline:
+            print(f"  ⏳ Cartesian controller {arm_part} not ready yet, retrying...")
+            time.sleep(2.0)
+            driver = yarp.PolyDriver(props)
         if not driver.isValid(): raise RuntimeError(f"Failed cartesians {arm_part}")
+        # Sin el enlace controlador -> solver el controlador acepta goToPose pero nunca
+        # mueve el brazo (no recibe soluciones). Solo avisa: la cabeza/cámaras siguen.
+        ping = _ping_output(f"/cartesianSolver/{arm_part}/in")
+        if ping is not None and f"cartesianController/{arm_part}" not in ping:
+            print("  " + "!" * 70)
+            print(f"  ✗ /cartesianSolver/{arm_part} is NOT linked to "
+                  f"/{self.robot_name}/cartesianController/{arm_part}: the arm will NOT move.")
+            print(f"    Restart on the robot, in this order: yarprobotinterface, then "
+                  f"iKinCartesianSolver --part {arm_part}; then restart this module.")
+            print("  " + "!" * 70)
+        elif ping is not None:
+            print(f"  ✓ Cartesian solver linked for {arm_part}")
         self.cart_drivers[arm_part] = driver
         self.cart_interfaces[arm_part] = driver.viewICartesianControl()
         self.cart_interfaces[arm_part].setTrajTime(2.0)
@@ -413,6 +506,13 @@ class iCubYARPInterface:
 
     def _set_arm_control_mode(self, arm, mode):
         if arm not in self.control_modes: return
+        # Solo al cambiar de modo: se llama en cada target (~30 Hz) y tanto stop()
+        # como setControlModes son RPC al robot. Repetirlos frenaba el loop en el
+        # robot real y el stop() cortaba el open/close de la mano a medio camino.
+        if self._arm_mode.get(arm) == mode: return
+        self._arm_mode[arm] = mode
+        if mode == 'cartesian' and not self.cart_force_position_direct:
+            return
         # Simplificado: Si es cartesian o direct, usamos POSITION_DIRECT
         y_mode = yarp.VOCAB_CM_POSITION_DIRECT if mode in ['cartesian', 'position_direct'] else yarp.VOCAB_CM_POSITION
         
@@ -565,7 +665,7 @@ class iCubYARPInterface:
 
         print(f"  [CAMERA] {cam}: using profile {profile_name} for robot_name='{self.robot_name}'")
 
-        connected = yarp.Network.exists(source_port) and yarp.Network.connect(source_port, p_name, 'fast_tcp', False)
+        connected = _wait_for_port(source_port) and yarp.Network.connect(source_port, p_name, 'fast_tcp', False)
         if connected:
             print(f"  ✓ Camera {cam}: connected via {source_label} port ({source_port})")
 
@@ -584,7 +684,8 @@ class iCubYARPInterface:
 
     def init_gaze_controller(self, remote_port="/iKinGazeCtrl", bind_eyes=True):
         print("  [GAZE] Iniciando conexión al Gaze Controller...")
-        
+        _wait_for_port(f"{remote_port}/rpc")
+
         # 1. Pausar el controlador antes de conectar 
         
         rpc_port = yarp.RpcClient()
@@ -619,7 +720,12 @@ class iCubYARPInterface:
         props.put("remote", remote_port)
         props.put("local", "/py/gaze_client")
         
+        deadline = time.time() + PORT_WAIT_TIMEOUT_S
         self.gaze_driver = yarp.PolyDriver(props)
+        while not self.gaze_driver.isValid() and time.time() < deadline:
+            print("  ⏳ Gaze Controller not ready yet, retrying...")
+            time.sleep(2.0)
+            self.gaze_driver = yarp.PolyDriver(props)
         if not self.gaze_driver.isValid():
             print(f"Error: No se pudo conectar al Gaze Controller en {remote_port}")
             return False
