@@ -6,6 +6,7 @@ CONDA_ENV="icubenv"
 GAZEBO_EXAMPLE_DIR="$(dirname "$(dirname "$(readlink -f "$0")")")"
 WORLD="$GAZEBO_EXAMPLE_DIR/worlds/icub_world.sdf"
 MODELS_DIR="$GAZEBO_EXAMPLE_DIR/models"
+PLUGINS_DIR="$GAZEBO_EXAMPLE_DIR/plugins"
 
 echo "Iniciando sesión de tmux '$SESSION_NAME' con ventanas separadas..."
 
@@ -18,6 +19,9 @@ tmux send-keys -t $SESSION_NAME:server "yarpserver --write" C-m
 tmux new-window -t $SESSION_NAME -n gazebo
 tmux send-keys -t $SESSION_NAME:gazebo "conda activate $CONDA_ENV" C-m
 tmux send-keys -t $SESSION_NAME:gazebo "export GZ_SIM_RESOURCE_PATH=\${GZ_SIM_RESOURCE_PATH}:\${GAZEBO_MODEL_PATH}:$MODELS_DIR" C-m
+# Controlboard parchado (modo MIXED para los ojos de iKinGazeCtrl), antes que el de conda.
+# Ver gazebo/plugins/build_controlboard.sh.
+tmux send-keys -t $SESSION_NAME:gazebo "export GZ_SIM_SYSTEM_PLUGIN_PATH=$PLUGINS_DIR:\${GZ_SIM_SYSTEM_PLUGIN_PATH}" C-m
 
 # LANZAR SERVIDOR (Headless - Maneja física y sensores)
 # tmux send-keys -t $SESSION_NAME:gazebo "gz sim -r $WORLD" C-m

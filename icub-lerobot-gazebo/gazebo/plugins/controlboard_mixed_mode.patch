@@ -1,0 +1,64 @@
+diff --git a/plugins/controlboard/src/ControlBoard.cpp b/plugins/controlboard/src/ControlBoard.cpp
+index 7ee1b5a..78eae5a 100644
+--- a/plugins/controlboard/src/ControlBoard.cpp
++++ b/plugins/controlboard/src/ControlBoard.cpp
+@@ -7,6 +7,8 @@
+ #include <gzyarp/Common.hh>
+ #include <gzyarp/ConfigurationHelpers.hh>
+ 
++#include <algorithm>
++#include <chrono>
+ #include <cmath>
+ #include <cstddef>
+ #include <cstdlib>
+@@ -467,10 +469,19 @@ bool ControlBoard::updateTrajectories(const UpdateInfo& _info, EntityComponentMa
+             joint.commonJointProperties.refPosition = joint.trajectoryGenerator->computeTrajectory();
+             joint.isMotionDone = joint.trajectoryGenerator->isMotionDone();
+             break;
+-        case VOCAB_CM_MIXED:
+-            // TODO when implementing mixed control mode
+-            yError() << "Control mode MIXED not implemented yet";
++        case VOCAB_CM_MIXED: {
++            // MIXED como en las placas del iCub real: la velocidad de velocityMove se
++            // integra en la referencia de posición, que sigue el PID de posición. Así
++            // la referencia pasa por el coupling (que solo convierte posiciones).
++            auto& props = joint.commonJointProperties;
++            if (joint.velocityWatchdog->isExpired())
++            {
++                props.refVelocity = 0.0;
++            }
++            props.refPosition += props.refVelocity * std::chrono::duration<double>(_info.dt).count();
++            props.refPosition = std::clamp(props.refPosition, props.positionLimitMin, props.positionLimitMax);
+             break;
++        }
+         case VOCAB_CM_VELOCITY:
+             if (joint.speedRampHandler)
+             {
+@@ -540,7 +551,8 @@ bool ControlBoard::updateReferences(const UpdateInfo& _info, EntityComponentMana
+             break;
+         }
+         case VOCAB_CM_POSITION:
+-        case VOCAB_CM_POSITION_DIRECT: {
++        case VOCAB_CM_POSITION_DIRECT:
++        case VOCAB_CM_MIXED: {
+             // TODO manage motor positions instead of joint positions when implemented
+             auto& pid = joint.pidControllers[yarp::dev::VOCAB_PIDTYPE_POSITION];
+             forceReference = pid.Update(ControlBoardData::convertUserToGazebo(joint, joint.commonJointProperties.position)
+diff --git a/plugins/controlboard/src/ControlBoardDriver.cpp b/plugins/controlboard/src/ControlBoardDriver.cpp
+index 45a02e5..b3f85e3 100644
+--- a/plugins/controlboard/src/ControlBoardDriver.cpp
++++ b/plugins/controlboard/src/ControlBoardDriver.cpp
+@@ -1298,6 +1298,13 @@ bool ControlBoardDriver::velocityMove(int j, double sp)
+     if (j >= 0 && static_cast<size_t>(j) < numberOfJoints)
+     {
+         m_controlBoardData->actuatedAxes[j].velocityWatchdog->reset();
++        if (m_controlBoardData->actuatedAxes[j].commonJointProperties.controlMode == VOCAB_CM_MIXED)
++        {
++            // MIXED: se integra directo en updateTrajectories (sin rampa).
++            std::lock_guard<std::mutex> lock(m_controlBoardData->mutex);
++            m_controlBoardData->actuatedAxes[j].commonJointProperties.refVelocity = sp;
++            return true;
++        }
+         if (m_controlBoardData->actuatedAxes[j].speedRampHandler)
+         {
+             double refacc = m_controlBoardData->actuatedAxes[j].trajectoryGenerationRefAcceleration;
