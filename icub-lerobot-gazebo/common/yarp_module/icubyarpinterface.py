@@ -109,6 +109,12 @@ class iCubYARPInterface:
         # según su config). Forzar POSITION_DIRECT + stop() dejaba quieto el brazo del
         # robot real. True = comportamiento antiguo (cart_force_position_direct en el YAML).
         self.cart_force_position_direct = False
+        # Diagnóstico: segundos gastados por llamada al robot en el ciclo actual
+        # (cycle_times, lo resetea el módulo en cada ciclo) y por ventana de reporte
+        # (window_times: nombre -> [n, total, max]); frames de cámara recibidos por ojo.
+        self.cycle_times: dict[str, float] = {}
+        self.window_times: dict[str, list] = {}
+        self.cam_frames = {"left": 0, "right": 0}
         self.axis_info = {}
         self.num_joints_part = {}
         self.joint_processing_map = []
@@ -489,7 +495,7 @@ class iCubYARPInterface:
         # pos/quat ya llegan en el frame root del robot (el teleoperador los convierte)
         t_pos = np.asarray(pos, dtype=float)
 
-        c_pos, c_quat = self._get_current_pose(arm)
+        c_pos, c_quat = self._timed("getPose", self._get_current_pose, arm)
         # CHANGED: Threshold increased from 0.01 to 0.025 to reduce micro-corrections
         if self._check_pose_threshold(c_pos, c_quat, t_pos, quat_wxyz, 0.01, 5.0):
             return True
@@ -501,8 +507,21 @@ class iCubYARPInterface:
         # goToPose espera eje-angulo con theta en RADIANES (igual que getPose lo devuelve)
         ax_y[0]=q.axis[0]; ax_y[1]=q.axis[1]; ax_y[2]=q.axis[2]; ax_y[3]=q.angle
         
-        self._set_arm_control_mode(arm, 'cartesian')
-        return self.cart_interfaces[arm].goToPose(pos_y, ax_y)
+        self._timed("set_mode", self._set_arm_control_mode, arm, 'cartesian')
+        return self._timed("goToPose", self.cart_interfaces[arm].goToPose, pos_y, ax_y)
+
+    def _timed(self, name, fn, *args):
+        """Llama fn(*args) y suma su duración a cycle_times/window_times[name]."""
+        t0 = time.perf_counter()
+        try:
+            return fn(*args)
+        finally:
+            dt = time.perf_counter() - t0
+            self.cycle_times[name] = self.cycle_times.get(name, 0.0) + dt
+            w = self.window_times.setdefault(name, [0, 0.0, 0.0])
+            w[0] += 1
+            w[1] += dt
+            w[2] = max(w[2], dt)
 
     def _set_arm_control_mode(self, arm, mode):
         if arm not in self.control_modes: return
@@ -625,7 +644,8 @@ class iCubYARPInterface:
                     )
 
                 self.img_buffers[eye].copy(img)
-                
+                self.cam_frames[eye] += 1
+
                 if eye == "left":
                     l = self.np_arrays[eye]
                 else:
