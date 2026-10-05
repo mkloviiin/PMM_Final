@@ -46,10 +46,15 @@ def _ping_output(port_name, timeout=5.0):
 
 
 def _wait_for_port(port_name, timeout=PORT_WAIT_TIMEOUT_S):
-    """Espera a que `port_name` esté registrado en el yarpserver. True si aparece."""
+    """Espera a que `port_name` esté registrado en el yarpserver. True si aparece.
+
+    Solo consulta el name server: Network.exists() además se conecta al puerto y, si el
+    proceso dueño está colgado, se bloquea para siempre sin imprimir nada. Si el puerto
+    responde o no lo comprueba _port_responds (con timeout) donde haga falta.
+    """
     deadline = time.time() + timeout
     warned = False
-    while not yarp.Network.exists(port_name, True):
+    while not yarp.Network.queryName(port_name).isValid():
         if time.time() >= deadline:
             print(f"  ✗ Timeout ({timeout:.0f} s) waiting for {port_name}")
             return False
