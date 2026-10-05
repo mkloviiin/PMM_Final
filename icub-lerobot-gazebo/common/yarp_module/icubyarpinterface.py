@@ -72,7 +72,8 @@ class iCubYARPInterface:
                  primary_arm_for_torso="right_arm",
                  home_pose_deg=None,
                  use_gaze=False,
-                 bind_eyes=True):
+                 bind_eyes=True,
+                 cart_carrier="udp"):
         """
         Args:
             robot_name (str): Nombre del robot.
@@ -81,6 +82,8 @@ class iCubYARPInterface:
             enable_cartesian (bool): Habilita la interfaz cartesiana.
             primary_arm_for_torso (str): Brazo que controlará el torso.
             home_pose_deg (dict): Diccionario con la pose home {joint: deg}.
+            cart_carrier (str): Carrier de los puertos de streaming del cliente
+                cartesiano (command/state/events). "udp" es el default de iCub.
         """
         
         yarp.Network.init()
@@ -130,6 +133,7 @@ class iCubYARPInterface:
         self.cart_drivers = {}
         self.cart_interfaces = {}
         self.enable_cartesian = enable_cartesian
+        self.cart_carrier = cart_carrier
         
         if not self.enable_cartesian:
             self.cart_parts = []
@@ -405,6 +409,9 @@ class iCubYARPInterface:
         props.put('local', f'/cartesian_client/{arm_part}')
         props.put('remote', f'/{self.robot_name}/cartesianController/{arm_part}')
         props.put('timeout', 60.0)
+        # goToPose no espera respuesta: va por command:o con este carrier. Con udp, en
+        # la red del robot real los comandos se pierden y el brazo no se mueve.
+        props.put('carrier', self.cart_carrier)
         rpc_port = f'/{self.robot_name}/cartesianController/{arm_part}/rpc:i'
         _wait_for_port(rpc_port)
         if not _port_responds(rpc_port):

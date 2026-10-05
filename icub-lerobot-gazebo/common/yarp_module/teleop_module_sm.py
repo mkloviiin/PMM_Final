@@ -165,7 +165,8 @@ class TeleopModuleSM(yarp.RFModule):
                 primary_arm_for_torso=primary_arm,
                 home_pose_deg=self.home_pos_deg,
                 use_gaze=self.use_gaze,
-                bind_eyes=False
+                bind_eyes=False,
+                cart_carrier=self.cfg.get("cart_carrier", "udp"),
             )
             self.yarp_interface.cart_force_position_direct = bool(
                 self.cfg.get("cart_force_position_direct", False))
@@ -666,6 +667,15 @@ class TeleopModuleSM(yarp.RFModule):
         yi = self.yarp_interface
         cur, _ = yi._get_current_pose(arm)
         dist = f"{np.linalg.norm(cur - target_pos) * 100:.1f} cm" if cur is not None else "n/a (getPose failed)"
+        # Pose deseada que resolvió el controlador (RPC, 1 cada 2 s): si no sigue al
+        # target, los goToPose no le están llegando.
+        xd, od, qd = yarp.Vector(), yarp.Vector(), yarp.Vector()
+        if yi.cart_interfaces[arm].getDesired(xd, od, qd) and xd.size() >= 3:
+            xd_np = np.array([xd[i] for i in range(3)])
+            desired = (f"ctrl desired {np.round(xd_np, 3).tolist()} "
+                       f"(target-desired {np.linalg.norm(xd_np - target_pos) * 100:.1f} cm)")
+        else:
+            desired = "ctrl desired n/a (getDesired failed)"
         n = yi.num_joints_part[arm]
         encs = yarp.Vector(n)
         yi.encoders[arm].getEncoders(encs.data())
@@ -675,7 +685,7 @@ class TeleopModuleSM(yarp.RFModule):
         yi.control_modes[arm].getControlModes(modes.data())
         dec = lambda v: bytes((v >> (8 * k)) & 0xFF for k in range(4)).rstrip(b"\0").decode(errors="replace")
         print(f"[Arm] {arm}: {st['n']} targets in 2s ({st['fail']} goToPose FAILED), "
-              f"target={np.round(target_pos, 3).tolist()}, hand-target {dist}, "
+              f"target={np.round(target_pos, 3).tolist()}, hand-target {dist}, {desired}, "
               f"arm joints moved {moved}, modes j0-6={[dec(modes[i]) for i in range(7)]}")
         self._arm_stats[arm] = {"t0": time.time(), "n": 0, "fail": 0, "q0": q}
 

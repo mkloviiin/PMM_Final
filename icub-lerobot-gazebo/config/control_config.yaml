@@ -17,6 +17,10 @@ cart_ctrl: true
 # POSITION_DIRECT en el brazo (comportamiento antiguo). false = deja que el
 # cartesianController del robot elija su modo (lo estándar en iCub).
 cart_force_position_direct: false
+# Carrier de los puertos de streaming del controlador cartesiano (command/state/events).
+# goToPose no espera respuesta: con "udp" (default de iCub) los comandos se pierden en
+# la red del robot real y el brazo no se mueve. "tcp" sirve igual en Gazebo.
+cart_carrier: "tcp"
 strict_xml_init: true
 
 # Tacto (skin) — republicado por teleop_module_sm.py en /teleop/touch:o
