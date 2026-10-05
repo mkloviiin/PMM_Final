@@ -10,6 +10,7 @@ from pathlib import Path
 import cv2
 import yaml
 import subprocess
+import faulthandler
 from collections import deque
 
 # --- Append paths ---
@@ -39,6 +40,11 @@ except ImportError:
 VR_HEAD_CAM_PORT = 10505
 VR_VIEWER_PORT = 15001
 FRONT_RETRY_S = 2.0
+
+# Diagnóstico del ciclo: [SLOW] si un updateModule tarda más que SLOW_CYCLE_S; si no
+# vuelve en STALL_DUMP_S, faulthandler vuelca el stack de todos los hilos a stderr.
+SLOW_CYCLE_S = 0.05
+STALL_DUMP_S = 1.0
 
 
 class TeleopModuleSM(yarp.RFModule):
@@ -290,7 +296,11 @@ class TeleopModuleSM(yarp.RFModule):
             self.debug_stream = os.getenv("TELEOP_DEBUG_STREAM", "0") == "1"
             self._dbg_rh_count = 0
             self._dbg_lh_count = 0
-            
+            self._cycle_parts = None
+            self._slow_last_print = 0.0
+            self._slow_suppressed = 0
+            self._vr_eye_sent = 0
+
             # hand_close_ratio: fracción del recorrido abierto→cerrado (1.0 = cierre
             # completo). Menos de 1 deja espacio entre índice y pulgar para que los
             # dedos no se atraviesen al cerrar sobre el objeto.
@@ -501,6 +511,27 @@ class TeleopModuleSM(yarp.RFModule):
         return self.period
 
     def updateModule(self):
+        """Un ciclo de la máquina de estados, cronometrado.
+
+        Si el ciclo no vuelve en STALL_DUMP_S, faulthandler vuelca a stderr el stack
+        de todos los hilos (funciona aunque el hilo esté bloqueado dentro de YARP).
+        """
+        state = self.state
+        if state == 'quit':  # close() espera el home: no es un ciclo normal
+            return self._update_state_machine()
+        self.yarp_interface.cycle_times = {}
+        self._cycle_parts = None
+        faulthandler.dump_traceback_later(STALL_DUMP_S, exit=False)
+        t0 = time.perf_counter()
+        try:
+            return self._update_state_machine()
+        finally:
+            faulthandler.cancel_dump_traceback_later()
+            dt = time.perf_counter() - t0
+            if dt > SLOW_CYCLE_S:
+                self._report_slow_cycle(dt, state)
+
+    def _update_state_machine(self):
         """
         Main Update Loop - State Machine Execution.
         
@@ -594,10 +625,31 @@ class TeleopModuleSM(yarp.RFModule):
         t_cam = time.perf_counter()
         self._send_robot_state()
         t_end = time.perf_counter()
-        self._report_loop_timing(t_ctrl - self._t_cycle_start, t_hand - t_ctrl,
-                                 t_cam - t_hand, t_end - t_cam)
+        self._cycle_parts = (t_ctrl - self._t_cycle_start, t_hand - t_ctrl,
+                             t_cam - t_hand, t_end - t_cam)
+        self._report_loop_timing(*self._cycle_parts)
 
         return True
+
+    def _report_slow_cycle(self, dt, state):
+        """[SLOW] con el desglose del ciclo y las llamadas al robot. Máximo 10 líneas/s
+        para que la propia impresión no frene más el loop; las omitidas se cuentan."""
+        now = time.time()
+        if now - self._slow_last_print < 0.1:
+            self._slow_suppressed += 1
+            return
+        msg = f"[SLOW] updateModule {dt * 1000:.0f} ms en estado {state}"
+        if self._cycle_parts is not None:
+            c, h, k, s = (round(x * 1000) for x in self._cycle_parts)
+            msg += f" = control {c} + hands {h} + cameras {k} + robot_state {s} ms"
+        calls = self.yarp_interface.cycle_times
+        if calls:
+            msg += " | " + ", ".join(f"{n} {t * 1000:.0f} ms" for n, t in calls.items())
+        if self._slow_suppressed:
+            msg += f" (+{self._slow_suppressed} [SLOW] omitidos)"
+        print(msg, flush=True)
+        self._slow_last_print = now
+        self._slow_suppressed = 0
 
     def _report_arm(self, arm, target_pos, ok):
         """Cada 2 s en teleop: targets recibidos, si goToPose los acepta, distancia
@@ -628,7 +680,10 @@ class TeleopModuleSM(yarp.RFModule):
         self._arm_stats[arm] = {"t0": time.time(), "n": 0, "fail": 0, "q0": q}
 
     def _report_loop_timing(self, ctrl, hand, cam, state):
-        """Cada 5 s, si hubo ciclos lentos, imprime el peor y en qué parte se fue el tiempo."""
+        """Cada 5 s: frecuencia del loop, peor ciclo y en qué parte se fue el tiempo,
+        llamadas al robot (n/medio/máx) y fps de cámara recibidos y enviados al VR.
+        Si los fps de cámara caen a 0 con el loop a 50 Hz, el problema es que no llegan
+        frames (red/fuente), no que el loop esté atascado."""
         total = ctrl + hand + cam + state
         st = getattr(self, "_loop_stats", None)
         if st is None:
@@ -640,11 +695,21 @@ class TeleopModuleSM(yarp.RFModule):
         if elapsed < 5.0:
             return
         worst, parts = st["worst"]
-        if worst > 3 * self.period and parts is not None:
-            c, h, k, s = (round(x * 1000) for x in parts)
-            print(f"[Loop] SLOW: {st['n'] / elapsed:.1f} Hz (target {1 / self.period:.0f}), "
-                  f"worst cycle {worst * 1000:.0f} ms = control {c} + hands {h} "
-                  f"+ cameras {k} + robot_state {s} ms (state={self.state})")
+        yi = self.yarp_interface
+        c, h, k, s = (round(x * 1000) for x in (parts or (0, 0, 0, 0)))
+        tag ="[Loop] SLOW:" if worst > 3 * self.period else "[Loop]"
+        calls = "; ".join(f"{name} n={n} avg {tot / n * 1000:.1f} max {mx * 1000:.0f} ms"
+                          for name, (n, tot, mx) in yi.window_times.items())
+        print(f"{tag} {st['n'] / elapsed:.1f} Hz (target {1 / self.period:.0f}), "
+              f"worst cycle {worst * 1000:.0f} ms = control {c} + hands {h} "
+              f"+ cameras {k} + robot_state {s} ms (state={self.state})"
+              f" | {calls or 'no robot calls'}"
+              f" | cam left {yi.cam_frames['left'] / elapsed:.1f} fps, "
+              f"right {yi.cam_frames['right'] / elapsed:.1f} fps, "
+              f"VR eye sent {self._vr_eye_sent / elapsed:.1f} fps", flush=True)
+        yi.window_times = {}
+        yi.cam_frames = {"left": 0, "right": 0}
+        self._vr_eye_sent = 0
         self._loop_stats = None
 
     def _resume_state(self):
@@ -701,6 +766,7 @@ class TeleopModuleSM(yarp.RFModule):
                 try:
                     # img_rgb = cv2.cvtColor(img_view, cv2.COLOR_BGR2RGB) # REMOVED: ZMQ transmitter uses OpenCV encoding which expects BGR
                     self.vr_pub.send_image(img_view)
+                    self._vr_eye_sent += 1
                 except Exception as e:
                     pass
 
