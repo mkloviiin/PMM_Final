@@ -2,21 +2,17 @@
 <sdf version="1.7">
   <model name="camera_stand">
     <static>true</static>
+    <!-- Sin <visual>: el soporte aparecería en las cámaras de los ojos del iCub. -->
     <link name="link">
-      <visual name="visual">
-        <geometry>
-          <box>
-            <size>0.1 0.1 0.1</size>
-          </box>
-        </geometry>
-      </visual>
       <sensor name="external_camera" type="camera">
         <pose>0 0 0 0 0 0</pose>
         <camera>
-          <horizontal_fov>1.047</horizontal_fov>
+          <!-- = fovy 45° de la frontview de MuJoCo con aspecto 4:3 -->
+          <horizontal_fov>1.009</horizontal_fov>
           <image>
             <width>640</width>
             <height>480</height>
+            <format>R8G8B8</format>
           </image>
           <clip>
             <near>0.1</near>
@@ -29,5 +25,15 @@
         <topic>external_camera/image</topic>
       </sensor>
     </link>
+
+    <!-- Expone la cámara en YARP: el plugin Camera registra el device y el
+         RobotInterface le cuelga un frameGrabber_nws_yarp en
+         /icubSim/cam/front/rgbImage:o (mismo esquema que los ojos del iCub). -->
+    <plugin name="gzyarp::Camera" filename="gz-sim-yarp-camera-system">
+      <yarpConfigurationString>(yarpDeviceName front_camera_rgb) (parentLinkName link) (sensorName external_camera) (framerate 30) (stamp 1)</yarpConfigurationString>
+    </plugin>
+    <plugin name="gzyarp::RobotInterface" filename="gz-sim-yarp-robotinterface-system">
+      <yarpRobotInterfaceConfigurationFile>model://camera-stand/front_camera_nws.xml</yarpRobotInterfaceConfigurationFile>
+    </plugin>
   </model>
 </sdf>

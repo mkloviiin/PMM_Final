@@ -44,11 +44,14 @@
       <pose>-0.4 0.1 0.745 0 0 0</pose>
     </include>
 
-    <!-- <include>
+    <!-- Cámara frontal: réplica de la "frontview" de MuJoCo (icub_room_arena.xml,
+         pos 1.6 0 1.0, 15° hacia abajo, fovy 45°) espejada en x porque aquí el iCub
+         mira hacia -x. Publica en YARP /icubSim/cam/front/rgbImage:o (ver models/camera-stand). -->
+    <include>
       <uri>model://camera-stand</uri>
       <name>camara_externa</name>
-      <pose>-0.530772 0 1.315 0 0.3 3.14</pose>
-    </include> -->
+      <pose>-1.6 0 1.0 0 0.2618 0</pose>
+    </include>
 
     <include>
       <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Sun</uri>
@@ -68,7 +71,10 @@
     <model name="iCub">
       <include>
         <uri>model://iCubGazeboV2_5_visuomanip_camada</uri>
-        <pose>0.0 0.0 0.63 0.0 0.0 0.0</pose>
+        <!-- z subido 0.63 -> 0.835 (+0.205) para acompañar la mesa (tope 0.72):
+             evita que la superficie de la mesa atraviese al iCub, lo que saturaba
+             el solver de contactos single-thread de DART y hundía el RTF a ~10%. -->
+        <pose>0.0 0.0 0.835 0.0 0.0 0.0</pose>
       </include>
     </model>
 
