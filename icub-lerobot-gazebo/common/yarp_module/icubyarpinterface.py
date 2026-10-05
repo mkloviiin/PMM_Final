@@ -30,6 +30,27 @@ def _port_responds(port_name, timeout=5.0):
         return True  # sin `yarp` CLI no se puede comprobar: no bloquear el arranque
 
 
+def _rpc_responds(port_name, command, timeout=5.0):
+    """True si `command` enviado por RPC a `port_name` recibe respuesta [ack].
+
+    Más fuerte que _port_responds: un servidor con el hilo de RPC bloqueado sigue
+    contestando `yarp ping` (lo atiende YARP, no el módulo), pero no responde aquí.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+    yarp_bin = Path(sys.executable).parent / "yarp"
+    try:
+        r = subprocess.run([str(yarp_bin) if yarp_bin.exists() else "yarp", "rpc", port_name],
+                           input=command + "\n", stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, text=True, timeout=timeout)
+        return "[ack]" in r.stdout
+    except subprocess.TimeoutExpired:
+        return False
+    except Exception:
+        return True  # sin `yarp` CLI no se puede comprobar: no bloquear el arranque
+
+
 def _ping_output(port_name, timeout=5.0):
     """Salida de `yarp ping <port>` (subproceso con timeout), o None si no responde."""
     import subprocess
@@ -419,7 +440,7 @@ class iCubYARPInterface:
         props.put('carrier', self.cart_carrier)
         rpc_port = f'/{self.robot_name}/cartesianController/{arm_part}/rpc:i'
         _wait_for_port(rpc_port)
-        if not _port_responds(rpc_port):
+        if not _rpc_responds(rpc_port, "get dof"):
             raise RuntimeError(
                 f"Cartesian controller {rpc_port} is registered but NOT responding (hung). "
                 f"Restart the robot's yarprobotinterface (it hosts cartesianController/{arm_part}) "
