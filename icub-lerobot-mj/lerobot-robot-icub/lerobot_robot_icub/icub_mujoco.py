@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import sys
+import time
 from typing import Any
 
 import mujoco
@@ -38,6 +39,9 @@ class iCubMuJoCo(Robot):
         self._camera_name_resolved: dict[str, str] = {}
 
         self._last_action: dict[str, float] = {}
+        # Métricas por frame que lee metrics/frame_metrics.py (tiempo simulado del
+        # estado y del render, costo de física y render). Se rehace en cada get_observation.
+        self.metrics_meta: dict[str, Any] = {}
         self._last_touch_state: dict[str, float] = {}
         self._rh_grip_mode: str = "stop"
         self._lh_grip_mode: str = "stop"
@@ -417,12 +421,15 @@ class iCubMuJoCo(Robot):
         # to ensure hands fully close and physics speeds match real-time
         dt = self.teleop_core.model.opt.timestep
         sim_steps_needed = max(1, int(round(self.config.control_dt / dt)))
+        t_phys = time.perf_counter()
         
         for i in range(sim_steps_needed):
             if i % max(1, self.teleop_core.frame_skip) == 0:
                 self.teleop_core._solve_ik()
                 self.teleop_core._interpolate_hands()
             mujoco.mj_step(self.teleop_core.model, self.teleop_core.data)
+        self.metrics_meta["physics_ms"] = (time.perf_counter() - t_phys) * 1000.0
+        self.metrics_meta["sim_steps"] = sim_steps_needed
 
         self._last_action = {
             k: self._to_float(v) if isinstance(v, torch.Tensor) else float(v)
@@ -442,6 +449,9 @@ class iCubMuJoCo(Robot):
         tc = self.teleop_core
         model = tc.model
         data = tc.data
+        # Estado y cámaras salen del mismo mjData sin avanzar la física entre medio:
+        # state_sim_t == cam_sim_t por construcción (se registra para comprobarlo).
+        self.metrics_meta = {"state_sim_t": float(data.time)}
 
         # 1. Joint positions
         state_vec = tc._get_robot_state()
@@ -576,11 +586,14 @@ class iCubMuJoCo(Robot):
         obs["lh_gripper"] = torch.tensor(float(getattr(tc, "lh_grip_state", 1.0)), dtype=torch.float32)
 
         # 8. Camera images  (mocap target geoms hidden via group 2 filter)
+        t_render = time.perf_counter()
+        self.metrics_meta["cam_sim_t"] = float(data.time)
         for requested_name, renderer in self.renderers.items():
             cam_name = self._camera_name_resolved[requested_name]
             renderer.update_scene(data, camera=cam_name, scene_option=self._cam_scene_option)
             img = renderer.render()
             obs[requested_name] = torch.from_numpy(img.copy()).permute(2, 0, 1)
+        self.metrics_meta["render_ms"] = (time.perf_counter() - t_render) * 1000.0
 
         # 9. Tactile contact — per-finger binary contact detection via data.contact.
         #    Only the fingertip (last phalanx _3) is used for touch detection.

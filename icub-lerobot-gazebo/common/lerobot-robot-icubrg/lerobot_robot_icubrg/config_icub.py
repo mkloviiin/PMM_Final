@@ -84,9 +84,13 @@ def _camera_ports_from_robot_name(robot_name: str) -> dict[str, str]:
             "right": f"/{robot_name}/cam/right/rgbImage:o",
             "front": f"/{robot_name}/cam/front/rgbImage:o",
         }
+    # Robot real: el relay local de teleop_module_sm (que ya recibe camcalib), no
+    # una segunda conexión a las cámaras del robot. Duplicar las imágenes crudas
+    # (~110 Mbit/s por cámara y cliente) saturaba la red del robot: se perdían los
+    # stateExt por UDP y el iKinCartesianSolver se suspendía (el brazo no se movía).
     return {
-        "left": f"/{robot_name}/cam/left",
-        "right": f"/{robot_name}/cam/right",
+        "left": "/teleop/cam/left:o",
+        "right": "/teleop/cam/right:o",
     }
 
 

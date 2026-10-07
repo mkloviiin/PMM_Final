@@ -22,6 +22,7 @@ El único switch real/Gazebo es `robot_name` (`icub`/`icubSim`): se pasa como
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import signal
@@ -125,7 +126,14 @@ def _tmux_alive() -> bool:
 
 
 # ── Puente subproceso play_gazebo.py ↔ protocolo de sesión ───────────────────
-def _bridge_play(argv, *, cmd_source, on_status) -> None:
+def _dir_size_mb(path: Path) -> float:
+    try:
+        return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / (1024 * 1024)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _bridge_play(argv, *, cmd_source, on_status, dataset_root: Path | None = None) -> None:
     """Corre play_gazebo.py como subproceso y traduce entre el protocolo del
     Hub (cmd_source/on_status) y el stdin/stdout del hijo.
 
@@ -135,7 +143,7 @@ def _bridge_play(argv, *, cmd_source, on_status) -> None:
     proc = subprocess.Popen(
         [str(a) for a in argv],
         cwd=str(GAZEBO_ROOT),
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        env={**os.environ, "PYTHONUNBUFFERED": "1", "PMM_LIVE_METRICS": "1"},
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -167,16 +175,33 @@ def _bridge_play(argv, *, cmd_source, on_status) -> None:
     threading.Thread(target=_forward_cmds, daemon=True).start()
 
     saved_re = re.compile(r"Episode saved \((\d+)/")
+    live = {"fps": 0.0, "latency_ms": 0.0, "size_mb": 0.0}
+    t_size = 0.0
     try:
         for raw in iter(proc.stdout.readline, ""):
             line = raw.rstrip("\n")
             if not line:
                 continue
+            if line.startswith("[Live] "):
+                # Métricas en vivo para el panel; no van al log (llegan 2 veces por segundo)
+                try:
+                    live.update(json.loads(line[7:]))
+                except ValueError:
+                    continue
+                if dataset_root is not None and time.time() - t_size > 2.0:
+                    live["size_mb"] = _dir_size_mb(dataset_root)
+                    t_size = time.time()
+                if on_status is not None:
+                    on_status({"metrics": dict(live)})
+                continue
             print(f"[play] {line}")
             if on_status is None:
                 continue
             if "Waiting START" in line:
-                on_status("waiting")
+                live.update(fps=0.0, latency_ms=0.0)
+                if dataset_root is not None:
+                    live["size_mb"] = _dir_size_mb(dataset_root)
+                on_status({"status": "waiting", "metrics": dict(live)})
             elif "Recording episode" in line:
                 on_status("recording")
             else:
@@ -333,6 +358,8 @@ def build_config_form() -> dict[str, gr.components.Component]:
             if not ok:
                 return msg
         robot_name = _robot_name(mode)
+        if not procman.is_running("yarp_module"):
+            procman.stop_stale("yarp_module", str(_YARP_MODULE))
         argv = [sys.executable, "-u", str(_YARP_MODULE), "--robot", robot_name]
         return procman.start(
             "yarp_module", argv,
@@ -407,7 +434,7 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
         argv.append("--vr-cable")
 
     def _record(cmd_source, on_status) -> None:
-        _bridge_play(argv, cmd_source=cmd_source, on_status=on_status)
+        _bridge_play(argv, cmd_source=cmd_source, on_status=on_status, dataset_root=dataset_root)
 
     return session.start_session(
         _record, repo_id=rid, dataset_root=dataset_root, num_episodes=int(num_eps),

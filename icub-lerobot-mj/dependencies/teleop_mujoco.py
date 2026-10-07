@@ -128,6 +128,40 @@ VR_BUTTONS_PORT    = 8119
 VR_HAND_LEFT_PORT  = 8121
 
 
+def draw_status_corner(img, lines):
+    """Dibuja (in place) en la esquina superior derecha de `img` (BGR) un recuadro con
+    el estado de la grabación: lines[0] = estado ("GRABANDO", "EN ESPERA", ...),
+    lines[1] = episodios. Misma función en icub-lerobot-gazebo/common/yarp_module/
+    teleop_module_sm.py."""
+    lines = [ln.strip() for ln in lines[:2] if ln.strip()]
+    if not lines:
+        return img
+    h, w = img.shape[:2]
+    k = w / 640.0
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    thick = max(1, round(2 * k))
+    pad, margin = max(4, int(10 * k)), max(4, int(14 * k))
+    recording = lines[0].upper().startswith("GRABANDO")
+    colors = [(0, 0, 255) if recording else (0, 220, 255)] + [(255, 255, 255)]
+    scales = [0.7 * k, 0.5 * k]
+    sizes = [cv2.getTextSize(t, font, sc, thick)[0] for t, sc in zip(lines, scales)]
+    r = sizes[0][1] // 2 + 1  # punto rojo de "grabando", a la izquierda del estado
+    dot_w = 2 * r + pad if recording else 0
+    # Lista explícita: con una sola línea, max(x, *[]) sería max(int) → TypeError
+    box_w = max([sizes[0][0] + dot_w] + [tw for tw, _ in sizes[1:]]) + 2 * pad
+    box_h = sum(th for _, th in sizes) + pad * (len(lines) + 1)
+    x1, y0 = w - margin, margin
+    x0, y1 = max(0, x1 - box_w), min(h, y0 + box_h)
+    img[y0:y1, x0:x1] = (img[y0:y1, x0:x1] * 0.35).astype(img.dtype)  # fondo oscuro translúcido
+    y = y0
+    for i, (text, sc, (tw, th), color) in enumerate(zip(lines, scales, sizes, colors)):
+        y += pad + th
+        cv2.putText(img, text, (x1 - pad - tw, y), font, sc, color, thick, cv2.LINE_AA)
+        if i == 0 and recording:
+            cv2.circle(img, (x1 - pad - tw - pad // 2 - r, y - th // 2), r, (0, 0, 255), -1, cv2.LINE_AA)
+    return img
+
+
 # ===========================================================================
 #                            MAIN TELEOP CLASS
 # ===========================================================================
@@ -329,6 +363,9 @@ class MuJoCoTeleop:
             if not BEAVR_IMG_AVAILABLE:
                 print(f"  [Stream] ZMQCompressedImageTransmitter not available — streaming disabled ({_BEAVR_IMG_IMPORT_ERROR!r})")
         self._last_stream_time = 0.0
+        # Estado de la grabación que se dibuja en la esquina de la pantalla grande
+        # (lo fija play_mujoco: ("GRABANDO", "Episodio 3/10")). Vacío = sin recuadro.
+        self.vr_status_lines: tuple[str, ...] = ()
 
         # ----- VR -----
         self.vr_ip = vr_ip if vr_ip else cfg.get("vr_ip", None)
@@ -1352,14 +1389,15 @@ class MuJoCoTeleop:
 
     # ========================= MAIN LOOP ===================================
 
-    def _stream_images(self, viewer_cam=None):
-        """Stream images to ZMQ if enabled."""
-        if self.img_stream_enabled and (time.time() - self._last_stream_time > 0.066):
+    def _stream_images(self, viewer_cam=None, force=False):
+        """Stream images to ZMQ if enabled. force=True ignora el límite de ~15 fps
+        (p. ej. para que el VR muestre "GUARDANDO..." antes de un save bloqueante)."""
+        if self.img_stream_enabled and (force or time.time() - self._last_stream_time > 0.066):
             try:
-                # head_cam → port 10505
+                # head_cam → port 10505, con el estado de la grabación en la esquina
                 self._head_renderer.update_scene(self.data, camera="head_cam")
-                head_img = self._head_renderer.render()
-                self._head_cam_pub.send_image(cv2.cvtColor(head_img, cv2.COLOR_RGB2BGR))
+                head_img = cv2.cvtColor(self._head_renderer.render(), cv2.COLOR_RGB2BGR)
+                self._head_cam_pub.send_image(draw_status_corner(head_img, self.vr_status_lines))
 
                 # viewer scene → port 15001
                 # viewer scene → port 15001

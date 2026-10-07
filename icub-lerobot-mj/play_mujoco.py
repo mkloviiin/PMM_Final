@@ -27,6 +27,11 @@ local_robot_path = repo_root / "lerobot-robot-icub"
 if local_robot_path.exists():
     sys.path.insert(0, str(local_robot_path))
 
+# Métricas de latencia/sincronización (metrics/frame_metrics.py, compartido con Gazebo)
+_metrics_path = str(repo_root.parent / "metrics")
+if _metrics_path not in sys.path:
+    sys.path.insert(0, _metrics_path)
+
 # Add icubenv site-packages to sys.path to generic python
 sys.path.append(os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages"))
 
@@ -107,6 +112,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _vr_status(robot, *lines: str, push: bool = False) -> None:
+    """Estado de la grabación en la esquina superior derecha de la pantalla grande del
+    VR (lo dibuja MuJoCoTeleop._stream_images). Sin tildes: cv2.putText no las soporta.
+
+    push=True envía ya un frame con el texto nuevo: durante save_episode no se llama a
+    send_action, así que el VR se quedaría con el último frame ("GRABANDO")."""
+    tc = getattr(robot, "teleop_core", None)
+    if tc is None:
+        return
+    tc.vr_status_lines = lines
+    if push and robot.config.vr_enabled:
+        tc._stream_images(force=True)
+
+
 def _manual_vr_record(
     *,
     args: argparse.Namespace,
@@ -129,6 +148,7 @@ def _manual_vr_record(
     from lerobot.robots import make_robot_from_config
     from lerobot.utils.constants import ACTION, OBS_STR
     from lerobot.utils.robot_utils import precise_sleep
+    from frame_metrics import FrameMetrics
 
     from lerobot_robot_icub.config_icub_mujoco import iCubMuJoCoConfig
     from lerobot_teleoperator_icubteleop.config_icubteleop import iCubTeleopConfig
@@ -244,6 +264,13 @@ def _manual_vr_record(
     listener_t = threading.Thread(target=_console_listener, daemon=True)
     listener_t.start()
 
+    fm = FrameMetrics.create(
+        backend="mujoco", fps=args.fps, name=Path(dataset_root).name,
+        repo_id=repo_id, task=args.single_task, vr=vr_enabled, scene=Path(model_path).name,
+        control_arms=robot_cfg.control_arms, cameras=list(robot_cfg.camera_names),
+        control_dt=robot_cfg.control_dt,
+    )
+
     try:
         if args.vr or args.vr_ip:
             print("\n[Manual] VR controls: A=start episode, B=stop episode")
@@ -259,12 +286,15 @@ def _manual_vr_record(
             if on_status is not None:
                 on_status({"status": "waiting", "metrics": {"fps": 0.0, "latency_ms": 0.0, "size_mb": size_mb}})
             print(f"\n[Manual] Waiting START for episode {dataset.num_episodes}...")
+            _vr_status(robot, "EN ESPERA", f"Episodios grabados: {recorded}/{args.num_episodes}")
             while True:
                 with cmd_lock:
                     if cmd_state["exit"]:
                         return
                 start_t = time.perf_counter()
+                fm.begin(recording=False, episode=dataset.num_episodes)
                 obs = robot.get_observation()
+                fm.mark("obs")
                 teleop.send_feedback(obs)
                 
                 # Check for reset request (KEY_R from teleop viewer)
@@ -282,7 +312,10 @@ def _manual_vr_record(
                 act = teleop.get_action()
                 act_processed = teleop_action_processor((act, obs))
                 robot_action_to_send = robot_action_processor((act_processed, obs))
+                fm.mark("teleop")
                 robot.send_action(robot_action_to_send)
+                fm.mark("send")
+                fm.end(robot=robot, obs=obs, action=act_processed)
 
                 start_ev, _, _ = robot.consume_vr_record_events() if hasattr(robot, "consume_vr_record_events") else (False, False, False)
                 with cmd_lock:
@@ -297,6 +330,7 @@ def _manual_vr_record(
             if on_status is not None:
                 on_status({"status": "recording", "metrics": {"fps": smooth_fps, "latency_ms": smooth_latency * 1000, "size_mb": size_mb}})
             print(f"[Manual] Recording episode {dataset.num_episodes}...")
+            _vr_status(robot, "GRABANDO", f"Episodio {recorded + 1}/{args.num_episodes}")
             episode_start = time.perf_counter()
             frame_idx = 0
 
@@ -305,8 +339,10 @@ def _manual_vr_record(
                     if cmd_state["exit"]:
                         return
                 loop_start = time.perf_counter()
+                fm.begin(recording=True, episode=dataset.num_episodes)
 
                 obs = robot.get_observation()
+                fm.mark("obs")
                 teleop.send_feedback(obs)
                 obs_processed = robot_observation_processor(obs)
 
@@ -327,13 +363,17 @@ def _manual_vr_record(
                 act = teleop.get_action()
                 act_processed = teleop_action_processor((act, obs))
                 robot_action_to_send = robot_action_processor((act_processed, obs))
+                fm.mark("teleop")
                 robot.send_action(robot_action_to_send)
+                fm.mark("send")
                 current_latency = time.perf_counter() - latency_start
 
                 observation_frame = build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR)
                 action_frame = build_dataset_frame(dataset.features, act_processed, prefix=ACTION)
                 frame = {**observation_frame, **action_frame, "task": args.single_task}
                 dataset.add_frame(frame)
+                fm.mark("record")
+                fm.end(robot=robot, obs=obs, action=act_processed)
 
                 _, stop_ev, discard_ev = robot.consume_vr_record_events() if hasattr(robot, "consume_vr_record_events") else (False, False, False)
                 with cmd_lock:
@@ -346,6 +386,7 @@ def _manual_vr_record(
                 # B mantenido → descartar episodio y volver a esperar
                 if discard_ev:
                     print("[Manual] Episodio DESCARTADO (B mantenido) — re-grabando...")
+                    fm.end_episode(dataset.num_episodes, saved=False, reason="discarded")
                     if hasattr(dataset, "clear_episode_buffer"):
                         dataset.clear_episode_buffer()
                     else:
@@ -377,13 +418,21 @@ def _manual_vr_record(
             if discard_ev:
                 continue   # no guardar, volver al bucle de espera
 
+            _vr_status(robot, "GUARDANDO...", f"Episodio {recorded + 1}/{args.num_episodes}", push=True)
+            ep_idx = dataset.num_episodes
+            t_save = time.perf_counter()
             dataset.save_episode()
+            fm.end_episode(ep_idx, saved=True, save_ms=(time.perf_counter() - t_save) * 1000.0)
             recorded += 1
+            if recorded >= args.num_episodes:
+                _vr_status(robot, "SESION COMPLETA",
+                           f"Episodios grabados: {recorded}/{args.num_episodes}", push=True)
             if on_status is not None:
                 on_status(f"saved:{recorded}")
             print(f"[Manual] Episode saved ({recorded}/{args.num_episodes})")
 
     finally:
+        fm.close()
         if recorded == 0:
             # Nothing was saved — clean up the empty dataset folder
             import shutil
