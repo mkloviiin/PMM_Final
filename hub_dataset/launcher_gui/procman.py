@@ -21,6 +21,7 @@ import os
 import signal
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from . import session  # reutiliza el panel de log compartido (session.log)
@@ -97,6 +98,45 @@ def stop(name: str, sig=signal.SIGINT, timeout: float = 8.0) -> str:
             proc.kill()
     session.log(f"[{name}] stopped.")
     return f"'{name}' stopped."
+
+
+def stop_stale(name: str, pattern: str, timeout: float = 8.0) -> int:
+    """Detiene procesos que coinciden con ``pattern`` (``pgrep -f``) y que este Hub no
+    gestiona: p. ej. el módulo YARP que quedó vivo al reiniciar el Hub (va en su propio
+    grupo). Si siguiera vivo, el nuevo choca con sus puertos ("address conflict").
+    Devuelve cuántos encontró."""
+    with _lock:
+        own = _procs.get(name)
+    own_pid = own.pid if own is not None and own.poll() is None else None
+    try:
+        out = subprocess.run(["pgrep", "-f", pattern], stdout=subprocess.PIPE, text=True).stdout
+    except Exception:  # noqa: BLE001
+        return 0
+    pids = [int(p) for p in out.split() if p.isdigit() and int(p) not in (own_pid, os.getpid())]
+    for pid in pids:
+        session.log(f"[{name}] stopping leftover process pid={pid} (from a previous Hub session)")
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGINT)
+        except Exception:  # noqa: BLE001
+            pass
+    deadline = time.time() + timeout
+    for pid in pids:
+        while _alive(pid) and time.time() < deadline:
+            time.sleep(0.2)
+        if _alive(pid):
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            except Exception:  # noqa: BLE001
+                pass
+    return len(pids)
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def run_once(argv, cwd=None, env=None, timeout: float = 180.0) -> tuple[int, str]:

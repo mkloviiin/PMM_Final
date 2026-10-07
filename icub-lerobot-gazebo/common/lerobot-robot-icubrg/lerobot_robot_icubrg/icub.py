@@ -1,5 +1,6 @@
 from typing import Any
 import math
+import time
 import torch
 import numpy as np
 
@@ -20,6 +21,11 @@ except Exception:
         pass
 
 from .config_icub import iCubConfig
+
+# Espera máxima al primer frame de cada cámara en connect(), y antigüedad a partir de
+# la cual se avisa que una cámara dejó de mandar frames.
+CAMERA_FIRST_FRAME_TIMEOUT_S = 5.0
+CAMERA_STALE_S = 1.0
 
 class iCub(Robot):
     config_class = iCubConfig
@@ -47,6 +53,9 @@ class iCub(Robot):
         # Buffers a la resolución nativa de cada cámara cuando difiere de camera_shapes
         # (p.ej. el robot real publica 640x480 y Gazebo 320x240): se redimensiona.
         self._native_bufs: dict[str, tuple] = {}
+        # Último frame recibido por cámara y último aviso de cámara sin frames
+        self._cam_last_t: dict[str, float] = {}
+        self._cam_stale_warn_t = 0.0
         self._connected = False
         self._calibrated = True 
         self._prev_r_cmd = None
@@ -54,6 +63,12 @@ class iCub(Robot):
         self._warned_missing_gaze = False
         self._warned_extra_joints = False
         self._rpc_enabled = False
+        # Métricas por frame que lee metrics/frame_metrics.py (timestamps YARP de estado
+        # y cámaras, confirmaciones de comandos). Se rehace en cada get_observation.
+        self.metrics_meta: dict[str, Any] = {}
+        self._cmd_seq = {"rh": 0, "lh": 0}
+        self._cam_stamp: dict[str, tuple[int, float]] = {}
+        self._pose_stamp: dict[str, float] = {}
 
         self.actuator_list = []
         for part in self.config.actuators_to_use:
@@ -189,6 +204,17 @@ class iCub(Robot):
             self._rpc_enabled = False
             print(f"[WARN] RPC port not connected: {self.config.remote_rpc_port}. Falling back to legacy target ports.")
 
+        # Confirmaciones de targets (teleop_module_sm → /teleop/cmd_ack:o). Solo métricas:
+        # sin este puerto (módulo antiguo) el teleop funciona igual.
+        ack = yarp.BufferedPortBottle()
+        ack.open(f"{prefix}/cmd_ack:i")
+        ack.setStrict(True)  # encolar todas: cada una es una muestra de latencia
+        if yarp.Network.connect("/teleop/cmd_ack:o", f"{prefix}/cmd_ack:i"):
+            self.ports["cmd_ack"] = ack
+        else:
+            ack.close()
+            print("[WARN] /teleop/cmd_ack:o not connected: no command-latency metrics.")
+
         # 2. Puertos de Cámara
         for name, remote_port in self.config.camera_ports.items():
             port = yarp.BufferedPortImageRgb()
@@ -210,6 +236,17 @@ class iCub(Robot):
                 self.np_arrays[name].shape[0]
             )
             self.img_ports[name] = port
+
+        # Espera el primer frame de cada cámara (lectura bloqueante solo aquí, con
+        # timeout): así el dataset no arranca con imágenes negras.
+        deadline = time.time() + CAMERA_FIRST_FRAME_TIMEOUT_S
+        for name in self.img_ports:
+            while name not in self._cam_last_t and time.time() < deadline:
+                self._read_camera(name)
+                time.sleep(0.01)
+            if name not in self._cam_last_t:
+                print(f"[WARN] Camera '{name}' sent no frame in {CAMERA_FIRST_FRAME_TIMEOUT_S:.0f} s; "
+                      f"recording black frames until it does.")
 
         # Pose actual de cada mano que publica teleop_module_sm (x y z qw qx qy qz, frame
         # root). No va al dataset: el teleoperador la usa para arrancar los mocaps donde
@@ -302,8 +339,17 @@ class iCub(Robot):
             raise DeviceNotConnectedError("iCub robot is not connected.")
 
         obs = {}
+        meta = self.metrics_meta = {}
         # Leer Estado Articular (BLOQUEANTE)
+        t0 = time.time()
         state_bot = self.ports["state"].read(True)
+        t_state = time.time()
+        meta["state_wait_ms"] = (t_state - t0) * 1000.0
+        stamp = self.yarp.Stamp()
+        if state_bot is not None and self.ports["state"].getEnvelope(stamp) and stamp.isValid():
+            meta["state_seq"] = stamp.getCount()
+            meta["state_stamp"] = stamp.getTime()
+            meta["state_age_ms"] = (t_state - stamp.getTime()) * 1000.0
         # Validación de seguridad: Si el puerto se cierra o hay error grave, podría retornar None
         if state_bot is None:
              raise ConnectionError("Critical: Failed to read robot state (YARP port might be closed).")
@@ -320,28 +366,43 @@ class iCub(Robot):
         for i, name in enumerate(self.actuator_list):
             obs[name] = torch.tensor(vals[i], dtype=torch.float32)
 
-        # Leer Camaras
-        for name, port in self.img_ports.items():
-            if img_yarp := port.read(True):
-                img_np = self.np_arrays[name]
-                h_in, w_in = img_yarp.height(), img_yarp.width()
-                if (h_in, w_in) == img_np.shape[:2]:
-                    self.img_buffers[name].copy(img_yarp)
-                else:
-                    # copy() a img_buffers reasignaría memoria fuera del buffer externo:
-                    # se copia a un buffer nativo y se redimensiona a camera_shapes, para
-                    # que el dataset tenga la misma forma en Gazebo y en el robot real.
-                    self._copy_resized(name, img_yarp, h_in, w_in)
+        # Leer Camaras (NO bloqueante): si no llegó un frame nuevo se repite el último.
+        # Con read(True) el loop de teleop (visor + targets) se congelaba cada vez que
+        # las cámaras se atrasaban.
+        now = time.time()
+        for name in self.img_ports:
+            meta[f"cam_{name}_new"] = int(self._read_camera(name))
             # HWC uint8 (copia: el buffer se reutiliza en el siguiente frame)
             obs[name] = self.np_arrays[name].copy()
+            # Frame que se graba: cuánto hace que llegó y su envelope (captura en origen)
+            if name in self._cam_last_t:
+                meta[f"cam_{name}_age_ms"] = (time.time() - self._cam_last_t[name]) * 1000.0
+            if name in self._cam_stamp:
+                seq, t_cap = self._cam_stamp[name]
+                meta[f"cam_{name}_seq"], meta[f"cam_{name}_stamp"] = seq, t_cap
+                # Antigüedad desde la captura: solo tiene sentido si la fuente usa el mismo
+                # reloj que este PC (metrics_report.py lo comprueba antes de usarla).
+                meta[f"cam_{name}_stamp_age_ms"] = (time.time() - t_cap) * 1000.0
+        stale = [n for n in self.img_ports
+                 if now - self._cam_last_t.get(n, 0.0) > CAMERA_STALE_S]
+        if stale and now - self._cam_stale_warn_t > 5.0:
+            print(f"[WARN] No new frames for >{CAMERA_STALE_S:.0f} s from camera(s) {stale}: "
+                  f"repeating the last frame.")
+            self._cam_stale_warn_t = now
 
         # Pose actual de las manos (solo feedback para el teleoperador, no es feature)
         for side in ("rh", "lh"):
             port = self.ports.get(f"{side}_current_pose")
             if port is not None and (b := port.read(False)) is not None and b.size() >= 7:
                 self._current_pose[side] = [b.get(i).asFloat64() for i in range(7)]
+                if port.getEnvelope(stamp) and stamp.isValid():
+                    self._pose_stamp[side] = stamp.getTime()
             if side in self._current_pose:
                 obs[f"{side}_current_pose"] = list(self._current_pose[side])
+            if side in self._pose_stamp:
+                meta[f"{side}_pose_stamp"] = self._pose_stamp[side]
+
+        self._drain_acks(meta)
 
         # --- Observaciones opcionales ---
 
@@ -419,6 +480,48 @@ class iCub(Robot):
 
         return obs
 
+    def _drain_acks(self, meta: dict) -> None:
+        """Lee las confirmaciones de targets llegadas desde el frame anterior.
+
+        transport_ms: del write del cliente a que el módulo lo lee (incluye la espera
+        al siguiente ciclo del módulo); exec_ms: lo que tarda go_to_pose_async."""
+        port = self.ports.get("cmd_ack")
+        if port is None:
+            return
+        acks = []
+        while port.getPendingReads() > 0:
+            b = port.read(False)
+            if b is None or b.size() < 6:
+                break
+            t_send, t_recv, t_done = (b.get(i).asFloat64() for i in (2, 3, 4))
+            acks.append({
+                "arm": b.get(0).asString(), "seq": b.get(1).asInt64(),
+                "transport_ms": (t_recv - t_send) * 1000.0,
+                "exec_ms": (t_done - t_recv) * 1000.0,
+                "sent": b.get(5).asInt32(),
+            })
+        if acks:
+            meta["acks"] = acks
+
+    def _read_camera(self, name: str) -> bool:
+        """Copia a np_arrays[name] el frame nuevo de la cámara, si llegó uno."""
+        img_yarp = self.img_ports[name].read(False)
+        if img_yarp is None:
+            return False
+        stamp = self.yarp.Stamp()
+        if self.img_ports[name].getEnvelope(stamp) and stamp.isValid():
+            self._cam_stamp[name] = (stamp.getCount(), stamp.getTime())
+        h_in, w_in = img_yarp.height(), img_yarp.width()
+        if (h_in, w_in) == self.np_arrays[name].shape[:2]:
+            self.img_buffers[name].copy(img_yarp)
+        else:
+            # copy() a img_buffers reasignaría memoria fuera del buffer externo:
+            # se copia a un buffer nativo y se redimensiona a camera_shapes, para
+            # que el dataset tenga la misma forma en Gazebo y en el robot real.
+            self._copy_resized(name, img_yarp, h_in, w_in)
+        self._cam_last_t[name] = time.time()
+        return True
+
     def _copy_resized(self, name: str, img_yarp, h_in: int, w_in: int) -> None:
         import cv2
 
@@ -480,7 +583,7 @@ class iCub(Robot):
                 bottle_rh = yarp.Bottle()
                 for v in pos_rh: bottle_rh.addFloat64(v)
                 for v in quat_rh: bottle_rh.addFloat64(v)
-                self.ports["rh_out"].write(bottle_rh)
+                self._write_target("rh", bottle_rh)
             elif self._rpc_enabled:
                 send_rpc(
                     f"move_right_arm {pos_rh[0]:.6f} {pos_rh[1]:.6f} {pos_rh[2]:.6f} "
@@ -521,7 +624,7 @@ class iCub(Robot):
                 bottle_lh = yarp.Bottle()
                 for v in pos_lh: bottle_lh.addFloat64(v)
                 for v in quat_lh: bottle_lh.addFloat64(v)
-                self.ports["lh_out"].write(bottle_lh)
+                self._write_target("lh", bottle_lh)
             elif self._rpc_enabled:
                 send_rpc(
                     f"move_left_arm {pos_lh[0]:.6f} {pos_lh[1]:.6f} {pos_lh[2]:.6f} "
@@ -558,15 +661,28 @@ class iCub(Robot):
                 to_float(action["gaze_z"])
             ]
             
+            t_rpc = time.perf_counter()
             sent_gaze_rpc = send_rpc(
                 f"look_at {pos_gaze[0]:.6f} {pos_gaze[1]:.6f} {pos_gaze[2]:.6f}"
             )
+            if sent_gaze_rpc:
+                self.metrics_meta["gaze_rpc_ms"] = (time.perf_counter() - t_rpc) * 1000.0
             if (not sent_gaze_rpc) and "gaze_target" in self.ports:
                 bottle_gaze = yarp.Bottle()
                 for v in pos_gaze: bottle_gaze.addFloat64(v)
                 self.ports["gaze_target"].write(bottle_gaze)
 
         return action
+
+    def _write_target(self, side: str, bottle) -> None:
+        """Envía un target cartesiano con envelope (seq, t_send) para medir su latencia."""
+        self._cmd_seq[side] += 1
+        port = self.ports[f"{side}_out"]
+        t_send = time.time()
+        port.setEnvelope(self.yarp.Stamp(self._cmd_seq[side], t_send))
+        port.write(bottle)
+        self.metrics_meta[f"{side}_cmd_seq"] = self._cmd_seq[side]
+        self.metrics_meta[f"{side}_cmd_write_ms"] = (time.time() - t_send) * 1000.0
 
     def disconnect(self) -> None:
         if not self._connected: return

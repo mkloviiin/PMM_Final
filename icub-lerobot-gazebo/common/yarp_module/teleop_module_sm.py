@@ -11,6 +11,7 @@ import cv2
 import yaml
 import subprocess
 import faulthandler
+import threading
 from collections import deque
 
 # --- Append paths ---
@@ -19,7 +20,11 @@ _PROJECT_ROOT = _HERE.parent.parent   # common/yarp_module -> icub-lerobot-gazeb
 sys.path.append(str(_HERE))
 
 # --- Import custom modules ---
-from icubyarpinterface import iCubYARPInterface
+from icubyarpinterface import iCubYARPInterface, cartesian_solver_suspended
+
+# Tamaño (alto, ancho) del relay de cámaras si el YAML no trae camera_shapes; es el
+# mismo default que graba play_gazebo (_DEFAULT_CAMERA_SHAPE en config_icub.py).
+CAMERA_RELAY_DEFAULT_HW = (240, 320)
 
 CONFIG_FILE = os.getenv("ICUB_LEROBOT_CONFIG", str(_PROJECT_ROOT / "config" / "control_config.yaml"))
 
@@ -45,6 +50,39 @@ FRONT_RETRY_S = 2.0
 # vuelve en STALL_DUMP_S, faulthandler vuelca el stack de todos los hilos a stderr.
 SLOW_CYCLE_S = 0.05
 STALL_DUMP_S = 1.0
+
+
+def draw_status_corner(img, lines):
+    """Dibuja (in place) en la esquina superior derecha de `img` (BGR) un recuadro con
+    el estado de la grabación: lines[0] = estado ("GRABANDO", "EN ESPERA", ...),
+    lines[1] = episodios. Misma función en icub-lerobot-mj/dependencies/teleop_mujoco.py."""
+    lines = [ln.strip() for ln in lines[:2] if ln.strip()]
+    if not lines:
+        return img
+    h, w = img.shape[:2]
+    k = w / 640.0
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    thick = max(1, round(2 * k))
+    pad, margin = max(4, int(10 * k)), max(4, int(14 * k))
+    recording = lines[0].upper().startswith("GRABANDO")
+    colors = [(0, 0, 255) if recording else (0, 220, 255)] + [(255, 255, 255)]
+    scales = [0.7 * k, 0.5 * k]
+    sizes = [cv2.getTextSize(t, font, sc, thick)[0] for t, sc in zip(lines, scales)]
+    r = sizes[0][1] // 2 + 1  # punto rojo de "grabando", a la izquierda del estado
+    dot_w = 2 * r + pad if recording else 0
+    # Lista explícita: con una sola línea, max(x, *[]) sería max(int) → TypeError
+    box_w = max([sizes[0][0] + dot_w] + [tw for tw, _ in sizes[1:]]) + 2 * pad
+    box_h = sum(th for _, th in sizes) + pad * (len(lines) + 1)
+    x1, y0 = w - margin, margin
+    x0, y1 = max(0, x1 - box_w), min(h, y0 + box_h)
+    img[y0:y1, x0:x1] = (img[y0:y1, x0:x1] * 0.35).astype(img.dtype)  # fondo oscuro translúcido
+    y = y0
+    for i, (text, sc, (tw, th), color) in enumerate(zip(lines, scales, sizes, colors)):
+        y += pad + th
+        cv2.putText(img, text, (x1 - pad - tw, y), font, sc, color, thick, cv2.LINE_AA)
+        if i == 0 and recording:
+            cv2.circle(img, (x1 - pad - tw - pad // 2 - r, y - th // 2), r, (0, 0, 255), -1, cv2.LINE_AA)
+    return img
 
 
 class TeleopModuleSM(yarp.RFModule):
@@ -222,6 +260,17 @@ class TeleopModuleSM(yarp.RFModule):
                 print("✗ ERROR: Failed to open /teleop/robot_state:o")
                 return False
             print("  ✓ /teleop/robot_state:o created")
+            self._state_seq = 0
+
+            # Confirmación de cada target recibido (solo métricas de latencia en
+            # play_gazebo / metrics/latency_probe.py): "rh"|"lh" seq t_send t_recv t_done sent.
+            # Opcional: si no abre, el teleop funciona igual.
+            self.ports["cmd_ack"] = yarp.BufferedPortBottle()
+            if self.ports["cmd_ack"].open("/teleop/cmd_ack:o"):
+                print("  ✓ /teleop/cmd_ack:o created")
+            else:
+                print("  ⚠ /teleop/cmd_ack:o could not be opened (no command-latency metrics)")
+                del self.ports["cmd_ack"]
 
             if self.use_tactile:
                 self.ports["r_hand_touch"] = yarp.BufferedPortVector()
@@ -256,6 +305,23 @@ class TeleopModuleSM(yarp.RFModule):
                 print("✗ ERROR: Failed to open /teleop/view:o")
                 return False
             print("  ✓ /teleop/view:o created")
+
+            # Relay local de las cámaras para play_gazebo (mismo PC): el robot manda
+            # cada imagen una sola vez, a este módulo. Si play se conectaba también a
+            # la cámara del robot, el tráfico se duplicaba (~440 Mbit/s), se perdían
+            # paquetes UDP en la red del robot y el iKinCartesianSolver se suspendía.
+            # Se publica ya reducido al tamaño que graba play (camera_shapes del YAML).
+            shapes = self.cfg.get("camera_shapes") or {}
+            self.cam_relay_hw = {}
+            for eye in ("left", "right"):
+                port_name = f"/teleop/cam/{eye}:o"
+                self.ports[f"cam_relay_{eye}"] = yarp.BufferedPortImageRgb()
+                if not self.ports[f"cam_relay_{eye}"].open(port_name):
+                    print(f"✗ ERROR: Failed to open {port_name}")
+                    return False
+                h, w = shapes.get(eye, CAMERA_RELAY_DEFAULT_HW)
+                self.cam_relay_hw[eye] = (int(h), int(w))
+                print(f"  ✓ {port_name} created ({int(w)}x{int(h)})")
 
             # Cámara frontal (pantalla chica del VR). En Gazebo la publica
             # models/camera-stand; en el robot real puede no existir, así que no
@@ -566,7 +632,9 @@ class TeleopModuleSM(yarp.RFModule):
                     pos = np.array([rh_target.get(i).asFloat64() for i in range(3)])
                     quat = np.array([rh_target.get(i).asFloat64() for i in range(3, 7)])
                     if np.isfinite(pos).all() and np.isfinite(quat).all():
+                        t_recv, n_sent = time.time(), self._gotopose_count()
                         ok = self.yarp_interface.go_to_pose_async("right_arm", pos, quat)
+                        self._ack_target("rh", "rh_target", t_recv, n_sent, ok)
                         self._report_arm("right_arm", pos, ok)
                         if self.debug_stream:
                             self._dbg_rh_count += 1
@@ -579,7 +647,9 @@ class TeleopModuleSM(yarp.RFModule):
                     pos = np.array([lh_target.get(i).asFloat64() for i in range(3)])
                     quat = np.array([lh_target.get(i).asFloat64() for i in range(3, 7)])
                     if np.isfinite(pos).all() and np.isfinite(quat).all():
+                        t_recv, n_sent = time.time(), self._gotopose_count()
                         ok = self.yarp_interface.go_to_pose_async("left_arm", pos, quat)
+                        self._ack_target("lh", "lh_target", t_recv, n_sent, ok)
                         self._report_arm("left_arm", pos, ok)
                         if self.debug_stream:
                             self._dbg_lh_count += 1
@@ -632,6 +702,32 @@ class TeleopModuleSM(yarp.RFModule):
 
         return True
 
+    def _gotopose_count(self):
+        return self.yarp_interface.window_times.get("goToPose", (0,))[0]
+
+    def _ack_target(self, side, port_key, t_recv, n_sent_before, ok):
+        """Publica en /teleop/cmd_ack:o la confirmación del target recién procesado.
+
+        seq y t_send vienen del envelope que pone el cliente (mismo PC → mismo reloj).
+        sent: 1 = goToPose enviado, 0 = descartado por la banda muerta de
+        go_to_pose_async (mano ya a <1 cm / 5°), -1 = goToPose falló."""
+        port = self.ports.get("cmd_ack")
+        if port is None or port.getOutputCount() == 0:
+            return
+        stamp = yarp.Stamp()
+        if not (self.ports[port_key].getEnvelope(stamp) and stamp.isValid()):
+            return
+        sent = -1 if not ok else (1 if self._gotopose_count() > n_sent_before else 0)
+        bot = port.prepare()
+        bot.clear()
+        bot.addString(side)
+        bot.addInt64(stamp.getCount())
+        bot.addFloat64(stamp.getTime())
+        bot.addFloat64(t_recv)
+        bot.addFloat64(time.time())
+        bot.addInt32(sent)
+        port.write()
+
     def _report_slow_cycle(self, dt, state):
         """[SLOW] con el desglose del ciclo y las llamadas al robot. Máximo 10 líneas/s
         para que la propia impresión no frene más el loop; las omitidas se cuentan."""
@@ -674,7 +770,12 @@ class TeleopModuleSM(yarp.RFModule):
             xd_np = np.array([xd[i] for i in range(3)])
             desired = (f"ctrl desired {np.round(xd_np, 3).tolist()} "
                        f"(target-desired {np.linalg.norm(xd_np - target_pos) * 100:.1f} cm)")
+            # desired congelado lejos del target = el controlador no recibe soluciones
+            if (st.get("xd") is not None and np.allclose(xd_np, st["xd"])
+                    and np.linalg.norm(xd_np - target_pos) > 0.03):
+                self._check_solver_async(arm)
         else:
+            xd_np = None
             desired = "ctrl desired n/a (getDesired failed)"
         n = yi.num_joints_part[arm]
         encs = yarp.Vector(n)
@@ -687,7 +788,27 @@ class TeleopModuleSM(yarp.RFModule):
         print(f"[Arm] {arm}: {st['n']} targets in 2s ({st['fail']} goToPose FAILED), "
               f"target={np.round(target_pos, 3).tolist()}, hand-target {dist}, {desired}, "
               f"arm joints moved {moved}, modes j0-6={[dec(modes[i]) for i in range(7)]}")
-        self._arm_stats[arm] = {"t0": time.time(), "n": 0, "fail": 0, "q0": q}
+        self._arm_stats[arm] = {"t0": time.time(), "n": 0, "fail": 0, "q0": q, "xd": xd_np}
+
+    def _check_solver_async(self, arm):
+        """Pregunta al iKinCartesianSolver si está suspendido, como mucho cada 30 s y
+        en un hilo aparte (es un `yarp rpc` en subproceso, no debe frenar el loop)."""
+        now = time.time()
+        last = getattr(self, "_solver_check_t", {})
+        if now - last.get(arm, 0.0) < 30.0:
+            return
+        self._solver_check_t = {**last, arm: now}
+
+        def check():
+            if cartesian_solver_suspended(arm):
+                print("!" * 70, flush=True)
+                print(f"[Arm] ✗ /cartesianSolver/{arm} is SUSPENDED: the controller accepts "
+                      f"goToPose but gets no IK solution, so the arm will NOT move.\n"
+                      f"      Restart iKinCartesianSolver --part {arm} on the robot "
+                      f"(after yarprobotinterface), then restart this module.", flush=True)
+                print("!" * 70, flush=True)
+
+        threading.Thread(target=check, daemon=True).start()
 
     def _report_loop_timing(self, ctrl, hand, cam, state):
         """Cada 5 s: frecuencia del loop, peor ciclo y en qué parte se fue el tiempo,
@@ -745,7 +866,8 @@ class TeleopModuleSM(yarp.RFModule):
         self._stream_front_camera()
 
         l, r = self.yarp_interface.get_camera_images()
-        
+        self._relay_cameras({"left": l, "right": r})
+
         if l is not None:
             self.l_img = cv2.cvtColor(l, cv2.COLOR_BGR2RGB)
         if r is not None:
@@ -765,8 +887,16 @@ class TeleopModuleSM(yarp.RFModule):
             # The VR headset will handle the scaling
             pass
 
+            # Con cámara frontal (Gazebo) la pantalla chica la muestra a ella, así que el
+            # estado de la grabación va en la esquina de la pantalla grande. Sin ella
+            # (robot real) ya lo muestra la pantalla chica (_stream_status_screen).
+            # view_out (recorder) recibe la imagen limpia.
+            img_vr = img_view
+            if time.time() - self._front_last_frame_t <= 1.0:
+                img_vr = draw_status_corner(img_view.copy(), self.vr_status_text.split("|"))
+
             window_name = "iCub_VR_View"
-            cv2.imshow(window_name, img_view)
+            cv2.imshow(window_name, img_vr)
             key = cv2.waitKey(1) & 0xFF
             if key == 27:  # ESC
                 self.state = 'quit'
@@ -775,7 +905,7 @@ class TeleopModuleSM(yarp.RFModule):
             if hasattr(self, 'vr_pub'):
                 try:
                     # img_rgb = cv2.cvtColor(img_view, cv2.COLOR_BGR2RGB) # REMOVED: ZMQ transmitter uses OpenCV encoding which expects BGR
-                    self.vr_pub.send_image(img_view)
+                    self.vr_pub.send_image(img_vr)
                     self._vr_eye_sent += 1
                 except Exception as e:
                     pass
@@ -790,6 +920,27 @@ class TeleopModuleSM(yarp.RFModule):
                 temp_wrapper.setExternal(img_rgb_yarp.data, w_i, h_i)
                 y_img.copy(temp_wrapper)
                 self.ports["view_out"].write()
+
+    def _relay_cameras(self, frames):
+        """Publica cada frame nuevo (RGB tal como llega de YARP) en /teleop/cam/<eye>:o,
+        reducido a cam_relay_hw. Solo si hay alguien conectado (play_gazebo)."""
+        for eye, img in frames.items():
+            port = self.ports.get(f"cam_relay_{eye}")
+            if img is None or port is None or port.getOutputCount() == 0:
+                continue
+            h, w = self.cam_relay_hw[eye]
+            out = img if img.shape[:2] == (h, w) else cv2.resize(
+                img, (w, h), interpolation=cv2.INTER_AREA)
+            out = np.ascontiguousarray(out)
+            wrapper = yarp.ImageRgb()
+            wrapper.setExternal(out.data, w, h)
+            y_img = port.prepare()
+            y_img.resize(w, h)
+            y_img.copy(wrapper)
+            stamp = self.yarp_interface.cam_stamps.get(eye)
+            if stamp is not None:
+                port.setEnvelope(yarp.Stamp(*stamp))
+            port.write()
 
     def _connect_front_camera(self):
         """Conecta la cámara frontal a /teleop/front:i si su puerto existe."""
@@ -867,6 +1018,10 @@ class TeleopModuleSM(yarp.RFModule):
     def _send_robot_state(self):
         """Publish current joint state."""
         s, _ = self.yarp_interface.get_joint_state()
+        # Envelope = (secuencia, instante de lectura de encoders): el cliente mide con él
+        # la antigüedad del estado que graba y su desfase con las cámaras.
+        self._state_seq += 1
+        self.ports["robot_state"].setEnvelope(yarp.Stamp(self._state_seq, time.time()))
         bot = yarp.Bottle()
         for v in s:
             bot.addFloat64(v)
@@ -885,6 +1040,7 @@ class TeleopModuleSM(yarp.RFModule):
                 pbot.addFloat64(float(curr_quat_wxyz[1]))
                 pbot.addFloat64(float(curr_quat_wxyz[2]))
                 pbot.addFloat64(float(curr_quat_wxyz[3]))
+                self.ports["rh_current_pose"].setEnvelope(yarp.Stamp(self._state_seq, time.time()))
                 self.ports["rh_current_pose"].write()
 
         if "left_arm" in self.cartesian_arms and "lh_current_pose" in self.ports:
@@ -899,6 +1055,7 @@ class TeleopModuleSM(yarp.RFModule):
                 pbot.addFloat64(float(curr_quat_wxyz[1]))
                 pbot.addFloat64(float(curr_quat_wxyz[2]))
                 pbot.addFloat64(float(curr_quat_wxyz[3]))
+                self.ports["lh_current_pose"].setEnvelope(yarp.Stamp(self._state_seq, time.time()))
                 self.ports["lh_current_pose"].write()
 
         if self.use_tactile and "r_hand_touch" in self.ports and "touch_state" in self.ports:

@@ -30,11 +30,10 @@ def _port_responds(port_name, timeout=5.0):
         return True  # sin `yarp` CLI no se puede comprobar: no bloquear el arranque
 
 
-def _rpc_responds(port_name, command, timeout=5.0):
-    """True si `command` enviado por RPC a `port_name` recibe respuesta [ack].
+def _rpc_reply(port_name, command, timeout=5.0):
+    """Respuesta de `yarp rpc <port>` a `command` (subproceso con timeout).
 
-    Más fuerte que _port_responds: un servidor con el hilo de RPC bloqueado sigue
-    contestando `yarp ping` (lo atiende YARP, no el módulo), pero no responde aquí.
+    "" si no responde a tiempo; None si no hay `yarp` CLI para comprobarlo.
     """
     import subprocess
     import sys
@@ -44,11 +43,35 @@ def _rpc_responds(port_name, command, timeout=5.0):
         r = subprocess.run([str(yarp_bin) if yarp_bin.exists() else "yarp", "rpc", port_name],
                            input=command + "\n", stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT, text=True, timeout=timeout)
-        return "[ack]" in r.stdout
+        return r.stdout
     except subprocess.TimeoutExpired:
-        return False
+        return ""
     except Exception:
+        return None
+
+
+def _rpc_responds(port_name, command, timeout=5.0):
+    """True si `command` enviado por RPC a `port_name` recibe respuesta [ack].
+
+    Más fuerte que _port_responds: un servidor con el hilo de RPC bloqueado sigue
+    contestando `yarp ping` (lo atiende YARP, no el módulo), pero no responde aquí.
+    """
+    reply = _rpc_reply(port_name, command, timeout)
+    if reply is None:
         return True  # sin `yarp` CLI no se puede comprobar: no bloquear el arranque
+    return "[ack]" in reply
+
+
+def cartesian_solver_suspended(arm_part, timeout=5.0):
+    """True si iKinCartesianSolver de `arm_part` está suspendido.
+
+    El solver se suspende solo (y no vuelve a arrancar) la primera vez que falla una
+    lectura de encoders de torso/brazo, p. ej. al reiniciar yarprobotinterface o con
+    un corte del stateExt. Suspendido, el cartesianController acepta goToPose pero
+    nunca recibe solución: el brazo no se mueve y goToPoseSync se cuelga para siempre.
+    """
+    reply = _rpc_reply(f"/cartesianSolver/{arm_part}/rpc", "stat", timeout)
+    return bool(reply) and "suspended" in reply
 
 
 def _ping_output(port_name, timeout=5.0):
@@ -144,6 +167,9 @@ class iCubYARPInterface:
         self.cycle_times: dict[str, float] = {}
         self.window_times: dict[str, list] = {}
         self.cam_frames = {"left": 0, "right": 0}
+        # Envelope YARP (secuencia, timestamp de captura) del último frame por ojo:
+        # el relay lo reenvía para que play_gazebo mida la sincronización real.
+        self.cam_stamps: dict[str, tuple[int, float] | None] = {}
         self.axis_info = {}
         self.num_joints_part = {}
         self.joint_processing_map = []
@@ -445,6 +471,14 @@ class iCubYARPInterface:
                 f"Cartesian controller {rpc_port} is registered but NOT responding (hung). "
                 f"Restart the robot's yarprobotinterface (it hosts cartesianController/{arm_part}) "
                 f"with iKinCartesianSolver --part {arm_part} running, then start the module again.")
+        # No se reanuda desde aquí con "run": en modo cont el solver resolvería el
+        # último target que recibió y el controlador movería el brazo hacia él.
+        if cartesian_solver_suspended(arm_part):
+            raise RuntimeError(
+                f"/cartesianSolver/{arm_part} is SUSPENDED (it stops itself after an encoder "
+                f"timeout on torso/{arm_part}): the arm would ignore every goToPose. "
+                f"Restart iKinCartesianSolver --part {arm_part} on the robot (after "
+                f"yarprobotinterface), then start the module again.")
         # El puerto del controlador aparece antes de que su solver esté listo
         # ("unable to connect to solver!"): se reintenta hasta el timeout.
         deadline = time.time() + PORT_WAIT_TIMEOUT_S
@@ -678,6 +712,10 @@ class iCubYARPInterface:
 
                 self.img_buffers[eye].copy(img)
                 self.cam_frames[eye] += 1
+                stamp = yarp.Stamp()
+                self.cam_stamps[eye] = ((stamp.getCount(), stamp.getTime())
+                                        if self.cam_ports[eye].getEnvelope(stamp) and stamp.isValid()
+                                        else None)
 
                 if eye == "left":
                     l = self.np_arrays[eye]
