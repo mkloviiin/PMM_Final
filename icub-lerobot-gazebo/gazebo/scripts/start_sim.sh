@@ -6,6 +6,7 @@ CONDA_ENV="icubenv"
 GAZEBO_EXAMPLE_DIR="$(dirname "$(dirname "$(readlink -f "$0")")")"
 WORLD="$GAZEBO_EXAMPLE_DIR/worlds/icub_world.sdf"
 MODELS_DIR="$GAZEBO_EXAMPLE_DIR/models"
+PLUGINS_DIR="$GAZEBO_EXAMPLE_DIR/plugins"
 
 echo "Iniciando sesión de tmux '$SESSION_NAME' con ventanas separadas..."
 
@@ -18,6 +19,9 @@ tmux send-keys -t $SESSION_NAME:server "yarpserver --write" C-m
 tmux new-window -t $SESSION_NAME -n gazebo
 tmux send-keys -t $SESSION_NAME:gazebo "conda activate $CONDA_ENV" C-m
 tmux send-keys -t $SESSION_NAME:gazebo "export GZ_SIM_RESOURCE_PATH=\${GZ_SIM_RESOURCE_PATH}:\${GAZEBO_MODEL_PATH}:$MODELS_DIR" C-m
+# Controlboard parchado (modo MIXED para los ojos de iKinGazeCtrl), antes que el de conda.
+# Ver gazebo/plugins/build_controlboard.sh.
+tmux send-keys -t $SESSION_NAME:gazebo "export GZ_SIM_SYSTEM_PLUGIN_PATH=$PLUGINS_DIR:\${GZ_SIM_SYSTEM_PLUGIN_PATH}" C-m
 
 # LANZAR SERVIDOR (Headless - Maneja física y sensores)
 # tmux send-keys -t $SESSION_NAME:gazebo "gz sim -r $WORLD" C-m
@@ -52,7 +56,9 @@ tmux send-keys -t $SESSION_NAME:left_arm "iKinCartesianSolver --context $CONTEXT
 tmux new-window -t $SESSION_NAME -n gaze
 tmux send-keys -t $SESSION_NAME:gaze "conda activate $CONDA_ENV" C-m
 tmux send-keys -t $SESSION_NAME:gaze "sleep 10 # Espera a que el robot interface inicie" C-m
-tmux send-keys -t $SESSION_NAME:gaze "iKinGazeCtrl --context $CONTEXT --from iKinGazeCtrl.ini" C-m
+# YARP_CLOCK=/clock: el gaze usa el tiempo simulado (lo publica gzyarp::Clock). Con
+# reloj de pared y RTF < 1 los ojos (control en velocidad) oscilan y se desorbitan.
+tmux send-keys -t $SESSION_NAME:gaze "YARP_CLOCK=/clock iKinGazeCtrl --context $CONTEXT --from iKinGazeCtrl.ini" C-m
 
 echo "Sesión de simulación iniciada."
 echo "Usa 'tmux attach -t $SESSION_NAME' y navega entre ventanas con 'Ctrl+b, n' (siguiente) o 'Ctrl+b, p' (anterior)."

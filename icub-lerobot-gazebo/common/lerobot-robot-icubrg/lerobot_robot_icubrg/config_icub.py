@@ -75,10 +75,28 @@ def _default_camera_ports() -> dict[str, str]:
 
 
 def _camera_ports_from_robot_name(robot_name: str) -> dict[str, str]:
+    # Gazebo (gz-sim) publica los ojos en .../rgbImage:o y además tiene la
+    # cámara frontal del mundo (models/camera-stand). El robot real no tiene
+    # cámara frontal en YARP: se agrega vía `camera_ports` en el YAML.
+    if robot_name.strip().lower() == "icubsim":
+        return {
+            "left": f"/{robot_name}/cam/left/rgbImage:o",
+            "right": f"/{robot_name}/cam/right/rgbImage:o",
+            "front": f"/{robot_name}/cam/front/rgbImage:o",
+        }
+    # Robot real: el relay local de teleop_module_sm (que ya recibe camcalib), no
+    # una segunda conexión a las cámaras del robot. Duplicar las imágenes crudas
+    # (~110 Mbit/s por cámara y cliente) saturaba la red del robot: se perdían los
+    # stateExt por UDP y el iKinCartesianSolver se suspendía (el brazo no se movía).
     return {
-        "left": f"/{robot_name}/cam/left",
-        "right": f"/{robot_name}/cam/right",
+        "left": "/teleop/cam/left:o",
+        "right": "/teleop/cam/right:o",
     }
+
+
+# Resolución (alto, ancho) por cámara; la que no aparezca usa _DEFAULT_CAMERA_SHAPE.
+_DEFAULT_CAMERA_SHAPE = (240, 320)
+_CAMERA_SHAPES = {"front": (480, 640)}
 
 def _get_state(robot_name: str, part_name: str) -> str:
     return f"/{robot_name}/{part_name}/state:o"
@@ -131,6 +149,7 @@ class iCubConfig(RobotConfig):
     use_gaze: bool = False
     actuators_to_use: dict[str, list[str]] = field(default_factory=dict)
     camera_ports: dict[str, str] = field(default_factory=_default_camera_ports)
+    camera_shapes: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         cfg = load_yarp_config(self.config_path)
@@ -146,10 +165,14 @@ class iCubConfig(RobotConfig):
         self.remote_rpc_port = cfg.get("remote_rpc_port", self.remote_rpc_port)
         if not self.actuators_to_use:
             self.actuators_to_use = _get_actuators_logic(cfg)
-        # if "camera_ports" in cfg:
-        #     self.camera_ports = cfg["camera_ports"]
-        # elif self.camera_ports == _default_camera_ports():
-        self.camera_ports = _camera_ports_from_robot_name(robot_name)
+        # Derivados de robot_name; el YAML solo los sobreescribe si lo pide explícitamente
+        # (camera_ports: {name: port}, camera_shapes: {name: [alto, ancho]}).
+        self.camera_ports = cfg.get("camera_ports") or _camera_ports_from_robot_name(robot_name)
+        yaml_shapes = cfg.get("camera_shapes") or {}
+        self.camera_shapes = {
+            name: tuple(yaml_shapes.get(name, _CAMERA_SHAPES.get(name, _DEFAULT_CAMERA_SHAPE)))
+            for name in self.camera_ports
+        }
         # Flags de observaciones opcionales
         self.use_joint_vel      = cfg.get("use_joint_vel",       self.use_joint_vel)
         self.use_joint_torque   = cfg.get("use_joint_torque",    self.use_joint_torque)

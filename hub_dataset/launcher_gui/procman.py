@@ -21,6 +21,7 @@ import os
 import signal
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from . import session  # reutiliza el panel de log compartido (session.log)
@@ -37,9 +38,9 @@ def _pump(name: str, proc: subprocess.Popen) -> None:
             if line:
                 session.log(f"[{name}] {line.rstrip()}")
     except Exception as e:  # noqa: BLE001
-        session.log(f"[{name}] lector detenido: {e!r}")
+        session.log(f"[{name}] reader stopped: {e!r}")
     finally:
-        session.log(f"[{name}] proceso terminado (rc={proc.poll()}).")
+        session.log(f"[{name}] process finished (rc={proc.poll()}).")
 
 
 def is_running(name: str) -> bool:
@@ -51,7 +52,7 @@ def is_running(name: str) -> bool:
 def start(name: str, argv, cwd=None, env=None) -> str:
     """Lanza un proceso long-lived con nombre. Si ya hay uno vivo, no relanza."""
     if is_running(name):
-        return f"'{name}' ya está corriendo."
+        return f"'{name}' is already running."
     full_env = os.environ.copy()
     full_env["PYTHONUNBUFFERED"] = "1"
     if env:
@@ -69,13 +70,13 @@ def start(name: str, argv, cwd=None, env=None) -> str:
             start_new_session=True,  # grupo propio → stop limpio con señales
         )
     except Exception as e:  # noqa: BLE001
-        session.log(f"[{name}] no se pudo lanzar: {e!r}")
-        return f"Error al lanzar '{name}': {e}"
+        session.log(f"[{name}] could not launch: {e!r}")
+        return f"Error launching '{name}': {e}"
     with _lock:
         _procs[name] = proc
     threading.Thread(target=_pump, args=(name, proc), daemon=True).start()
-    session.log(f"[{name}] lanzado (pid={proc.pid}): {' '.join(str(a) for a in argv)}")
-    return f"'{name}' iniciado (pid={proc.pid})."
+    session.log(f"[{name}] launched (pid={proc.pid}): {' '.join(str(a) for a in argv)}")
+    return f"'{name}' started (pid={proc.pid})."
 
 
 def stop(name: str, sig=signal.SIGINT, timeout: float = 8.0) -> str:
@@ -83,7 +84,7 @@ def stop(name: str, sig=signal.SIGINT, timeout: float = 8.0) -> str:
     with _lock:
         proc = _procs.get(name)
     if proc is None or proc.poll() is not None:
-        return f"'{name}' no está corriendo."
+        return f"'{name}' is not running."
     try:
         os.killpg(os.getpgid(proc.pid), sig)
     except Exception:  # noqa: BLE001
@@ -95,8 +96,47 @@ def stop(name: str, sig=signal.SIGINT, timeout: float = 8.0) -> str:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except Exception:  # noqa: BLE001
             proc.kill()
-    session.log(f"[{name}] detenido.")
-    return f"'{name}' detenido."
+    session.log(f"[{name}] stopped.")
+    return f"'{name}' stopped."
+
+
+def stop_stale(name: str, pattern: str, timeout: float = 8.0) -> int:
+    """Detiene procesos que coinciden con ``pattern`` (``pgrep -f``) y que este Hub no
+    gestiona: p. ej. el módulo YARP que quedó vivo al reiniciar el Hub (va en su propio
+    grupo). Si siguiera vivo, el nuevo choca con sus puertos ("address conflict").
+    Devuelve cuántos encontró."""
+    with _lock:
+        own = _procs.get(name)
+    own_pid = own.pid if own is not None and own.poll() is None else None
+    try:
+        out = subprocess.run(["pgrep", "-f", pattern], stdout=subprocess.PIPE, text=True).stdout
+    except Exception:  # noqa: BLE001
+        return 0
+    pids = [int(p) for p in out.split() if p.isdigit() and int(p) not in (own_pid, os.getpid())]
+    for pid in pids:
+        session.log(f"[{name}] stopping leftover process pid={pid} (from a previous Hub session)")
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGINT)
+        except Exception:  # noqa: BLE001
+            pass
+    deadline = time.time() + timeout
+    for pid in pids:
+        while _alive(pid) and time.time() < deadline:
+            time.sleep(0.2)
+        if _alive(pid):
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            except Exception:  # noqa: BLE001
+                pass
+    return len(pids)
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
 
 
 def run_once(argv, cwd=None, env=None, timeout: float = 180.0) -> tuple[int, str]:
