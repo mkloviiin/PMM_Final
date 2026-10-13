@@ -19,6 +19,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from . import state
+from .video_sync import build_synced_video_html
 
 
 def log_curation(msg: str) -> None:
@@ -100,7 +101,10 @@ def _trim_episode_video(video_key: str, ep_row: dict) -> str | None:
 
     ep_idx = int(ep_row["episode_index"])
     safe_key = video_key.replace("/", "_").replace(".", "_")
-    dst = state.viz_tmp_dir / f"ep{ep_idx:04d}_{safe_key}.mp4"
+    # Incluye el nombre del dataset: si no, al cambiar de dataset se reusaria
+    # el recorte cacheado de otro dataset con el mismo indice de episodio.
+    dataset_tag = state.viz_dataset_path.name
+    dst = state.viz_tmp_dir / f"{dataset_tag}_ep{ep_idx:04d}_{safe_key}.mp4"
 
     if not dst.exists():
         duration = max(t_end - t_start, 0.1)
@@ -187,7 +191,11 @@ def build_custom_plotly_chart(ep_idx: int, variables: list[str], title: str = ""
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
         margin=dict(l=40, r=10, t=60, b=40),
         height=420,
-        template="plotly_dark"
+        template="plotly_dark",
+        hovermode="x unified",
+        # Lo lee SYNC_JS (video_sync.py) para dibujar el cursor del video:
+        # t0 es el timestamp del frame 0, que corresponde a t=0 del video.
+        meta={"video_sync": True, "t0": float(timestamps[0])},
     )
     return fig
 
@@ -215,9 +223,9 @@ def _marked_summary() -> str:
 
 def _goto_episode(idx):
     """Devuelve todos los outputs de la vista de un episodio (numero clamped,
-    info, videos, estado del boton eliminar y resumen de marcados)."""
+    info, HTML de videos sincronizados, estado del boton eliminar y resumen de marcados)."""
     if not state.viz_ep_rows or state.viz_dataset_path is None:
-        return (0, "No dataset loaded.", None, None, None,
+        return (0, "No dataset loaded.", "",
                 gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.")
 
     ep_idx = min(max(int(idx), 0), len(state.viz_ep_rows) - 1)
@@ -225,9 +233,10 @@ def _goto_episode(idx):
 
     cam_keys = (state.viz_video_keys + [None, None, None])[:3]
     v0, v1, v2 = [_trim_episode_video(k, ep_row) if k else None for k in cam_keys]
+    videos_html = build_synced_video_html(v0, v1, v2, labels=[k or "" for k in cam_keys])
 
     del_label = "↩️ Undo delete" if ep_idx in state.curation_marked_delete else "🗑️ Delete this episode"
-    return ep_idx, _ep_info_str(ep_row), v0, v1, v2, gr.update(value=del_label), _marked_summary()
+    return ep_idx, _ep_info_str(ep_row), videos_html, gr.update(value=del_label), _marked_summary()
 
 
 def ep_goto(idx):
@@ -264,7 +273,7 @@ def load_viz_dataset(dataset_path: str):
     state.push_last_repo_id = None
 
     _empty_nav = (
-        0, "", None, None, None,
+        0, "", "",
         gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.",
     )
     _empty_curation = (

@@ -20,6 +20,7 @@ from .ui.tab_config import build_config_tab
 from .ui.tab_curation import build_curation_tab
 from .ui.tab_episodes import build_episodes_tab
 from .ui.welcome import build_welcome_screen
+from .video_sync import PLAYER_CSS, SYNC_JS
 
 WELCOME_CSS = """
 .welcome-screen {
@@ -85,11 +86,15 @@ WELCOME_CSS = """
     box-sizing: border-box !important;
 }
 """
+WELCOME_CSS += PLAYER_CSS
 
 
 def build_ui() -> gr.Blocks:
     with gr.Blocks(title="iCub Experimentation Hub", css=WELCOME_CSS) as demo:
         welcome_col, welcome_buttons = build_welcome_screen()
+        # Sincroniza los videos de "Visualize & Curate" y dibuja el cursor de
+        # tiempo sobre los graficos (ver video_sync.py).
+        demo.load(fn=None, js=SYNC_JS)
 
 
 
@@ -142,7 +147,7 @@ def build_ui() -> gr.Blocks:
         )
 
         # ── Visualizar y curar (generico, no depende del robot) ──────────
-        nav_outputs = [c["ep_num_nb"], c["ep_info_tb"], c["vid0"], c["vid1"], c["vid2"],
+        nav_outputs = [c["ep_num_nb"], c["ep_info_tb"], c["videos_html"],
                        c["ep_delete_btn"], c["marked_summary_tb"]]
         curation_outputs = [c["whole_feature_cbg"], c["dims_action_cbg"], c["dims_state_cbg"],
                             c["task_tb"], c["task_edit_btn"], c["task_save_btn"],
