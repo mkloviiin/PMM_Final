@@ -1,0 +1,290 @@
+[16:53:33] [10000] Configuration file:
+[16:53:33] [10000]   /home/icub/.config/yarp/_icub.conf
+[16:53:33] [10000] Stored:
+[16:53:33] [10000]   host 10.0.0.1 port number 10000 (yarp name server)
+[16:53:33] [10000] Now stores:
+[16:53:33] [10000]   host 10.0.0.1 port number 10000 (yarp name server)
+[16:53:33] [detect] Checking for name server at ip 10.0.0.1 port 10000
+[16:53:33] [detect] If there is a long delay, try:
+[16:53:33] [detect]   yarp conf --clean
+[16:53:33] [detect] 
+[16:53:33] [detect] =========================================================
+[16:53:33] [detect] ==
+[16:53:33] [detect] == FOUND
+[16:53:33] [detect] == /icub is available at ip 10.0.0.1 port 10000
+[16:53:33] [detect] == /icub can be browsed at http://10.0.0.1:10000/
+[16:53:33] [detect] == 
+[16:53:33] [detect] =========================================================
+[16:53:36] [10000] Configuration file:
+[16:53:36] [10000]   /home/icub/.config/yarp/_icub.conf
+[16:53:36] [10000] Stored:
+[16:53:36] [10000]   host 10.0.0.1 port number 10000 (yarp name server)
+[16:53:36] [10000] Now stores:
+[16:53:36] [10000]   host 10.0.0.1 port number 10000 (yarp name server)
+[16:53:36] [detect] Checking for name server at ip 10.0.0.1 port 10000
+[16:53:36] [detect] If there is a long delay, try:
+[16:53:36] [detect]   yarp conf --clean
+[16:53:36] [detect] 
+[16:53:36] [detect] =========================================================
+[16:53:36] [detect] ==
+[16:53:36] [detect] == FOUND
+[16:53:36] [detect] == /icub is available at ip 10.0.0.1 port 10000
+[16:53:36] [detect] == /icub can be browsed at http://10.0.0.1:10000/
+[16:53:36] [detect] == 
+[16:53:36] [detect] =========================================================
+[16:53:36] [yarp_module] launched (pid=2008723): /home/icub/miniconda3/envs/icubenv/bin/python -u /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/teleop_module_sm.py --robot icub
+[16:53:36] [yarp_module] yarp::dev::PolyDriver class is deprecated. Please use yarp::dev::PolyDriverOld instead.
+[16:53:36] [yarp_module] 
+[16:53:36] [yarp_module] ============================================================
+[16:53:36] [yarp_module] STARTING TELEOP MODULE (STATE MACHINE)
+[16:53:36] [yarp_module] ============================================================
+[16:53:36] [yarp_module] 
+[16:53:36] [yarp_module] ✓ YARP network is available
+[16:53:36] [yarp_module] 
+[16:53:36] [yarp_module] Starting module main loop...
+[16:53:36] [yarp_module] 
+[16:53:36] [yarp_module] Available RPC commands (use: yarp rpc /teleop/rpc:i):
+[16:53:36] [yarp_module]   go_home         - Move robot to home pose
+[16:53:36] [yarp_module]   start_teleop    - Enable continuous target processing
+[16:53:36] [yarp_module]   stop_teleop     - Stop teleop, return to idle
+[16:53:36] [yarp_module]   open_right/left - Open hand
+[16:53:36] [yarp_module]   close_right/left- Close hand
+[16:53:36] [yarp_module]   look_at x y z   - Look at 3D point
+[16:53:36] [yarp_module]   start_gaze      - Enable gaze controller
+[16:53:36] [yarp_module]   (Touch) Input   - /teleop/r_hand_touch:i
+[16:53:36] [yarp_module]   (Touch) Input   - /teleop/r_hand_palm_touch:i
+[16:53:36] [yarp_module]   (Touch) Output  - /teleop/touch:o
+[16:53:36] [yarp_module]   reset_scenario  - Reset objects
+[16:53:36] [yarp_module]   quit            - Close module
+[16:53:36] [yarp_module] 
+[16:53:36] [yarp_module] ============================================================
+[16:53:36] [yarp_module] STARTING TELEOP MODULE (STATE MACHINE)
+[16:53:36] [yarp_module] ============================================================
+[16:53:36] [yarp_module] [1/9] Loading configuration from /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/config/control_config.yaml...
+[16:53:36] [yarp_module] ✓ Configuration loaded successfully
+[16:53:36] [yarp_module] [2/9] Parsing configuration parameters...
+[16:53:36] [yarp_module] ✓ Robot: icub, Control: right, Cartesian: True, Gaze: True
+[16:53:36] [yarp_module] [3/9] Setting up actuators...
+[16:53:36] [yarp_module] ✓ Active Cartesian Arms: ['right_arm']
+[16:53:36] [yarp_module] [4/9] Initializing YARP interface...
+[16:53:36] [yarp_module] Connecting to YARP remote control boards...
+[16:53:36] [yarp_module] [DEBUG] |yarp.dev.PolyDriver|remote_controlboard| Parameters are (device remote_controlboard) (local "/mujoco_sync/torso") (remote "/icub/torso")
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote' using value: /icub/torso
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local' using value: /mujoco_sync/torso
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'writeStrict' using DEFAULT value:
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'carrier' using DEFAULT value: udp
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'timeout' using DEFAULT value: 0.5
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::enable' using DEFAULT value: false
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::thread_priority' using DEFAULT value: 0
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::thread_policy' using DEFAULT value: 0
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::packet_priority' using DEFAULT value:
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::enable' using DEFAULT value: false
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::thread_priority' using DEFAULT value: 0
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::thread_policy' using DEFAULT value: 0
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::packet_priority' using DEFAULT value:
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'ignoreProtocolCheck' using DEFAULT value: false
+[16:53:36] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'diagnostic' using DEFAULT value: false
+[16:53:36] [yarp_module] [ERROR] |yarp.os.Port|/mujoco_sync/torso/rpc:o| Port /mujoco_sync/torso/rpc:o failed to activate at tcp://10.0.0.20:10138/ (address conflict)
+[16:53:36] [yarp_module] [ERROR] |yarp.os.Port|/mujoco_sync/torso/command:o| Port /mujoco_sync/torso/command:o failed to activate at tcp://10.0.0.20:10139/ (address conflict)
+[16:53:36] [yarp_module] [ERROR] |yarp.os.Port|/mujoco_sync/torso/stateExt:i| Port /mujoco_sync/torso/stateExt:i failed to activate at tcp://10.0.0.20:10140/ (address conflict)
+[16:53:36] [yarp_module] [ERROR] |yarp.dev.PolyDriver|remote_controlboard| Driver <remote_controlboard> was found but could not open
+[16:53:36] [yarp_module] ✗ ERROR during configuration: RuntimeError: Failed to connect to torso
+[16:53:36] [yarp_module] Traceback (most recent call last):
+[16:53:36] [yarp_module]   File "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/teleop_module_sm.py", line 160, in configure
+[16:53:36] [yarp_module]     self.yarp_interface = iCubYARPInterface(
+[16:53:36] [yarp_module]                           ^^^^^^^^^^^^^^^^^^
+[16:53:36] [yarp_module]   File "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/icubyarpinterface.py", line 153, in __init__
+[16:53:36] [yarp_module]     self._open_driver(part)
+[16:53:36] [yarp_module]   File "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/icubyarpinterface.py", line 300, in _open_driver
+[16:53:36] [yarp_module]     raise RuntimeError(f"Failed to connect to {part_name}")
+[16:53:36] [yarp_module] RuntimeError: Failed to connect to torso
+[16:53:36] [yarp_module] [INFO] |yarp.os.RFModule| RFModule failed to open.
+[16:53:36] [yarp_module] 
+[16:53:36] [yarp_module] ✓ Module exited successfully
+[16:53:36] [yarp_module] 
+[16:53:36] [yarp_module] [Cleanup] Releasing YARP and OpenCV resources...
+[16:53:36] [yarp_module] ✓ Cleanup completed
+[16:53:36] [yarp_module] 
+[16:53:36] [yarp_module] process finished (rc=None).
+[16:53:43] [10000] Configuration file:
+[16:53:43] [10000]   /home/icub/.config/yarp/_icub.conf
+[16:53:43] [10000] Stored:
+[16:53:43] [10000]   host 10.0.0.1 port number 10000 (yarp name server)
+[16:53:43] [10000] Now stores:
+[16:53:43] [10000]   host 10.0.0.1 port number 10000 (yarp name server)
+[16:53:43] [detect] Checking for name server at ip 10.0.0.1 port 10000
+[16:53:43] [detect] If there is a long delay, try:
+[16:53:43] [detect]   yarp conf --clean
+[16:53:43] [detect] 
+[16:53:43] [detect] =========================================================
+[16:53:43] [detect] ==
+[16:53:43] [detect] == FOUND
+[16:53:43] [detect] == /icub is available at ip 10.0.0.1 port 10000
+[16:53:43] [detect] == /icub can be browsed at http://10.0.0.1:10000/
+[16:53:43] [detect] == 
+[16:53:43] [detect] =========================================================
+[16:53:43] [yarp_module] launched (pid=2008851): /home/icub/miniconda3/envs/icubenv/bin/python -u /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/teleop_module_sm.py --robot icub
+[16:53:43] [yarp_module] yarp::dev::PolyDriver class is deprecated. Please use yarp::dev::PolyDriverOld instead.
+[16:53:43] [yarp_module] 
+[16:53:43] [yarp_module] ============================================================
+[16:53:43] [yarp_module] STARTING TELEOP MODULE (STATE MACHINE)
+[16:53:43] [yarp_module] ============================================================
+[16:53:43] [yarp_module] 
+[16:53:43] [yarp_module] ✓ YARP network is available
+[16:53:43] [yarp_module] 
+[16:53:43] [yarp_module] Starting module main loop...
+[16:53:43] [yarp_module] 
+[16:53:43] [yarp_module] Available RPC commands (use: yarp rpc /teleop/rpc:i):
+[16:53:43] [yarp_module]   go_home         - Move robot to home pose
+[16:53:43] [yarp_module]   start_teleop    - Enable continuous target processing
+[16:53:43] [yarp_module]   stop_teleop     - Stop teleop, return to idle
+[16:53:43] [yarp_module]   open_right/left - Open hand
+[16:53:43] [yarp_module]   close_right/left- Close hand
+[16:53:43] [yarp_module]   look_at x y z   - Look at 3D point
+[16:53:43] [yarp_module]   start_gaze      - Enable gaze controller
+[16:53:43] [yarp_module]   (Touch) Input   - /teleop/r_hand_touch:i
+[16:53:43] [yarp_module]   (Touch) Input   - /teleop/r_hand_palm_touch:i
+[16:53:43] [yarp_module]   (Touch) Output  - /teleop/touch:o
+[16:53:43] [yarp_module]   reset_scenario  - Reset objects
+[16:53:43] [yarp_module]   quit            - Close module
+[16:53:43] [yarp_module] 
+[16:53:43] [yarp_module] ============================================================
+[16:53:43] [yarp_module] STARTING TELEOP MODULE (STATE MACHINE)
+[16:53:43] [yarp_module] ============================================================
+[16:53:43] [yarp_module] [1/9] Loading configuration from /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/config/control_config.yaml...
+[16:53:43] [yarp_module] ✓ Configuration loaded successfully
+[16:53:43] [yarp_module] [2/9] Parsing configuration parameters...
+[16:53:43] [yarp_module] ✓ Robot: icub, Control: right, Cartesian: True, Gaze: True
+[16:53:43] [yarp_module] [3/9] Setting up actuators...
+[16:53:43] [yarp_module] ✓ Active Cartesian Arms: ['right_arm']
+[16:53:43] [yarp_module] [4/9] Initializing YARP interface...
+[16:53:43] [yarp_module] Connecting to YARP remote control boards...
+[16:53:43] [yarp_module] [DEBUG] |yarp.dev.PolyDriver|remote_controlboard| Parameters are (device remote_controlboard) (local "/mujoco_sync/torso") (remote "/icub/torso")
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote' using value: /icub/torso
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local' using value: /mujoco_sync/torso
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'writeStrict' using DEFAULT value:
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'carrier' using DEFAULT value: udp
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'timeout' using DEFAULT value: 0.5
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::enable' using DEFAULT value: false
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::thread_priority' using DEFAULT value: 0
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::thread_policy' using DEFAULT value: 0
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::packet_priority' using DEFAULT value:
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::enable' using DEFAULT value: false
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::thread_priority' using DEFAULT value: 0
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::thread_policy' using DEFAULT value: 0
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::packet_priority' using DEFAULT value:
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'ignoreProtocolCheck' using DEFAULT value: false
+[16:53:43] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'diagnostic' using DEFAULT value: false
+[16:53:43] [yarp_module] [ERROR] |yarp.os.Port|/mujoco_sync/torso/rpc:o| Port /mujoco_sync/torso/rpc:o failed to activate at tcp://10.0.0.20:10138/ (address conflict)
+[16:53:43] [yarp_module] [ERROR] |yarp.os.Port|/mujoco_sync/torso/command:o| Port /mujoco_sync/torso/command:o failed to activate at tcp://10.0.0.20:10139/ (address conflict)
+[16:53:43] [yarp_module] [ERROR] |yarp.os.Port|/mujoco_sync/torso/stateExt:i| Port /mujoco_sync/torso/stateExt:i failed to activate at tcp://10.0.0.20:10140/ (address conflict)
+[16:53:43] [yarp_module] [ERROR] |yarp.dev.PolyDriver|remote_controlboard| Driver <remote_controlboard> was found but could not open
+[16:53:43] [yarp_module] ✗ ERROR during configuration: RuntimeError: Failed to connect to torso
+[16:53:43] [yarp_module] Traceback (most recent call last):
+[16:53:43] [yarp_module]   File "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/teleop_module_sm.py", line 160, in configure
+[16:53:43] [yarp_module]     self.yarp_interface = iCubYARPInterface(
+[16:53:43] [yarp_module]                           ^^^^^^^^^^^^^^^^^^
+[16:53:43] [yarp_module]   File "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/icubyarpinterface.py", line 153, in __init__
+[16:53:43] [yarp_module]     self._open_driver(part)
+[16:53:43] [yarp_module]   File "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/icubyarpinterface.py", line 300, in _open_driver
+[16:53:43] [yarp_module]     raise RuntimeError(f"Failed to connect to {part_name}")
+[16:53:43] [yarp_module] RuntimeError: Failed to connect to torso
+[16:53:43] [yarp_module] [INFO] |yarp.os.RFModule| RFModule failed to open.
+[16:53:43] [yarp_module] 
+[16:53:43] [yarp_module] ✓ Module exited successfully
+[16:53:43] [yarp_module] 
+[16:53:43] [yarp_module] [Cleanup] Releasing YARP and OpenCV resources...
+[16:53:43] [yarp_module] ✓ Cleanup completed
+[16:53:43] [yarp_module] 
+[16:53:43] [yarp_module] process finished (rc=None).
+[16:54:00] [10000] Configuration file:
+[16:54:00] [10000]   /home/icub/.config/yarp/_icub.conf
+[16:54:00] [10000] Stored:
+[16:54:00] [10000]   host 10.0.0.1 port number 10000 (yarp name server)
+[16:54:00] [10000] Now stores:
+[16:54:00] [10000]   host 10.0.0.1 port number 10000 (yarp name server)
+[16:54:00] [detect] Checking for name server at ip 10.0.0.1 port 10000
+[16:54:00] [detect] If there is a long delay, try:
+[16:54:00] [detect]   yarp conf --clean
+[16:54:00] [detect] 
+[16:54:00] [detect] =========================================================
+[16:54:00] [detect] ==
+[16:54:00] [detect] == FOUND
+[16:54:00] [detect] == /icub is available at ip 10.0.0.1 port 10000
+[16:54:00] [detect] == /icub can be browsed at http://10.0.0.1:10000/
+[16:54:00] [detect] == 
+[16:54:00] [detect] =========================================================
+[16:54:00] [yarp_module] launched (pid=2009224): /home/icub/miniconda3/envs/icubenv/bin/python -u /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/teleop_module_sm.py --robot icub
+[16:54:00] [yarp_module] yarp::dev::PolyDriver class is deprecated. Please use yarp::dev::PolyDriverOld instead.
+[16:54:01] [yarp_module] 
+[16:54:01] [yarp_module] ============================================================
+[16:54:01] [yarp_module] STARTING TELEOP MODULE (STATE MACHINE)
+[16:54:01] [yarp_module] ============================================================
+[16:54:01] [yarp_module] 
+[16:54:01] [yarp_module] ✓ YARP network is available
+[16:54:01] [yarp_module] 
+[16:54:01] [yarp_module] Starting module main loop...
+[16:54:01] [yarp_module] 
+[16:54:01] [yarp_module] Available RPC commands (use: yarp rpc /teleop/rpc:i):
+[16:54:01] [yarp_module]   go_home         - Move robot to home pose
+[16:54:01] [yarp_module]   start_teleop    - Enable continuous target processing
+[16:54:01] [yarp_module]   stop_teleop     - Stop teleop, return to idle
+[16:54:01] [yarp_module]   open_right/left - Open hand
+[16:54:01] [yarp_module]   close_right/left- Close hand
+[16:54:01] [yarp_module]   look_at x y z   - Look at 3D point
+[16:54:01] [yarp_module]   start_gaze      - Enable gaze controller
+[16:54:01] [yarp_module]   (Touch) Input   - /teleop/r_hand_touch:i
+[16:54:01] [yarp_module]   (Touch) Input   - /teleop/r_hand_palm_touch:i
+[16:54:01] [yarp_module]   (Touch) Output  - /teleop/touch:o
+[16:54:01] [yarp_module]   reset_scenario  - Reset objects
+[16:54:01] [yarp_module]   quit            - Close module
+[16:54:01] [yarp_module] 
+[16:54:01] [yarp_module] ============================================================
+[16:54:01] [yarp_module] STARTING TELEOP MODULE (STATE MACHINE)
+[16:54:01] [yarp_module] ============================================================
+[16:54:01] [yarp_module] [1/9] Loading configuration from /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/config/control_config.yaml...
+[16:54:01] [yarp_module] ✓ Configuration loaded successfully
+[16:54:01] [yarp_module] [2/9] Parsing configuration parameters...
+[16:54:01] [yarp_module] ✓ Robot: icub, Control: right, Cartesian: True, Gaze: True
+[16:54:01] [yarp_module] [3/9] Setting up actuators...
+[16:54:01] [yarp_module] ✓ Active Cartesian Arms: ['right_arm']
+[16:54:01] [yarp_module] [4/9] Initializing YARP interface...
+[16:54:01] [yarp_module] Connecting to YARP remote control boards...
+[16:54:01] [yarp_module] [DEBUG] |yarp.dev.PolyDriver|remote_controlboard| Parameters are (device remote_controlboard) (local "/mujoco_sync/torso") (remote "/icub/torso")
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote' using value: /icub/torso
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local' using value: /mujoco_sync/torso
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'writeStrict' using DEFAULT value:
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'carrier' using DEFAULT value: udp
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'timeout' using DEFAULT value: 0.5
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::enable' using DEFAULT value: false
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::thread_priority' using DEFAULT value: 0
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::thread_policy' using DEFAULT value: 0
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'local_qos::packet_priority' using DEFAULT value:
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::enable' using DEFAULT value: false
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::thread_priority' using DEFAULT value: 0
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::thread_policy' using DEFAULT value: 0
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'remote_qos::packet_priority' using DEFAULT value:
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'ignoreProtocolCheck' using DEFAULT value: false
+[16:54:01] [yarp_module] [INFO] |yarp.device.RemoteControlBoard| Parameter 'diagnostic' using DEFAULT value: false
+[16:54:01] [yarp_module] [ERROR] |yarp.os.Port|/mujoco_sync/torso/rpc:o| Port /mujoco_sync/torso/rpc:o failed to activate at tcp://10.0.0.20:10138/ (address conflict)
+[16:54:01] [yarp_module] [ERROR] |yarp.os.Port|/mujoco_sync/torso/command:o| Port /mujoco_sync/torso/command:o failed to activate at tcp://10.0.0.20:10139/ (address conflict)
+[16:54:01] [yarp_module] [ERROR] |yarp.os.Port|/mujoco_sync/torso/stateExt:i| Port /mujoco_sync/torso/stateExt:i failed to activate at tcp://10.0.0.20:10140/ (address conflict)
+[16:54:01] [yarp_module] [ERROR] |yarp.dev.PolyDriver|remote_controlboard| Driver <remote_controlboard> was found but could not open
+[16:54:01] [yarp_module] ✗ ERROR during configuration: RuntimeError: Failed to connect to torso
+[16:54:01] [yarp_module] Traceback (most recent call last):
+[16:54:01] [yarp_module]   File "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/teleop_module_sm.py", line 160, in configure
+[16:54:01] [yarp_module]     self.yarp_interface = iCubYARPInterface(
+[16:54:01] [yarp_module]                           ^^^^^^^^^^^^^^^^^^
+[16:54:01] [yarp_module]   File "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/icubyarpinterface.py", line 153, in __init__
+[16:54:01] [yarp_module]     self._open_driver(part)
+[16:54:01] [yarp_module]   File "/home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-gazebo/common/yarp_module/icubyarpinterface.py", line 300, in _open_driver
+[16:54:01] [yarp_module]     raise RuntimeError(f"Failed to connect to {part_name}")
+[16:54:01] [yarp_module] RuntimeError: Failed to connect to torso
+[16:54:01] [yarp_module] [INFO] |yarp.os.RFModule| RFModule failed to open.
+[16:54:01] [yarp_module] 
+[16:54:01] [yarp_module] ✓ Module exited successfully
+[16:54:01] [yarp_module] 
+[16:54:01] [yarp_module] [Cleanup] Releasing YARP and OpenCV resources...
+[16:54:01] [yarp_module] ✓ Cleanup completed
+[16:54:01] [yarp_module] 
+[16:54:01] [yarp_module] process finished (rc=None).

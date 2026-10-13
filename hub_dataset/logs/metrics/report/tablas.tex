@@ -1,0 +1,149 @@
+% Generado por metrics/metrics_report.py — requiere \usepackage{booktabs}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Loop de teleoperación/grabación}
+\begin{tabular}{lc}
+\toprule
+Métrica & Real \\
+\midrule
+Sesiones / episodios / frames & 1 / 2 / 2941 \\
+Frecuencia nominal [Hz] & 30 \\
+Frecuencia efectiva [Hz] & 29.65 \\
+Periodo media $\pm$ $\sigma$ [ms] & 33.72 $\pm$ 2.06 \\
+Periodo p50 / p95 / p99 [ms] & 33.4 / 34.2 / 42.4 \\
+Periodo máx [ms] & 76.5 \\
+Jitter $\sigma$ [ms] & 2.07 \\
+Jitter |T -- $T_0$| medio [ms] & 0.39 \\
+Frames perdidos (T > 1.5$\cdot$$T_0$) & 0.34 \% \\
+Frames con trabajo > $T_0$ & 5.85 \% \\
+save\_episode media [s] & 8.2 \\
+\bottomrule
+\end{tabular}
+\par\footnotesize $T_0$ = 1/fps. Periodo = tiempo entre inicios de frames consecutivos dentro de un episodio.
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Tiempo por etapa del loop (media / p95) [ms]}
+\begin{tabular}{lc}
+\toprule
+Métrica & Real \\
+\midrule
+get\_observation & 0.29 / 0.46 \\
+teleop.get\_action + procesadores & 3.53 / 6.09 \\
+send\_action & 5.92 / 13.99 \\
+add\_frame & 10.97 / 18.58 \\
+Total (sin sleep) & 20.71 / 34.10 \\
+\bottomrule
+\end{tabular}
+\par\footnotesize En MuJoCo send\_action incluye la física (IK + mj\_step); en Gazebo/real solo escribe en YARP.
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Latencia de comando cliente $\rightarrow$ módulo YARP $\rightarrow$ controlador cartesiano [ms]}
+\begin{tabular}{lc}
+\toprule
+Métrica & Real \\
+\midrule
+Transporte media $\pm$ $\sigma$ & 10.48 $\pm$ 5.94 \\
+Transporte p95 / p99 / máx & 19.3 / 20.0 / 20.2 \\
+go\_to\_pose\_async media $\pm$ $\sigma$ & 0.24 $\pm$ 0.10 \\
+Total hasta goToPose media $\pm$ $\sigma$ & 10.71 $\pm$ 5.92 \\
+Total p95 / p99 / máx & 19.5 / 20.2 / 20.7 \\
+Comandos $\rightarrow$ goToPose enviado & 93.0 \% \\
+Comandos en banda muerta (<1 cm/5°) & 7.0 \% \\
+goToPose fallido & 0.00 \% \\
+Comandos no procesados (mano der.) & 0.07 \% \\
+RPC look\_at (ida y vuelta) & 5.74 $\pm$ 5.08 \\
+\bottomrule
+\end{tabular}
+\par\footnotesize Transporte = desde el write del cliente hasta que teleop\_module\_sm lo lee (incluye la espera a su siguiente ciclo, $\leq$ 20 ms). No procesados = reemplazados por uno más nuevo antes de ser leídos.
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Respuesta al escalón (comando $\rightarrow$ movimiento de la mano)}
+\begin{tabular}{lcc}
+\toprule
+Métrica [ms] & MuJoCo & Gazebo \\
+\midrule
+Escalones & 20 $\times$ 2.0 cm & 20 $\times$ 2.0 cm \\
+Primer movimiento (> 1 mm) & 732.2 $\pm$ 277.2 & 431.3 $\pm$ 61.7 \\
+10 \% del valor final (≈ tiempo muerto) & 782.0 $\pm$ 277.6 & 332.6 $\pm$ 116.4 \\
+50 \% del valor final & 992.1 $\pm$ 278.2 & 679.3 $\pm$ 66.2 \\
+90 \% del valor final & 1201.2 $\pm$ 277.9 & 936.2 $\pm$ 84.3 \\
+Asentamiento ($\pm$max(2 mm, 5 \%)) & 1233.7 $\pm$ 278.0 & 795.3 $\pm$ 111.2 \\
+Escalones asentados en la ventana & 100 \% & 100 \% \\
+Sobrepaso [\%] & 0.8 $\pm$ 0.4 & 3.6 $\pm$ 1.1 \\
+Escalón logrado [\%] & 102.5 $\pm$ 0.2 & 30.1 $\pm$ 6.1 \\
+Error estacionario al target [mm] & 1.07 $\pm$ 0.03 & 13.97 $\pm$ 1.22 \\
+Transporte 1er comando & — & 16.39 $\pm$ 7.90 \\
+Periodo de muestreo de la pose & 35.0 $\pm$ 0.0 & 20.4 $\pm$ 0.2 \\
+\bottomrule
+\end{tabular}
+\par\footnotesize Media $\pm$ $\sigma$ entre escalones ($\sigma$ = jitter de la respuesta). Tiempos desde la escritura del comando; 10/50/90 \% y sobrepaso respecto del desplazamiento final alcanzado. MuJoCo en tiempo simulado; Gazebo/real en tiempo de pared fechado con el envelope de la pose.
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Sincronización cámara / estado / acción}
+\begin{tabular}{lc}
+\toprule
+Métrica & Real \\
+\midrule
+Antigüedad del estado articular [ms] & 9.58 $\pm$ 5.79 \\
+Espera del estado (lectura bloqueante) [ms] & 0.02 $\pm$ 0.36 \\
+Cámara left: frames nuevos / repetidos & 50.6 \% / 49.4 \% \\
+Cámara left: frames perdidos en origen & 0.00 \% \\
+Cámara left: fps fuente / vistos por el loop & 15.0 / 15.0 \\
+Cámara left: antigüedad desde llegada [ms] & 18.5 $\pm$ 20.2 \\
+Cámara left: antigüedad desde captura [ms] & reloj distinto \\
+Cámara left: desfase captura -- estado [ms] & — \\
+Cámara right: frames nuevos / repetidos & 50.6 \% / 49.4 \% \\
+Cámara right: frames perdidos en origen & 0.00 \% \\
+Cámara right: fps fuente / vistos por el loop & 15.0 / 15.0 \\
+Cámara right: antigüedad desde llegada [ms] & 18.5 $\pm$ 20.2 \\
+Cámara right: antigüedad desde captura [ms] & reloj distinto \\
+Cámara right: desfase captura -- estado [ms] & — \\
+Desfase estéreo |izq -- der| media / máx [ms] & 2.6 / 67.2 \\
+Desfase cámara -- estado (t. simulado) [ms] & — \\
+Render cámaras [ms] & — \\
+Física por frame [ms] & — \\
+Tiempo simulado / tiempo real & — \\
+\bottomrule
+\end{tabular}
+\par\footnotesize Repetido = el frame grabado reutiliza la imagen del frame anterior (no llegó una nueva). Antigüedad desde captura y desfases solo se calculan si la fuente comparte reloj con el PC.
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Seguimiento de la mano derecha durante la teleoperación}
+\begin{tabular}{lc}
+\toprule
+Métrica & Real \\
+\midrule
+Error comandado -- medido media $\pm$ $\sigma$ [cm] & 3.19 $\pm$ 2.04 \\
+Error p95 [cm] & 7.85 \\
+Retardo por correlación cruzada mediana [ms] & 1252 \\
+Episodios usados para el retardo & 2 \\
+\bottomrule
+\end{tabular}
+\par\footnotesize El error incluye el retardo de seguimiento. Retardo = desplazamiento que maximiza la correlación entre las velocidades comandada y medida (episodios con > 5 mm de movimiento).
+\end{table}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Módulo YARP teleop\_module\_sm (desde los logs del Hub)}
+\begin{tabular}{lccccccc}
+\toprule
+Log & Robot & Hz (media / mín) & Peor ciclo p95 / máx [ms] & Cámaras fps izq / der & [SLOW] & IK fallidos & Mano--target mediana [cm] \\
+\midrule
+hub\_2026-10-05\_17-20-44.txt & Real & 50.0 / 49.5 (obj. 50) & 52 / 291 & 18.7 / 18.7 & 49 & 0.00 \% & 1.4 \\
+hub\_2026-10-07\_11-35-09.txt & Real & 50.0 / 49.4 (obj. 50) & 26 / 230 & 15.1 / 15.1 & 20 & 0.00 \% & 1.3 \\
+hub\_2026-10-07\_16-34-23.txt & Gazebo & 50.0 / 48.0 (obj. 50) & 14 / 66 & 30.6 / 30.6 & 5 & 0.00 \% & 0.7 \\
+\bottomrule
+\end{tabular}
+\par\footnotesize Agregados cada 5 s que imprime el propio módulo; complementan las métricas por frame.
+\end{table}
