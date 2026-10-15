@@ -1,0 +1,137 @@
+
+===== New session: local/icub_mujoco_demo (2026-10-15 14:17:26) =====
+[14:17:26] [Hub] Full log: /home/icub/Desktop/mkloviiin/PMM_Final/hub_dataset/logs/hub_2026-10-15_14-17-21.txt
+[14:17:26] Session started - repo: local/icub_mujoco_demo
+[14:17:26]   dataset: /home/icub/Desktop/mkloviiin/PMM_Final/data/local_icub_mujoco_demo_2026-10-15_14-17-26
+[14:17:26]   conda env: icubenv  (/home/icub/miniconda3/envs/icubenv/bin/python)
+[14:17:29] yarp::dev::PolyDriver class is deprecated. Please use yarp::dev::PolyDriverOld instead.
+[14:17:29]   [Config] Loaded /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/utils/control_config.yaml
+[14:17:30]   [Warn] Keyframe 'home' not found. Using current initial state as home.
+[14:17:30]   [Stream] cv2 not available — image streaming disabled (ImportError('/home/icub/miniconda3/envs/icubenv/lib/python3.12/site-packages/cv2/python-3.12/../../../.././libtiff.so.6: undefined symbol: jpeg12_write_raw_data, version LIBJPEG_8.0'))
+[14:17:30]   [Stream] ZMQCompressedImageTransmitter not available — streaming disabled (ImportError('/home/icub/miniconda3/envs/icubenv/lib/python3.12/site-packages/cv2/python-3.12/../../../.././libtiff.so.6: undefined symbol: jpeg12_write_raw_data, version LIBJPEG_8.0'))
+[14:17:30] =======================================================
+[14:17:30]   MuJoCo iCub Teleop — Initialised
+[14:17:30]   Config : /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/utils/control_config.yaml
+[14:17:30]   Model  : /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/dependencies/assets/scenes/scene_icub_lift.xml
+[14:17:30]   Arms   : both  (primary=right)
+[14:17:30]   IK     : iKinIpOptMin  recompute_steps=60  gaze_dt=0.1
+[14:17:30]   VR     : OFF
+[14:17:30]   Record : OFF
+[14:17:30]   CLI    : ON
+[14:17:30] =======================================================
+[14:17:30] Loading Mujoco model from: /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/dependencies/assets/scenes/scene_icub_lift.xml
+[14:17:30] [Teleop] Physics Sync: sim_dt=0.005, control_dt=0.02, frame_skip=4
+[14:17:30] Launching MuJoCo Viewer... (Press 1/2/3 for Right Hand, 4/5/6 for Left Hand)
+[14:17:30] Mouse: Ctrl + Right-click drag to move mocap targets
+[14:17:31] [Teleop] Reset blue-cube → (0.33, 0.00, 0.72)
+[14:17:31] [Metrics] per-frame metrics -> /home/icub/Desktop/mkloviiin/PMM_Final/hub_dataset/logs/metrics/local_icub_mujoco_demo_2026-10-15_14-17-26.jsonl
+[14:17:31] [Manual] Console controls: 1=start, 2=stop, 3=exit
+[14:17:31] [Manual] dataset root: /home/icub/Desktop/mkloviiin/PMM_Final/data/local_icub_mujoco_demo_2026-10-15_14-17-26
+[14:17:31] 
+[Manual] Waiting START for episode 0...
+[14:18:04] Warning: Viewer closed.
+[14:18:04] Warning: Viewer closed.
+[14:18:04] Warning: Viewer closed.
+[14:18:04] Warning: Viewer closed.
+[14:18:04] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:05] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:06] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:07] Warning: Viewer closed.
+[14:18:08] Warning: Viewer closed.
+[14:18:08] Warning: Viewer closed.
+[14:18:08] Warning: Viewer closed.
+[14:18:08] Warning: Viewer closed.
+[14:18:08] Warning: Viewer closed.
+[14:18:08] Warning: Viewer closed.
+[14:18:08] Warning: Viewer closed.
+[14:18:08] Warning: Viewer closed.
+[14:18:08] Warning: Viewer closed.
+[14:18:08] [Manual] No se grabó nada — carpeta eliminada: /home/icub/Desktop/mkloviiin/PMM_Final/data/local_icub_mujoco_demo_2026-10-15_14-17-26
+[14:18:08] Session ended correctly.

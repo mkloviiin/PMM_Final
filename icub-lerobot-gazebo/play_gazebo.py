@@ -44,7 +44,7 @@ if local_robot_path.exists():
 sys.path.insert(0, str(repo_root.parent / "metrics"))
 
 # Add icubenv site-packages to sys.path (generic python, not the conda env's own)
-sys.path.append(os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages"))
+sys.path.append(os.environ.get("ICUBENV_SITE_PACKAGES", os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages")))
 
 # PyAV (con el que LeRobot codifica los videos) trae su propio FFmpeg 61, pero
 # los plugins de imagen de YARP enlazan el FFmpeg 62 de conda. Si YARP recibe
@@ -62,6 +62,24 @@ SCENES_DIR = repo_root / "mujoco" / "assets" / "scenes"
 SCENE_MODEL = SCENES_DIR / "scene_icub_empty_table.xml"
 SCENE_TASK = "Pick up the blue cube"
 SCENE_OBJECTS: list = []
+
+
+class _NoMetrics:
+    """Sustituto cuando metrics/ no está: cualquier método no hace nada y devuelve None."""
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+
+def _make_metrics(**kwargs):
+    """Registrador por frame de metrics/frame_metrics.py. La carpeta metrics/ es
+    opcional: sin ella se graba igual, solo que sin métricas."""
+    try:
+        from frame_metrics import FrameMetrics
+    except ImportError:
+        print("[Metrics] metrics/frame_metrics.py not found: recording without metrics.", flush=True)
+        return _NoMetrics()
+    return FrameMetrics.create(**kwargs)
 
 
 def parse_args() -> argparse.Namespace:
@@ -253,7 +271,6 @@ def _manual_vr_record(
     from lerobot.processor import make_default_processors
     from lerobot.utils.constants import ACTION, OBS_STR
     from lerobot.utils.robot_utils import precise_sleep
-    from frame_metrics import FrameMetrics
 
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
 
@@ -304,7 +321,7 @@ def _manual_vr_record(
     listener_t.start()
 
     robot_name = os.environ.get("ICUB_ROBOT_NAME", "")
-    fm = FrameMetrics.create(
+    fm = _make_metrics(
         backend="real" if robot_name == "icub" else "gazebo",
         fps=args.fps, name=dataset_root.name, robot_name=robot_name,
         repo_id=repo_id, task=args.single_task, vr=bool(args.vr or args.vr_ip),

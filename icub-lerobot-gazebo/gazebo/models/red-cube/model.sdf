@@ -1,0 +1,50 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <model name="red-cube">
+    <link name="link">
+      <inertial>
+        <mass>0.1</mass>
+        <!-- Cubo sólido: I = m*a^2/6 -->
+        <inertia>
+          <ixx>4.1667e-05</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>4.1667e-05</iyy>
+          <iyz>0</iyz>
+          <izz>4.1667e-05</izz>
+        </inertia>
+      </inertial>
+      
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.05 0.05 0.05</size>
+          </box>
+        </geometry>
+        <!-- Igual que las yemas del iCub (mu=5): sin esto el cubo usa el default (1)
+             y DART toma el mínimo de ambas superficies, así que resbalaba al agarrar. -->
+        <surface>
+          <friction>
+            <ode>
+              <mu>5.0</mu>
+              <mu2>5.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      
+      <visual name="visual">
+        <geometry>
+          <box>
+            <size>0.05 0.05 0.05</size>
+          </box>  
+        </geometry>
+        <material>
+          <ambient>1 0 0 1</ambient>
+          <diffuse>1 0 0 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

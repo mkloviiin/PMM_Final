@@ -1,0 +1,24 @@
+# Contexto de build de docker/Dockerfile (raíz del repo).
+.git
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+
+# Datos y resultados: se montan como volumen (ver docker-compose.yml)
+data/
+data_curated/
+outputs/
+output/
+hub_dataset/logs/
+
+# lerobot se instala desde GitHub en un commit fijo, no desde el submódulo
+lerobot/
+
+# El controlboard parchado se compila dentro de la imagen
+icub-lerobot-gazebo/gazebo/plugins/*.so
+
+# Código sin uso y archivos personales
+icub-lerobot-gazebo/_unused/
+*.ipynb
+notas
+comandos entrenamiento.txt

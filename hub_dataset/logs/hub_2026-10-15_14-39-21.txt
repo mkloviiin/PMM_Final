@@ -1,0 +1,588 @@
+[14:39:46] [USB] Dispositivo autorizado: 1WMHHA66KS2484
+[14:39:46] [USB] adb reverse tcp:8115 -> tcp:8115  (HEAD)
+[14:39:46] [USB] adb reverse tcp:8117 -> tcp:8117  (RIGHT_HAND)
+[14:39:46] [USB] adb reverse tcp:8119 -> tcp:8119  (BUTTONS)
+[14:39:46] [USB] adb reverse tcp:8121 -> tcp:8121  (LEFT_HAND)
+[14:39:46] [USB] adb reverse tcp:10505 -> tcp:10505  (HEAD_CAM)
+[14:39:46] [USB] adb reverse tcp:15001 -> tcp:15001  (VIEWER)
+[14:39:46] [USB] Cable listo. En BeaVR, pon la IP en 127.0.0.1.
+
+===== New session: local/icub_mujoco (2026-10-15 14:39:46) =====
+[14:39:46] [Hub] Full log: /home/icub/Desktop/mkloviiin/PMM_Final/hub_dataset/logs/hub_2026-10-15_14-39-21.txt
+[14:39:46] Session started - repo: local/icub_mujoco
+[14:39:46]   dataset: /home/icub/Desktop/mkloviiin/PMM_Final/data/local_icub_mujoco_2026-10-15_14-39-46
+[14:39:46]   conda env: icubenv  (/home/icub/miniconda3/envs/icubenv/bin/python)
+[14:39:49] yarp::dev::PolyDriver class is deprecated. Please use yarp::dev::PolyDriverOld instead.
+[14:39:49]   [Config] Loaded /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/utils/control_config.yaml
+[14:39:50]   [Warn] Keyframe 'home' not found. Using current initial state as home.
+[14:39:50]   [Stream] head_cam → port 10505, viewer → port 15001 (jpeg quality=70)
+[14:39:50]   [VR] Socket 'head' bound to tcp://*:8115 (quest_ip=127.0.0.1)
+[14:39:50]   [VR] Socket 'rh' bound to tcp://*:8117 (quest_ip=127.0.0.1)
+[14:39:50]   [VR] Socket 'lh' bound to tcp://*:8121 (quest_ip=127.0.0.1)
+[14:39:50]   [VR] Socket 'btn' bound to tcp://*:8119 (quest_ip=127.0.0.1)
+[14:39:50] =======================================================
+[14:39:50]   MuJoCo iCub Teleop — Initialised
+[14:39:50]   Config : /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/utils/control_config.yaml
+[14:39:50]   Model  : /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/dependencies/assets/scenes/scene_icub_lift.xml
+[14:39:50]   Arms   : both  (primary=right)
+[14:39:50]   IK     : iKinIpOptMin  recompute_steps=60  gaze_dt=0.1
+[14:39:50]   VR     : ON
+[14:39:50]   VR ZMQ : mode=connect target=127.0.0.1
+[14:39:50]   Record : OFF
+[14:39:50]   CLI    : ON
+[14:39:50] =======================================================
+[14:39:50] Loading Mujoco model from: /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/dependencies/assets/scenes/scene_icub_lift.xml
+[14:39:50] [Teleop] Physics Sync: sim_dt=0.005, control_dt=0.02, frame_skip=4
+[14:39:50] Launching MuJoCo Viewer... (Press 1/2/3 for Right Hand, 4/5/6 for Left Hand)
+[14:39:50] Mouse: Ctrl + Right-click drag to move mocap targets
+[14:39:51] [Teleop] Reset blue-cube → (0.36, -0.18, 0.72)
+[14:39:51] [Metrics] per-frame metrics -> /home/icub/Desktop/mkloviiin/PMM_Final/hub_dataset/logs/metrics/local_icub_mujoco_2026-10-15_14-39-46.jsonl
+[14:39:51] 
+[Manual] VR controls: A=start episode, B=stop episode
+[14:39:51] [Manual] Console controls: 1=start, 2=stop, 3=exit
+[14:39:51] [Manual] dataset root: /home/icub/Desktop/mkloviiin/PMM_Final/data/local_icub_mujoco_2026-10-15_14-39-46
+[14:39:51] 
+[Manual] Waiting START for episode 0...
+[14:39:51]   [Stream] primer cuadro enviado al VR (head_cam 640x480)
+[14:41:17] [Reset] blue-cube → (0.43, -0.13, 0.72)
+[14:41:20] [Record] Disabled.  Relaunch with --record
+[14:41:20] [Manual] Recording episode 0...
+[14:41:26] [Hand] right close
+[14:41:26] [Hand] right close
+[14:41:28] [Hand] right open
+[14:41:35] [Hand] right close
+[14:41:35] [Hand] right close
+[14:41:40] [Hand] right open
+[14:41:48] [Metrics] ep 0 (saved): 734 frames | 29.7 Hz, period 33.7±1.7 ms (p99 40.0, max 72.2), missed 0.1 % | track err 3.7 cm
+[14:41:48] [Manual] Episode saved (1/50)
+[14:41:48] 
+[Manual] Waiting START for episode 1...
+[14:41:48] [Reset] blue-cube → (0.45, -0.08, 0.72)
+[14:41:54] [Record] Disabled.  Relaunch with --record
+[14:41:54] [Manual] Recording episode 1...
+[14:42:03] [Hand] right close
+[14:42:11] [Hand] right open
+[14:42:17] [Metrics] ep 1 (saved): 615 frames | 29.6 Hz, period 33.7±2.2 ms (p99 40.3, max 72.0), missed 0.5 % | track err 5.0 cm
+[14:42:17] [Manual] Episode saved (2/50)
+[14:42:17] 
+[Manual] Waiting START for episode 2...
+[14:42:18] [Reset] blue-cube → (0.36, -0.06, 0.72)
+[14:42:19] [Reset] blue-cube → (0.37, -0.14, 0.72)
+[14:42:21] [Record] Disabled.  Relaunch with --record
+[14:42:21] [Manual] Recording episode 2...
+[14:42:29] [Hand] right close
+[14:42:36] [Hand] right open
+[14:42:42] [Metrics] ep 2 (saved): 559 frames | 29.7 Hz, period 33.6±1.5 ms (p99 38.7, max 62.3), missed 0.2 % | track err 5.0 cm
+[14:42:42] [Manual] Episode saved (3/50)
+[14:42:42] 
+[Manual] Waiting START for episode 3...
+[14:42:43] [Reset] blue-cube → (0.44, -0.10, 0.72)
+[14:42:47] [Record] Disabled.  Relaunch with --record
+[14:42:47] [Manual] Recording episode 3...
+[14:42:56] [Hand] right close
+[14:43:00] [Hand] right open
+[14:43:08] [Hand] right close
+[14:43:08] [Hand] right close
+[14:43:08] [Hand] right close
+[14:43:23] [VR] B mantenido 8.5s → DESCARTAR episodio
+[14:43:23] [Manual] Episodio DESCARTADO (B mantenido) — re-grabando...
+[14:43:23] [Metrics] ep 3 (discarded): 1052 frames | 29.5 Hz, period 33.9±2.8 ms (p99 44.4, max 81.8), missed 0.4 % | track err 3.5 cm
+[14:43:23] 
+[Manual] Waiting START for episode 3...
+[14:43:25] [Hand] right open
+[14:43:27] [Reset] blue-cube → (0.37, -0.08, 0.72)
+[14:43:30] [Record] Disabled.  Relaunch with --record
+[14:43:30] [Manual] Recording episode 3...
+[14:43:40] [Hand] right close
+[14:43:41] [Hand] right open
+[14:43:47] [Hand] right close
+[14:43:47] [Hand] right close
+[14:43:47] [Hand] right close
+[14:43:52] [Hand] right open
+[14:44:00] [Hand] right close
+[14:44:07] [Hand] right open
+[14:44:15] [Metrics] ep 3 (saved): 1186 frames | 29.5 Hz, period 33.9±2.4 ms (p99 45.9, max 55.2), missed 0.2 % | track err 4.6 cm
+[14:44:15] [Manual] Episode saved (4/50)
+[14:44:15] 
+[Manual] Waiting START for episode 4...
+[14:44:15] [Reset] blue-cube → (0.35, -0.08, 0.72)
+[14:44:17] [Record] Disabled.  Relaunch with --record
+[14:44:17] [Manual] Recording episode 4...
+[14:44:30] [VR] B mantenido 4.5s → DESCARTAR episodio
+[14:44:30] [Manual] Episodio DESCARTADO (B mantenido) — re-grabando...
+[14:44:30] [Metrics] ep 4 (discarded): 383 frames | 29.6 Hz, period 33.7±3.0 ms (p99 37.2, max 84.8), missed 0.5 % | track err 3.0 cm
+[14:44:30] 
+[Manual] Waiting START for episode 4...
+[14:44:31] [Reset] blue-cube → (0.39, -0.11, 0.72)
+[14:44:35] [Record] Disabled.  Relaunch with --record
+[14:44:35] [Manual] Recording episode 4...
+[14:44:42] [Hand] right close
+[14:44:50] [Hand] right open
+[14:44:50] [Hand] right open
+[14:44:56] [Metrics] ep 4 (saved): 562 frames | 29.7 Hz, period 33.7±1.2 ms (p99 39.6, max 43.7), missed 0.0 % | track err 3.3 cm
+[14:44:56] [Manual] Episode saved (5/50)
+[14:44:56] 
+[Manual] Waiting START for episode 5...
+[14:44:57] [Reset] blue-cube → (0.38, -0.05, 0.72)
+[14:44:58] [Record] Disabled.  Relaunch with --record
+[14:44:58] [Manual] Recording episode 5...
+[14:45:05] [Hand] right close
+[14:45:11] [Hand] right open
+[14:45:14] [Reset] blue-cube → (0.43, -0.09, 0.72)
+[14:45:18] [Metrics] ep 5 (saved): 536 frames | 29.7 Hz, period 33.6±2.1 ms (p99 38.3, max 78.8), missed 0.2 % | track err 3.3 cm
+[14:45:18] [Manual] Episode saved (6/50)
+[14:45:18] 
+[Manual] Waiting START for episode 6...
+[14:45:19] [Reset] blue-cube → (0.38, -0.15, 0.72)
+[14:45:20] [Record] Disabled.  Relaunch with --record
+[14:45:20] [Manual] Recording episode 6...
+[14:45:25] [Hand] right close
+[14:45:31] [Hand] right open
+[14:45:36] [Metrics] ep 6 (saved): 416 frames | 29.7 Hz, period 33.7±2.1 ms (p99 38.0, max 74.4), missed 0.2 % | track err 3.7 cm
+[14:45:36] [Manual] Episode saved (7/50)
+[14:45:36] 
+[Manual] Waiting START for episode 7...
+[14:45:37] [Reset] blue-cube → (0.39, -0.14, 0.72)
+[14:45:38] [Record] Disabled.  Relaunch with --record
+[14:45:38] [Manual] Recording episode 7...
+[14:45:41] [Hand] right close
+[14:45:42] [Hand] right close
+[14:45:47] [Hand] right open
+[14:45:53] [Metrics] ep 7 (saved): 403 frames | 29.7 Hz, period 33.7±2.2 ms (p99 39.6, max 65.6), missed 0.5 % | track err 4.1 cm
+[14:45:53] [Manual] Episode saved (8/50)
+[14:45:53] 
+[Manual] Waiting START for episode 8...
+[14:45:54] [Reset] blue-cube → (0.38, -0.06, 0.72)
+[14:45:54] [Record] Disabled.  Relaunch with --record
+[14:45:54] [Manual] Recording episode 8...
+[14:45:59] [Hand] right close
+[14:46:04] [Hand] right open
+[14:46:07] [Record] Disabled.  Relaunch with --record
+[14:46:11] [Metrics] ep 8 (saved): 427 frames | 29.6 Hz, period 33.8±2.5 ms (p99 38.4, max 70.4), missed 0.5 % | track err 4.5 cm
+[14:46:11] [Manual] Episode saved (9/50)
+[14:46:11] 
+[Manual] Waiting START for episode 9...
+[14:46:17] [Reset] blue-cube → (0.44, -0.13, 0.72)
+[14:46:18] [Record] Disabled.  Relaunch with --record
+[14:46:18] [Manual] Recording episode 9...
+[14:46:25] [Hand] right close
+[14:46:32] [Hand] right open
+[14:46:37] [Metrics] ep 9 (saved): 492 frames | 29.7 Hz, period 33.7±2.9 ms (p99 38.5, max 79.3), missed 0.4 % | track err 3.3 cm
+[14:46:37] [Manual] Episode saved (10/50)
+[14:46:37] 
+[Manual] Waiting START for episode 10...
+[14:46:38] [Reset] blue-cube → (0.42, -0.07, 0.72)
+[14:46:39] [Record] Disabled.  Relaunch with --record
+[14:46:39] [Manual] Recording episode 10...
+[14:46:44] [Hand] right close
+[14:46:51] [Hand] right open
+[14:46:56] [Metrics] ep 10 (saved): 425 frames | 29.5 Hz, period 33.9±3.5 ms (p99 40.7, max 79.6), missed 0.7 % | track err 3.6 cm
+[14:46:56] [Manual] Episode saved (11/50)
+[14:46:56] 
+[Manual] Waiting START for episode 11...
+[14:46:58] [Reset] blue-cube → (0.42, -0.11, 0.72)
+[14:47:01] [Reset] blue-cube → (0.39, -0.13, 0.72)
+[14:47:03] [Record] Disabled.  Relaunch with --record
+[14:47:03] [Manual] Recording episode 11...
+[14:47:08] [Hand] right close
+[14:47:08] [Hand] right close
+[14:47:08] [Hand] right close
+[14:47:14] [Hand] right open
+[14:47:14] [Hand] right open
+[14:47:21] [Metrics] ep 11 (saved): 492 frames | 29.7 Hz, period 33.7±3.2 ms (p99 37.5, max 104.2), missed 0.2 % | track err 3.5 cm
+[14:47:21] [Manual] Episode saved (12/50)
+[14:47:21] 
+[Manual] Waiting START for episode 12...
+[14:47:22] [Reset] blue-cube → (0.43, -0.10, 0.72)
+[14:47:23] [Reset] blue-cube → (0.41, -0.15, 0.72)
+[14:47:28] [Record] Disabled.  Relaunch with --record
+[14:47:28] [Manual] Recording episode 12...
+[14:47:32] [Hand] right close
+[14:47:32] [Hand] right close
+[14:47:39] [Hand] right open
+[14:47:44] [Metrics] ep 12 (saved): 445 frames | 29.6 Hz, period 33.8±2.6 ms (p99 38.4, max 75.9), missed 0.5 % | track err 4.0 cm
+[14:47:44] [Manual] Episode saved (13/50)
+[14:47:44] 
+[Manual] Waiting START for episode 13...
+[14:48:34] [Reset] blue-cube → (0.39, -0.10, 0.72)
+[14:48:56] [Hand] right open
+[14:48:57] [Hand] left open
+[14:48:59] [Hand] left close
+[14:49:01] [Hand] left close
+[14:49:02] [Hand] left open
+[14:49:08] [Record] Disabled.  Relaunch with --record
+[14:49:08] [Manual] Recording episode 13...
+[14:49:15] [Hand] right close
+[14:49:21] [Hand] right open
+[14:49:26] [Metrics] ep 13 (saved): 479 frames | 29.6 Hz, period 33.8±2.7 ms (p99 38.3, max 76.9), missed 0.4 % | track err 3.1 cm
+[14:49:26] [Manual] Episode saved (14/50)
+[14:49:26] 
+[Manual] Waiting START for episode 14...
+[14:49:27] [Reset] blue-cube → (0.40, -0.06, 0.72)
+[14:49:29] [Record] Disabled.  Relaunch with --record
+[14:49:29] [Manual] Recording episode 14...
+[14:49:34] [Hand] right close
+[14:49:40] [Hand] right open
+[14:49:40] [Hand] right open
+[14:49:45] [Metrics] ep 14 (saved): 416 frames | 29.7 Hz, period 33.7±2.6 ms (p99 37.7, max 84.0), missed 0.2 % | track err 3.4 cm
+[14:49:45] [Manual] Episode saved (15/50)
+[14:49:45] 
+[Manual] Waiting START for episode 15...
+[14:49:46] [Reset] blue-cube → (0.41, -0.14, 0.72)
+[14:49:48] [Record] Disabled.  Relaunch with --record
+[14:49:48] [Manual] Recording episode 15...
+[14:49:52] [Hand] right close
+[14:49:52] [Hand] right close
+[14:49:56] [Hand] right open
+[14:49:57] [Hand] right open
+[14:50:03] [Metrics] ep 15 (saved): 376 frames | 29.2 Hz, period 34.2±7.7 ms (p99 49.2, max 162.9), missed 1.1 % | track err 3.8 cm
+[14:50:03] [Manual] Episode saved (16/50)
+[14:50:03] 
+[Manual] Waiting START for episode 16...
+[14:50:03] [Reset] blue-cube → (0.40, -0.08, 0.72)
+[14:50:04] [Record] Disabled.  Relaunch with --record
+[14:50:04] [Manual] Recording episode 16...
+[14:50:07] [Hand] right close
+[14:50:07] [Hand] right close
+[14:50:12] [Hand] right open
+[14:50:15] [Reset] blue-cube → (0.35, -0.12, 0.72)
+[14:50:17] [Record] Disabled.  Relaunch with --record
+[14:50:20] [Metrics] ep 16 (saved): 428 frames | 29.7 Hz, period 33.6±2.0 ms (p99 37.3, max 73.1), missed 0.2 % | track err 3.6 cm
+[14:50:20] [Manual] Episode saved (17/50)
+[14:50:20] 
+[Manual] Waiting START for episode 17...
+[14:50:21] [Reset] blue-cube → (0.37, -0.12, 0.72)
+[14:50:22] [Record] Disabled.  Relaunch with --record
+[14:50:22] [Manual] Recording episode 17...
+[14:50:25] [Hand] right close
+[14:50:31] [Hand] right open
+[14:50:36] [Metrics] ep 17 (saved): 382 frames | 29.7 Hz, period 33.7±2.1 ms (p99 37.4, max 71.7), missed 0.3 % | track err 3.9 cm
+[14:50:36] [Manual] Episode saved (18/50)
+[14:50:36] 
+[Manual] Waiting START for episode 18...
+[14:50:39] [Reset] blue-cube → (0.38, -0.06, 0.72)
+[14:50:47] [Reset] blue-cube → (0.36, -0.13, 0.72)
+[14:50:48] [Record] Disabled.  Relaunch with --record
+[14:50:48] [Manual] Recording episode 18...
+[14:50:57] [Hand] right close
+[14:51:00] [Hand] right open
+[14:51:00] [Hand] right open
+[14:51:07] [Hand] right close
+[14:51:12] [Hand] right open
+[14:51:19] [Metrics] ep 18 (saved): 826 frames | 29.6 Hz, period 33.8±2.2 ms (p99 41.8, max 72.7), missed 0.2 % | track err 4.2 cm
+[14:51:19] [Manual] Episode saved (19/50)
+[14:51:19] 
+[Manual] Waiting START for episode 19...
+[14:51:20] [Reset] blue-cube → (0.36, -0.13, 0.72)
+[14:51:21] [Record] Disabled.  Relaunch with --record
+[14:51:21] [Manual] Recording episode 19...
+[14:51:27] [Hand] right close
+[14:51:28] [Hand] right close
+[14:51:33] [Hand] right open
+[14:51:33] [Hand] right open
+[14:51:39] [Metrics] ep 19 (saved): 485 frames | 29.5 Hz, period 33.9±3.3 ms (p99 40.2, max 81.9), missed 0.6 % | track err 3.1 cm
+[14:51:39] [Manual] Episode saved (20/50)
+[14:51:39] 
+[Manual] Waiting START for episode 20...
+[14:51:40] [Reset] blue-cube → (0.36, -0.11, 0.72)
+[14:51:41] [Record] Disabled.  Relaunch with --record
+[14:51:41] [Manual] Recording episode 20...
+[14:51:45] [Hand] right close
+[14:51:50] [Hand] right open
+[14:51:56] [Metrics] ep 20 (saved): 382 frames | 28.9 Hz, period 34.6±12.8 ms (p99 54.6, max 275.2), missed 1.3 % | track err 3.6 cm
+[14:51:56] [Manual] Episode saved (21/50)
+[14:51:56] 
+[Manual] Waiting START for episode 21...
+[14:51:57] [Reset] blue-cube → (0.37, -0.15, 0.72)
+[14:51:57] [Record] Disabled.  Relaunch with --record
+[14:51:57] [Manual] Recording episode 21...
+[14:52:02] [Hand] right close
+[14:52:07] [Hand] right open
+[14:52:07] [Hand] right open
+[14:52:12] [Metrics] ep 21 (saved): 359 frames | 29.6 Hz, period 33.8±3.1 ms (p99 37.8, max 74.4), missed 0.6 % | track err 3.7 cm
+[14:52:12] [Manual] Episode saved (22/50)
+[14:52:12] 
+[Manual] Waiting START for episode 22...
+[14:52:50] [Record] Disabled.  Relaunch with --record
+[14:52:50] [Manual] Recording episode 22...
+[14:52:55] [Hand] right close
+[14:52:55] [Hand] right close
+[14:52:59] [Hand] right open
+[14:53:05] [Metrics] ep 22 (saved): 336 frames | 26.2 Hz, period 38.2±29.9 ms (p99 190.3, max 376.9), missed 3.0 % | track err 4.6 cm
+[14:53:05] [Manual] Episode saved (23/50)
+[14:53:05] 
+[Manual] Waiting START for episode 23...
+[14:53:08] [Reset] blue-cube → (0.40, -0.13, 0.72)
+[14:53:09] [Record] Disabled.  Relaunch with --record
+[14:53:09] [Manual] Recording episode 23...
+[14:53:14] [Hand] right close
+[14:53:19] [Hand] right open
+[14:53:25] [Metrics] ep 23 (saved): 348 frames | 25.6 Hz, period 39.1±35.8 ms (p99 236.4, max 445.9), missed 3.7 % | track err 5.9 cm
+[14:53:25] [Manual] Episode saved (24/50)
+[14:53:25] 
+[Manual] Waiting START for episode 24...
+[14:53:26] [Reset] blue-cube → (0.39, -0.09, 0.72)
+[14:53:29] [Record] Disabled.  Relaunch with --record
+[14:53:29] [Manual] Recording episode 24...
+[14:53:34] [Hand] right close
+[14:53:34] [Hand] right close
+[14:53:41] [Hand] right open
+[14:53:41] [Hand] right open
+[14:53:51] [Metrics] ep 24 (saved): 518 frames | 26.0 Hz, period 38.4±35.9 ms (p99 186.0, max 540.5), missed 2.7 % | track err 5.6 cm
+[14:53:51] [Manual] Episode saved (25/50)
+[14:53:51] 
+[Manual] Waiting START for episode 25...
+[14:53:52] [Reset] blue-cube → (0.41, -0.07, 0.72)
+[14:54:42] [Reset] blue-cube → (0.42, -0.06, 0.72)
+[14:54:45] [Record] Disabled.  Relaunch with --record
+[14:54:45] [Manual] Recording episode 25...
+[14:54:51] [Hand] right open
+[14:54:57] [Hand] right close
+[14:55:04] [Hand] right open
+[14:55:11] [Metrics] ep 25 (saved): 679 frames | 29.7 Hz, period 33.6±1.0 ms (p99 39.6, max 42.6), missed 0.0 % | track err 8.0 cm
+[14:55:11] [Manual] Episode saved (26/50)
+[14:55:11] 
+[Manual] Waiting START for episode 26...
+[14:55:12] [Reset] blue-cube → (0.38, -0.12, 0.72)
+[14:55:13] [Record] Disabled.  Relaunch with --record
+[14:55:13] [Manual] Recording episode 26...
+[14:55:19] [Hand] right close
+[14:55:25] [Hand] right open
+[14:55:31] [Metrics] ep 26 (saved): 464 frames | 29.6 Hz, period 33.8±2.2 ms (p99 39.2, max 68.6), missed 0.4 % | track err 3.8 cm
+[14:55:31] [Manual] Episode saved (27/50)
+[14:55:31] 
+[Manual] Waiting START for episode 27...
+[14:55:31] [Reset] blue-cube → (0.41, -0.15, 0.72)
+[14:55:32] [Record] Disabled.  Relaunch with --record
+[14:55:32] [Manual] Recording episode 27...
+[14:55:35] [Hand] right close
+[14:55:35] [Hand] right close
+[14:55:40] [Hand] right open
+[14:55:46] [Metrics] ep 27 (saved): 360 frames | 29.6 Hz, period 33.8±2.7 ms (p99 38.2, max 71.0), missed 0.6 % | track err 4.1 cm
+[14:55:46] [Manual] Episode saved (28/50)
+[14:55:46] 
+[Manual] Waiting START for episode 28...
+[14:55:46] [Reset] blue-cube → (0.44, -0.09, 0.72)
+[14:55:47] [Record] Disabled.  Relaunch with --record
+[14:55:47] [Manual] Recording episode 28...
+[14:55:51] [Hand] right close
+[14:55:57] [Hand] right open
+[14:56:00] [Reset] blue-cube → (0.43, -0.10, 0.72)
+[14:56:04] [Metrics] ep 28 (saved): 418 frames | 29.3 Hz, period 34.1±6.3 ms (p99 40.1, max 149.0), missed 1.0 % | track err 5.3 cm
+[14:56:04] [Manual] Episode saved (29/50)
+[14:56:04] 
+[Manual] Waiting START for episode 29...
+[14:56:08] [Record] Disabled.  Relaunch with --record
+[14:56:08] [Manual] Recording episode 29...
+[14:56:11] [Hand] right close
+[14:56:16] [Hand] right open
+[14:56:18] [Record] Disabled.  Relaunch with --record
+[14:56:22] [Metrics] ep 29 (saved): 364 frames | 29.7 Hz, period 33.7±1.8 ms (p99 37.6, max 64.9), missed 0.3 % | track err 4.1 cm
+[14:56:22] [Manual] Episode saved (30/50)
+[14:56:22] 
+[Manual] Waiting START for episode 30...
+[14:56:38] [Reset] blue-cube → (0.38, -0.12, 0.72)
+[14:56:42] [Record] Disabled.  Relaunch with --record
+[14:56:42] [Manual] Recording episode 30...
+[14:56:49] [Hand] right close
+[14:56:57] [Hand] right open
+[14:57:03] [Metrics] ep 30 (saved): 532 frames | 29.6 Hz, period 33.8±2.3 ms (p99 39.2, max 77.0), missed 0.2 % | track err 5.4 cm
+[14:57:03] [Manual] Episode saved (31/50)
+[14:57:03] 
+[Manual] Waiting START for episode 31...
+[14:57:03] [Reset] blue-cube → (0.40, -0.08, 0.72)
+[14:57:06] [Record] Disabled.  Relaunch with --record
+[14:57:06] [Manual] Recording episode 31...
+[14:57:09] [Hand] right close
+[14:57:15] [Hand] right open
+[14:57:21] [Metrics] ep 31 (saved): 384 frames | 29.6 Hz, period 33.8±3.0 ms (p99 38.2, max 75.4), missed 0.5 % | track err 3.6 cm
+[14:57:21] [Manual] Episode saved (32/50)
+[14:57:21] 
+[Manual] Waiting START for episode 32...
+[14:57:22] [Reset] blue-cube → (0.38, -0.11, 0.72)
+[14:57:23] [Record] Disabled.  Relaunch with --record
+[14:57:23] [Manual] Recording episode 32...
+[14:57:28] [Hand] right close
+[14:57:28] [Hand] right close
+[14:57:28] [Hand] right close
+[14:57:34] [Hand] right open
+[14:57:40] [Metrics] ep 32 (saved): 435 frames | 29.5 Hz, period 33.9±3.7 ms (p99 40.2, max 86.6), missed 0.7 % | track err 4.2 cm
+[14:57:40] [Manual] Episode saved (33/50)
+[14:57:40] 
+[Manual] Waiting START for episode 33...
+[14:57:41] [Reset] blue-cube → (0.45, -0.07, 0.72)
+[14:57:42] [Record] Disabled.  Relaunch with --record
+[14:57:42] [Manual] Recording episode 33...
+[14:57:46] [Hand] right close
+[14:57:51] [Hand] right open
+[14:57:56] [Metrics] ep 33 (saved): 351 frames | 29.6 Hz, period 33.8±2.6 ms (p99 39.2, max 77.1), missed 0.3 % | track err 5.3 cm
+[14:57:56] [Manual] Episode saved (34/50)
+[14:57:56] 
+[Manual] Waiting START for episode 34...
+[14:58:16] [Reset] blue-cube → (0.44, -0.11, 0.72)
+[14:58:19] [Record] Disabled.  Relaunch with --record
+[14:58:19] [Manual] Recording episode 34...
+[14:58:27] [Hand] right close
+[14:58:31] [Hand] right open
+[14:58:31] [Hand] right open
+[14:58:37] [Metrics] ep 34 (saved): 478 frames | 29.4 Hz, period 34.0±3.1 ms (p99 45.3, max 71.9), missed 0.6 % | track err 6.5 cm
+[14:58:37] [Manual] Episode saved (35/50)
+[14:58:37] 
+[Manual] Waiting START for episode 35...
+[14:58:38] [Reset] blue-cube → (0.35, -0.13, 0.72)
+[14:58:39] [Record] Disabled.  Relaunch with --record
+[14:58:39] [Manual] Recording episode 35...
+[14:58:46] [Hand] right close
+[14:58:48] [Hand] right open
+[14:59:00] [Hand] right close
+[14:59:00] [Hand] right close
+[14:59:07] [Hand] right open
+[14:59:14] [Metrics] ep 35 (saved): 931 frames | 29.6 Hz, period 33.8±2.2 ms (p99 42.6, max 69.9), missed 0.2 % | track err 4.9 cm
+[14:59:14] [Manual] Episode saved (36/50)
+[14:59:14] 
+[Manual] Waiting START for episode 36...
+[14:59:25] [Reset] blue-cube → (0.44, -0.05, 0.72)
+[14:59:26] [Record] Disabled.  Relaunch with --record
+[14:59:26] [Manual] Recording episode 36...
+[14:59:39] [Hand] right close
+[14:59:44] [Hand] right open
+[14:59:51] [Metrics] ep 36 (saved): 640 frames | 29.5 Hz, period 33.9±4.2 ms (p99 40.2, max 126.6), missed 0.5 % | track err 7.3 cm
+[14:59:51] [Manual] Episode saved (37/50)
+[14:59:51] 
+[Manual] Waiting START for episode 37...
+[14:59:51] [Reset] blue-cube → (0.44, -0.09, 0.72)
+[14:59:52] [Record] Disabled.  Relaunch with --record
+[14:59:52] [Manual] Recording episode 37...
+[14:59:56] [Hand] right close
+[14:59:57] [Hand] right close
+[14:59:58] [Hand] right open
+[15:00:08] [Hand] right close
+[15:00:14] [Hand] right open
+[15:00:20] [Metrics] ep 37 (saved): 697 frames | 27.9 Hz, period 35.8±19.2 ms (p99 96.0, max 383.7), missed 2.3 % | track err 4.5 cm
+[15:00:20] [Manual] Episode saved (38/50)
+[15:00:20] 
+[Manual] Waiting START for episode 38...
+[15:00:20] [Reset] blue-cube → (0.39, -0.06, 0.72)
+[15:00:31] [Reset] blue-cube → (0.37, -0.08, 0.72)
+[15:00:32] [Reset] blue-cube → (0.39, -0.11, 0.72)
+[15:00:33] [Record] Disabled.  Relaunch with --record
+[15:00:33] [Manual] Recording episode 38...
+[15:00:45] [Hand] right close
+[15:00:45] [Hand] right close
+[15:00:50] [Hand] right open
+[15:00:50] [Hand] right open
+[15:00:55] [Metrics] ep 38 (saved): 568 frames | 29.5 Hz, period 33.9±3.0 ms (p99 39.5, max 74.0), missed 0.7 % | track err 8.5 cm
+[15:00:55] [Manual] Episode saved (39/50)
+[15:00:55] 
+[Manual] Waiting START for episode 39...
+[15:00:55] [Reset] blue-cube → (0.42, -0.13, 0.72)
+[15:00:56] [Record] Disabled.  Relaunch with --record
+[15:00:56] [Manual] Recording episode 39...
+[15:01:00] [Hand] right close
+[15:01:02] [Hand] right open
+[15:01:18] [Hand] right close
+[15:01:25] [Hand] right open
+[15:01:32] [Metrics] ep 39 (saved): 938 frames | 29.4 Hz, period 34.0±2.8 ms (p99 43.8, max 72.9), missed 0.4 % | track err 6.9 cm
+[15:01:32] [Manual] Episode saved (40/50)
+[15:01:32] 
+[Manual] Waiting START for episode 40...
+[15:01:42] [Reset] blue-cube → (0.36, -0.09, 0.72)
+[15:01:49] [Record] Disabled.  Relaunch with --record
+[15:01:49] [Manual] Recording episode 40...
+[15:02:00] [Hand] right close
+[15:02:02] [Hand] right open
+[15:02:11] [Hand] right close
+[15:02:11] [Hand] right close
+[15:02:16] [Hand] right open
+[15:02:28] [Metrics] ep 40 (saved): 1017 frames | 29.1 Hz, period 34.4±7.5 ms (p99 47.8, max 203.0), missed 0.9 % | track err 3.6 cm
+[15:02:28] [Manual] Episode saved (41/50)
+[15:02:28] 
+[Manual] Waiting START for episode 41...
+[15:02:30] [Reset] blue-cube → (0.40, -0.10, 0.72)
+[15:02:32] [Record] Disabled.  Relaunch with --record
+[15:02:32] [Manual] Recording episode 41...
+[15:02:44] [Hand] right close
+[15:02:50] [Hand] right open
+[15:02:57] [Metrics] ep 41 (saved): 644 frames | 28.9 Hz, period 34.6±7.2 ms (p99 70.8, max 130.7), missed 1.7 % | track err 5.4 cm
+[15:02:57] [Manual] Episode saved (42/50)
+[15:02:57] 
+[Manual] Waiting START for episode 42...
+[15:02:58] [Reset] blue-cube → (0.41, -0.11, 0.72)
+[15:03:00] [Record] Disabled.  Relaunch with --record
+[15:03:00] [Manual] Recording episode 42...
+[15:03:07] [Hand] right close
+[15:03:12] [Hand] right open
+[15:03:12] [Hand] right open
+[15:03:18] [Metrics] ep 42 (saved): 476 frames | 29.6 Hz, period 33.8±2.3 ms (p99 38.4, max 70.8), missed 0.4 % | track err 5.7 cm
+[15:03:18] [Manual] Episode saved (43/50)
+[15:03:18] 
+[Manual] Waiting START for episode 43...
+[15:03:22] [Reset] blue-cube → (0.38, -0.11, 0.72)
+[15:03:25] [Record] Disabled.  Relaunch with --record
+[15:03:25] [Manual] Recording episode 43...
+[15:03:35] [Hand] right close
+[15:03:40] [Hand] right open
+[15:03:47] [Metrics] ep 43 (saved): 539 frames | 28.5 Hz, period 35.1±23.6 ms (p99 39.7, max 518.3), missed 0.6 % | track err 4.7 cm
+[15:03:47] [Manual] Episode saved (44/50)
+[15:03:47] 
+[Manual] Waiting START for episode 44...
+[15:03:47] [Reset] blue-cube → (0.36, -0.10, 0.72)
+[15:03:49] [Record] Disabled.  Relaunch with --record
+[15:03:49] [Manual] Recording episode 44...
+[15:03:56] [Hand] right close
+[15:04:01] [Hand] right open
+[15:04:07] [Metrics] ep 44 (saved): 441 frames | 29.3 Hz, period 34.2±4.8 ms (p99 48.9, max 107.2), missed 1.1 % | track err 3.8 cm
+[15:04:07] [Manual] Episode saved (45/50)
+[15:04:07] 
+[Manual] Waiting START for episode 45...
+[15:04:07] [Reset] blue-cube → (0.41, -0.12, 0.72)
+[15:04:08] [Record] Disabled.  Relaunch with --record
+[15:04:08] [Manual] Recording episode 45...
+[15:04:12] [Hand] right close
+[15:04:17] [Hand] right open
+[15:04:24] [Metrics] ep 45 (saved): 411 frames | 29.6 Hz, period 33.7±2.5 ms (p99 38.5, max 81.1), missed 0.2 % | track err 3.1 cm
+[15:04:24] [Manual] Episode saved (46/50)
+[15:04:24] 
+[Manual] Waiting START for episode 46...
+[15:04:24] [Reset] blue-cube → (0.35, -0.09, 0.72)
+[15:04:26] [Record] Disabled.  Relaunch with --record
+[15:04:26] [Manual] Recording episode 46...
+[15:04:31] [Hand] right close
+[15:04:36] [Hand] right open
+[15:04:36] [Hand] right open
+[15:04:37] [Hand] right open
+[15:04:40] [Reset] blue-cube → (0.38, -0.08, 0.72)
+[15:04:44] [Metrics] ep 46 (saved): 462 frames | 29.6 Hz, period 33.7±1.9 ms (p99 38.6, max 68.8), missed 0.2 % | track err 3.5 cm
+[15:04:44] [Manual] Episode saved (47/50)
+[15:04:44] 
+[Manual] Waiting START for episode 47...
+[15:04:56] [Record] Disabled.  Relaunch with --record
+[15:04:56] [Manual] Recording episode 47...
+[15:05:00] [Hand] right close
+[15:05:05] [Hand] right open
+[15:05:11] [Hand] right close
+[15:05:11] [Hand] right close
+[15:05:16] [Hand] right open
+[15:05:16] [Hand] right open
+[15:05:25] [Metrics] ep 47 (saved): 751 frames | 29.0 Hz, period 34.5±18.2 ms (p99 40.8, max 530.1), missed 0.4 % | track err 4.1 cm
+[15:05:25] [Manual] Episode saved (48/50)
+[15:05:25] 
+[Manual] Waiting START for episode 48...
+[15:05:39] [Reset] blue-cube → (0.39, -0.12, 0.72)
+[15:05:41] [Record] Disabled.  Relaunch with --record
+[15:05:41] [Manual] Recording episode 48...
+[15:05:47] [Hand] right close
+[15:05:52] [Hand] right open
+[15:05:58] [Metrics] ep 48 (saved): 427 frames | 29.4 Hz, period 34.0±3.0 ms (p99 41.0, max 72.9), missed 0.7 % | track err 3.9 cm
+[15:05:58] [Manual] Episode saved (49/50)
+[15:05:58] 
+[Manual] Waiting START for episode 49...
+[15:05:58] [Record] Disabled.  Relaunch with --record
+[15:05:58] [Manual] Recording episode 49...
+[15:06:12] [Hand] right close
+[15:06:15] [Hand] right open
+[15:06:19] [Hand] right close
+[15:06:25] [Hand] right open
+[15:06:32] [Metrics] ep 49 (saved): 870 frames | 29.5 Hz, period 33.9±2.1 ms (p99 43.3, max 64.0), missed 0.2 % | track err 4.0 cm
+[15:06:32] [Manual] Episode saved (50/50)
+[15:06:32] Session ended correctly.

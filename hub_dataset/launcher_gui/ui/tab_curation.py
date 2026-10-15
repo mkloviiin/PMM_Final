@@ -36,6 +36,9 @@ def build_curation_tab():
         with gr.Column(visible=False) as dataset_col:
             gr.Markdown("---")
 
+            ep_info_tb = gr.Textbox(label="Episode info", interactive=False)
+            marked_summary_tb = gr.Textbox(label="Episodes excluded from the final dataset", interactive=False)
+
             with gr.Row(elem_classes=["ep-nav-row"]):
                 ep_prev_btn = gr.Button("◄", scale=0, min_width=80)
                 gr.HTML(
@@ -52,8 +55,6 @@ def build_curation_tab():
                 )
                 ep_next_btn = gr.Button("►", scale=0, min_width=80)
                 ep_delete_btn = gr.Button("🗑️ Delete this episode", scale=2)
-            ep_info_tb = gr.Textbox(label="Episode info", interactive=False)
-            marked_summary_tb = gr.Textbox(label="Episodes excluded from the final dataset", interactive=False)
 
             with gr.Row():
                 videos_html = gr.HTML(value="")

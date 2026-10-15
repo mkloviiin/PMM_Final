@@ -1,0 +1,50 @@
+# Hub de experimentación iCub en Docker (MuJoCo, Gazebo y robot real).
+# Antes de levantarlo, permitir que el contenedor use la pantalla:
+#   xhost +SI:localuser:$(id -un)
+# Luego:  docker compose up        → abrir http://localhost:7860
+# Detalles en docker/README.md
+
+services:
+  hub:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    image: pmm-icub-hub:latest
+    container_name: pmm-icub-hub
+    init: true            # recoge los subprocesos que lanza el Hub (YARP, Gazebo, tmux)
+
+    # GPU NVIDIA (requiere NVIDIA Container Toolkit en el host)
+    gpus: all
+
+    # Red del host: YARP (name server en :10000 y puertos dinámicos), robot real
+    # (10.0.0.1), streaming al visor VR y el Hub en :7860.
+    network_mode: host
+    # Memoria compartida del host: X11 (MIT-SHM) y DataLoaders de PyTorch.
+    ipc: host
+
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+      # Name server YARP del robot real (los usa hub_dataset/launcher_gui/robots/icub_rg.py)
+      ICUB_YARP_IP: ${ICUB_YARP_IP:-10.0.0.1}
+      ICUB_YARP_PORT: ${ICUB_YARP_PORT:-10000}
+      # Variables PRIME de start_sim.sh. Vacío = desactivadas; quitar esta línea
+      # en un notebook con GPU híbrida si Gazebo no usa la NVIDIA.
+      GZ_RENDER_ENV: ""
+
+    volumes:
+      # Pantalla
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Datos y resultados (quedan en el repo del host)
+      - ./data:/workspace/PMM_Final/data
+      - ./data_curated:/workspace/PMM_Final/data_curated
+      - ./outputs:/workspace/PMM_Final/outputs
+      - ./output:/workspace/PMM_Final/output
+      - ./hub_dataset/logs:/workspace/PMM_Final/hub_dataset/logs
+      # Caché de Hugging Face del host: token de login, tema de Gradio y modelos
+      - ${HOME}/.cache/huggingface:/home/icub/.cache/huggingface
+
+    stdin_open: true
+    tty: true

@@ -1,0 +1,132 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <!-- Cuarto del HUB (3ra sala), plano "Espacio para el HUB" (08-09-2026). Mismo cuarto que
+       icub_room_arena.xml de MuJoCo, girado 180 grados en z porque en Gazebo el iCub mira hacia -x.
+       Solo visual (sin colision). El piso es el modelo floor del mundo.
+       Paredes naranjas: color plano #ed7b1d (naranja AC3E) sin iluminación. Gazebo toma los
+       colores del SDF como lineales: #ed7b1d en lineal = 0.8469 0.1981 0.0123 (verificado con render). -->
+  <model name="room">
+    <static>true</static>
+    <link name="link">
+      <visual name="wall_bottom1">
+        <pose>-2.3835 -0.74 1.25 0 0 -3.1416</pose>
+        <geometry><box><size>0.6331 0.02 2.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="wall_bottom2">
+        <pose>-0.9353 -0.74 1.25 0 0 -3.1416</pose>
+        <geometry><box><size>0.4362 0.02 2.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="wall_bottom3">
+        <pose>0.2714 -0.74 1.25 0 0 -3.1416</pose>
+        <geometry><box><size>0.15 0.02 2.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="wall_bottom4">
+        <pose>2.17 -0.74 1.25 0 0 -3.1416</pose>
+        <geometry><box><size>1.82 0.02 2.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="wall_bottom5">
+        <pose>4.005 -0.74 1.25 0 0 -3.1416</pose>
+        <geometry><box><size>0.85 0.02 2.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="wall_front">
+        <pose>-2.7 0.085 1.25 0 0 -1.5708</pose>
+        <geometry><box><size>1.65 0.02 2.5</size></box></geometry>
+        <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><emissive>0.3 0.3 0.3 1</emissive></material>
+      </visual>
+      <visual name="wall_rear">
+        <pose>4.43 -0.14 1.25 0 0 -1.5708</pose>
+        <geometry><box><size>1.2 0.02 2.5</size></box></geometry>
+        <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><emissive>0.3 0.3 0.3 1</emissive></material>
+      </visual>
+      <visual name="wall_slant1">
+        <pose>-1.8515 0.8925 1.25 0 0 -0.0206</pose>
+        <geometry><box><size>1.6974 0.02 2.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="wall_slant2">
+        <pose>-0.3275 0.8415 1.25 0 0 -0.0496</pose>
+        <geometry><box><size>1.3527 0.02 2.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="wall_slant3">
+        <pose>2.389 0.634 1.25 0 0 -0.085</pose>
+        <geometry><box><size>4.0968 0.02 2.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="column">
+        <pose>3.33 -0.49 1.25 0 0 0</pose>
+        <geometry><box><size>0.5 0.5 2.5</size></box></geometry>
+        <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><emissive>0.3 0.3 0.3 1</emissive></material>
+      </visual>
+      <!-- Puertas en los 3 vanos de 913.57 mm del muro de abajo, como la puerta de la arena
+           anterior de MuJoCo (door_gray 0.5, 2.0 m de alto, manilla de laton); sobre cada una,
+           un dintel naranja hasta el alto del muro. Manilla hacia el interior del cuarto (+y). -->
+      <visual name="door1">
+        <pose>-1.6102 -0.74 1.0 0 0 0</pose>
+        <geometry><box><size>0.9136 0.03 2.0</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.5 0.5 0.5 1</diffuse><specular>0.2 0.2 0.2 1</specular><emissive>0.1 0.1 0.1 1</emissive></material>
+      </visual>
+      <visual name="door1_lintel">
+        <pose>-1.6102 -0.74 2.25 0 0 0</pose>
+        <geometry><box><size>0.9136 0.02 0.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="door1_handle">
+        <pose>-1.2534 -0.705 1.0 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.16</size></box></geometry>
+        <material><ambient>0.75 0.6 0.3 1</ambient><diffuse>0.75 0.6 0.3 1</diffuse><specular>0.9 0.85 0.7 1</specular></material>
+      </visual>
+      <visual name="door2">
+        <pose>-0.2604 -0.74 1.0 0 0 0</pose>
+        <geometry><box><size>0.9136 0.03 2.0</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.5 0.5 0.5 1</diffuse><specular>0.2 0.2 0.2 1</specular><emissive>0.1 0.1 0.1 1</emissive></material>
+      </visual>
+      <visual name="door2_lintel">
+        <pose>-0.2604 -0.74 2.25 0 0 0</pose>
+        <geometry><box><size>0.9136 0.02 0.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="door2_handle">
+        <pose>0.0964 -0.705 1.0 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.16</size></box></geometry>
+        <material><ambient>0.75 0.6 0.3 1</ambient><diffuse>0.75 0.6 0.3 1</diffuse><specular>0.9 0.85 0.7 1</specular></material>
+      </visual>
+      <visual name="door3">
+        <pose>0.8032 -0.74 1.0 0 0 0</pose>
+        <geometry><box><size>0.9136 0.03 2.0</size></box></geometry>
+        <material><ambient>0.5 0.5 0.5 1</ambient><diffuse>0.5 0.5 0.5 1</diffuse><specular>0.2 0.2 0.2 1</specular><emissive>0.1 0.1 0.1 1</emissive></material>
+      </visual>
+      <visual name="door3_lintel">
+        <pose>0.8032 -0.74 2.25 0 0 0</pose>
+        <geometry><box><size>0.9136 0.02 0.5</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular><emissive>0.8469 0.1981 0.0123 1</emissive></material>
+      </visual>
+      <visual name="door3_handle">
+        <pose>1.1600 -0.705 1.0 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.16</size></box></geometry>
+        <material><ambient>0.75 0.6 0.3 1</ambient><diffuse>0.75 0.6 0.3 1</diffuse><specular>0.9 0.85 0.7 1</specular></material>
+      </visual>
+      <!-- Mural AC3E (gazebo/wall.png) en la cara interior de la pared derecha del iCub (wall_slant1-3) -->
+      <visual name="wall_right_mural">
+        <geometry><mesh><uri>model://room/meshes/wall_right.obj</uri></mesh></geometry>
+        <material>
+          <!-- Sin iluminación: el mural muestra solo su imagen (emissive_map), con los mismos
+               colores que gazebo/wall.png sin importar el sol ni el ángulo de vista. Verificado con
+               un render de prueba: naranja (239, 123, 31) igual al de la imagen. Con albedo + luz
+               salía café de frente (la cara del mural mira en contra del sol). -->
+          <ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular>
+          <emissive>1 1 1 1</emissive>
+          <pbr><metal>
+            <emissive_map>model://room/materials/textures/wall_ac3e.png</emissive_map>
+            <metalness>0.0</metalness><roughness>1.0</roughness>
+          </metal></pbr>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

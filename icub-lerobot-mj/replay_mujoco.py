@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 # Add icubenv site-packages to sys.path to resolve mujoco / robotology
-icubenv_site_packages = os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages")
+icubenv_site_packages = os.environ.get("ICUBENV_SITE_PACKAGES", os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages"))
 if icubenv_site_packages not in sys.path:
     sys.path.append(icubenv_site_packages)
     

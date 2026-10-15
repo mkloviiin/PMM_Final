@@ -2,11 +2,16 @@
 
 SESSION_NAME="icub_sim"
 CONTEXT="gazeboCartesianControl"
-CONDA_ENV="icubenv"
+CONDA_ENV="${CONDA_ENV:-icubenv}"
 GAZEBO_EXAMPLE_DIR="$(dirname "$(dirname "$(readlink -f "$0")")")"
 WORLD="$GAZEBO_EXAMPLE_DIR/worlds/icub_world.sdf"
 MODELS_DIR="$GAZEBO_EXAMPLE_DIR/models"
-PLUGINS_DIR="$GAZEBO_EXAMPLE_DIR/plugins"
+# Carpeta del controlboard parchado (ver plugins/build_controlboard.sh). En Docker
+# se compila en la imagen y se pasa con GZ_PATCHED_PLUGIN_DIR.
+PLUGINS_DIR="${GZ_PATCHED_PLUGIN_DIR:-$GAZEBO_EXAMPLE_DIR/plugins}"
+# Variables para renderizar con la GPU NVIDIA de un notebook con GPU híbrida (PRIME).
+# GZ_RENDER_ENV="" las desactiva (PC de escritorio, Docker).
+GZ_RENDER_ENV="${GZ_RENDER_ENV-__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia}"
 
 echo "Iniciando sesión de tmux '$SESSION_NAME' con ventanas separadas..."
 
@@ -25,14 +30,15 @@ tmux send-keys -t $SESSION_NAME:gazebo "export GZ_SIM_SYSTEM_PLUGIN_PATH=$PLUGIN
 
 # LANZAR SERVIDOR (Headless - Maneja física y sensores)
 # tmux send-keys -t $SESSION_NAME:gazebo "gz sim -r $WORLD" C-m
-tmux send-keys -t $SESSION_NAME:gazebo "__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia gz sim -s -r $WORLD -v 4" C-m
-tmux pipe-pane -o -t $SESSION_NAME:1.0 'cat >> /tmp/tmux_output_pipe_gz_server'
+tmux send-keys -t $SESSION_NAME:gazebo "$GZ_RENDER_ENV gz sim -s -r $WORLD -v 4" C-m
+# '>' (no '>>'): el log se reinicia en cada arranque; antes crecía sin límite (llegó a 1.3 GB).
+tmux pipe-pane -o -t $SESSION_NAME:1.0 'cat > /tmp/tmux_output_pipe_gz_server'
 
 # 2.1 Crear una sub-ventana (pane) para la GUI
 tmux split-window -h -t $SESSION_NAME:gazebo
 tmux send-keys -t $SESSION_NAME:gazebo.1 "conda activate $CONDA_ENV" C-m
-tmux send-keys -t $SESSION_NAME:gazebo.1 "__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia gz sim -g" C-m
-tmux pipe-pane -o -t $SESSION_NAME:1.1 'cat >> /tmp/tmux_output_pipe_gz_gui'
+tmux send-keys -t $SESSION_NAME:gazebo.1 "$GZ_RENDER_ENV gz sim -g" C-m
+tmux pipe-pane -o -t $SESSION_NAME:1.1 'cat > /tmp/tmux_output_pipe_gz_gui'
 
 # 3. Crea una ventana para el 'robotinterface'
 tmux new-window -t $SESSION_NAME -n robotinterface

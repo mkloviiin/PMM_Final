@@ -33,7 +33,25 @@ if _metrics_path not in sys.path:
     sys.path.insert(0, _metrics_path)
 
 # Add icubenv site-packages to sys.path to generic python
-sys.path.append(os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages"))
+sys.path.append(os.environ.get("ICUBENV_SITE_PACKAGES", os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages")))
+
+
+class _NoMetrics:
+    """Sustituto cuando metrics/ no está: cualquier método no hace nada y devuelve None."""
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+
+def _make_metrics(**kwargs):
+    """Registrador por frame de metrics/frame_metrics.py. La carpeta metrics/ es
+    opcional: sin ella se graba igual, solo que sin métricas."""
+    try:
+        from frame_metrics import FrameMetrics
+    except ImportError:
+        print("[Metrics] metrics/frame_metrics.py not found: recording without metrics.", flush=True)
+        return _NoMetrics()
+    return FrameMetrics.create(**kwargs)
 
 
 def parse_args() -> argparse.Namespace:
@@ -148,7 +166,6 @@ def _manual_vr_record(
     from lerobot.robots import make_robot_from_config
     from lerobot.utils.constants import ACTION, OBS_STR
     from lerobot.utils.robot_utils import precise_sleep
-    from frame_metrics import FrameMetrics
 
     from lerobot_robot_icub.config_icub_mujoco import iCubMuJoCoConfig
     from lerobot_teleoperator_icubteleop.config_icubteleop import iCubTeleopConfig
@@ -264,7 +281,7 @@ def _manual_vr_record(
     listener_t = threading.Thread(target=_console_listener, daemon=True)
     listener_t.start()
 
-    fm = FrameMetrics.create(
+    fm = _make_metrics(
         backend="mujoco", fps=args.fps, name=Path(dataset_root).name,
         repo_id=repo_id, task=args.single_task, vr=vr_enabled, scene=Path(model_path).name,
         control_arms=robot_cfg.control_arms, cameras=list(robot_cfg.camera_names),
