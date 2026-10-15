@@ -33,11 +33,9 @@
         name="gzyarp::Clock">
     </plugin>
 
-    <!-- Mesa y cuarto del HUB en el marco de Gazebo (el iCub mira hacia -x): son los de MuJoCo
-         (icub_standard_table.xml, icub_room_arena.xml) girados 180 grados en z. -->
     <include>
       <uri>model://table</uri>
-      <pose>-0.45 0 0 0 0 0</pose>
+      <pose>-0.530772 0 0 0 0 -1.57</pose>
     </include>
 
     <include>
