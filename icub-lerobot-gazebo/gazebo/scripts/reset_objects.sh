@@ -13,13 +13,15 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 MODELS_DIR="$(dirname "$SCRIPT_DIR")/models"
 SCENES_YAML="$(dirname "$(dirname "$SCRIPT_DIR")")/mujoco/assets/scenes/scenes.yaml"
 SCENE_FILE="${ICUB_SCENE_FILE:-/tmp/icub_lerobot_scene}"
+FIXTURES_YAML="$(dirname "$SCRIPT_DIR")/scene_fixtures.yaml"
 
-PLAN=$(python3 - "$SCENES_YAML" "$SCENE_FILE" <<'PYEOF'
+PLAN=$(python3 - "$SCENES_YAML" "$SCENE_FILE" "$FIXTURES_YAML" <<'PYEOF'
 import os, random, sys
 import yaml
 
-yaml_path, scene_file = sys.argv[1], sys.argv[2]
+yaml_path, scene_file, fixtures_path = sys.argv[1], sys.argv[2], sys.argv[3]
 LEGACY = ["blue-cube", "blue-cylinder", "red-ball"]      # objetos del script original
+Z_GAZEBO = {"blue-cube": 0.745, "red-cube": 0.745, "pick-cube": 0.74}   # tapa 0.72 + semialtura
 
 def pick(v):
     return random.uniform(*v) if isinstance(v, (list, tuple)) else v
@@ -35,13 +37,17 @@ else:
     if scene is None:
         print(f"ERROR escena desconocida: {label!r}", file=sys.stderr)
         sys.exit(2)
-    known = set(LEGACY) | {o["body"] for s in scenes for o in s.get("objects", [])}
+    fixtures = (yaml.safe_load(open(fixtures_path)) or {}) if os.path.exists(fixtures_path) else {}
+    known = set(LEGACY) | {o["body"] for s in scenes for o in s.get("objects", [])} \
+            | {f["model"] for lst in fixtures.values() for f in lst}
     spawns = []
     for obj in scene.get("objects", []):
         sp = obj["spawn"]
         x, y = -pick(sp["x"]), -pick(sp["y"])                          # marco MuJoCo -> marco Gazebo
-        z = 0.745 if obj["body"].endswith("cube") else pick(sp["z"])   # cubos: tapa 0.72 + 0.025
+        z = Z_GAZEBO.get(obj["body"], pick(sp["z"]))
         spawns.append((obj["body"], round(x, 3), round(y, 3), round(z, 3)))
+    for fx in fixtures.get(label, []):                                    # piezas fijas de la escena
+        spawns.append((fx["model"], *fx["pose"]))
 
 for name in sorted(known):
     print("DELETE", name)
