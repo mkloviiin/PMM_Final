@@ -42,9 +42,9 @@ if local_teleop_path.exists():
     sys.path.insert(0, str(local_teleop_path))
 
 # Also expose icubenv packages (MuJoCo bindings, dependencies, etc.)
-_icubenv_sp = os.path.expanduser(
+_icubenv_sp = os.environ.get("ICUBENV_SITE_PACKAGES", os.path.expanduser(
     "~/miniconda3/envs/icubenv/lib/python3.12/site-packages"
-)
+))
 if _icubenv_sp not in sys.path:
     sys.path.append(_icubenv_sp)
 

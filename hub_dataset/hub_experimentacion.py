@@ -35,10 +35,19 @@ for _key in list(sys.modules.keys()):
 
 # Fallback para entornos donde el python del Hub no trae yarp/lerobot en su
 # propio site-packages (no es específico de ningún robot).
-sys.path.append(os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages"))
+sys.path.append(os.environ.get("ICUBENV_SITE_PACKAGES", os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages")))
 
 # gradio 6.18.0 usa internamente el nombre deprecado de Starlette
 warnings.filterwarnings("ignore", message=r".*HTTP_422_UNPROCESSABLE_ENTITY.*")
+
+# OpenCV antes que cualquier otra cosa: si torchvision (lo importa lerobot al lanzar MuJoCo
+# en este mismo proceso) se carga primero, trae su propia libjpeg y después `import cv2`
+# falla con "libtiff.so.6: undefined symbol: jpeg12_write_raw_data" -> sin streaming al
+# visor VR. Antes lo cubría la precarga de teleop_mujoco que se quitó en 03e65d8.
+try:
+    import cv2  # noqa: F401,E402
+except Exception as _cv2_err:  # noqa: BLE001
+    print(f"[Hub] OpenCV no disponible (sin streaming de imágenes al VR): {_cv2_err!r}")
 
 from launcher_gui.app import build_ui, WELCOME_CSS  # noqa: E402
 from launcher_gui import state  # noqa: E402

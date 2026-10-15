@@ -1,0 +1,37 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <!-- Piso del mundo: mismo material que la arena de MuJoCo (light-gray-floor-tile.png,
+       baldosas de 0.5 m). Reemplaza al Ground Plane de Fuel (que además se descargaba de
+       internet). La colisión es un plano infinito en z = 0 con el roce del Ground Plane;
+       lo visual es una malla para poder repetir la textura (un <plane> la estira entera). -->
+  <model name="floor">
+    <static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <geometry>
+          <plane><normal>0 0 1</normal><size>20 20</size></plane>
+        </geometry>
+        <surface>
+          <friction><ode><mu>100</mu><mu2>50</mu2></ode></friction>
+        </surface>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh><uri>model://floor/meshes/floor.obj</uri></mesh>
+        </geometry>
+        <material>
+          <ambient>1 1 1 1</ambient>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0.05 0.05 0.05 1</specular>
+          <pbr>
+            <metal>
+              <albedo_map>model://floor/materials/textures/light-gray-floor-tile.png</albedo_map>
+              <metalness>0.0</metalness>
+              <roughness>0.9</roughness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

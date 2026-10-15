@@ -58,7 +58,7 @@ if local_robot_path.exists():
 
 
 # Add icubenv site-packages so mujoco / robotology are importable
-icubenv_sp = os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages")
+icubenv_sp = os.environ.get("ICUBENV_SITE_PACKAGES", os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages"))
 if icubenv_sp not in sys.path:
     sys.path.append(icubenv_sp)
 

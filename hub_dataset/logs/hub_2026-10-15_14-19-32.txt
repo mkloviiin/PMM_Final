@@ -1,0 +1,48 @@
+[14:22:33] [USB] Dispositivo autorizado: 1WMHHA66KS2484
+[14:22:33] [USB] adb reverse tcp:8115 -> tcp:8115  (HEAD)
+[14:22:33] [USB] adb reverse tcp:8117 -> tcp:8117  (RIGHT_HAND)
+[14:22:33] [USB] adb reverse tcp:8119 -> tcp:8119  (BUTTONS)
+[14:22:33] [USB] adb reverse tcp:8121 -> tcp:8121  (LEFT_HAND)
+[14:22:33] [USB] adb reverse tcp:10505 -> tcp:10505  (HEAD_CAM)
+[14:22:33] [USB] adb reverse tcp:15001 -> tcp:15001  (VIEWER)
+[14:22:33] [USB] Cable listo. En BeaVR, pon la IP en 127.0.0.1.
+
+===== New session: local/icub_mujoco (2026-10-15 14:22:33) =====
+[14:22:33] [Hub] Full log: /home/icub/Desktop/mkloviiin/PMM_Final/hub_dataset/logs/hub_2026-10-15_14-19-32.txt
+[14:22:33] Session started - repo: local/icub_mujoco
+[14:22:33]   dataset: /home/icub/Desktop/mkloviiin/PMM_Final/data/local_icub_mujoco_2026-10-15_14-22-33
+[14:22:33]   conda env: icubenv  (/home/icub/miniconda3/envs/icubenv/bin/python)
+[14:22:36] yarp::dev::PolyDriver class is deprecated. Please use yarp::dev::PolyDriverOld instead.
+[14:22:36]   [Config] Loaded /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/utils/control_config.yaml
+[14:22:36]   [Warn] Keyframe 'home' not found. Using current initial state as home.
+[14:22:36]   [Stream] cv2 not available — image streaming disabled (ImportError('/home/icub/miniconda3/envs/icubenv/lib/python3.12/site-packages/cv2/python-3.12/../../../.././libtiff.so.6: undefined symbol: jpeg12_write_raw_data, version LIBJPEG_8.0'))
+[14:22:36]   [Stream] ZMQCompressedImageTransmitter not available — streaming disabled (ImportError('/home/icub/miniconda3/envs/icubenv/lib/python3.12/site-packages/cv2/python-3.12/../../../.././libtiff.so.6: undefined symbol: jpeg12_write_raw_data, version LIBJPEG_8.0'))
+[14:22:36]   [VR] Socket 'head' bound to tcp://*:8115 (quest_ip=127.0.0.1)
+[14:22:36]   [VR] Socket 'rh' bound to tcp://*:8117 (quest_ip=127.0.0.1)
+[14:22:36]   [VR] Socket 'lh' bound to tcp://*:8121 (quest_ip=127.0.0.1)
+[14:22:36]   [VR] Socket 'btn' bound to tcp://*:8119 (quest_ip=127.0.0.1)
+[14:22:36] =======================================================
+[14:22:36]   MuJoCo iCub Teleop — Initialised
+[14:22:36]   Config : /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/utils/control_config.yaml
+[14:22:36]   Model  : /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/dependencies/assets/scenes/scene_icub_lift.xml
+[14:22:36]   Arms   : both  (primary=right)
+[14:22:36]   IK     : iKinIpOptMin  recompute_steps=60  gaze_dt=0.1
+[14:22:36]   VR     : ON
+[14:22:36]   VR ZMQ : mode=connect target=127.0.0.1
+[14:22:36]   Record : OFF
+[14:22:36]   CLI    : ON
+[14:22:36] =======================================================
+[14:22:37] Loading Mujoco model from: /home/icub/Desktop/mkloviiin/PMM_Final/icub-lerobot-mj/dependencies/assets/scenes/scene_icub_lift.xml
+[14:22:37] [Teleop] Physics Sync: sim_dt=0.005, control_dt=0.02, frame_skip=4
+[14:22:37] Launching MuJoCo Viewer... (Press 1/2/3 for Right Hand, 4/5/6 for Left Hand)
+[14:22:37] Mouse: Ctrl + Right-click drag to move mocap targets
+[14:22:37] [Teleop] Reset blue-cube → (0.29, 0.02, 0.72)
+[14:22:37] [Metrics] per-frame metrics -> /home/icub/Desktop/mkloviiin/PMM_Final/hub_dataset/logs/metrics/local_icub_mujoco_2026-10-15_14-22-33.jsonl
+[14:22:37] 
+[Manual] VR controls: A=start episode, B=stop episode
+[14:22:37] [Manual] Console controls: 1=start, 2=stop, 3=exit
+[14:22:37] [Manual] dataset root: /home/icub/Desktop/mkloviiin/PMM_Final/data/local_icub_mujoco_2026-10-15_14-22-33
+[14:22:37] 
+[Manual] Waiting START for episode 0...
+[14:23:14] [Manual] No se grabó nada — carpeta eliminada: /home/icub/Desktop/mkloviiin/PMM_Final/data/local_icub_mujoco_2026-10-15_14-22-33
+[14:23:14] Session ended correctly.

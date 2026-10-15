@@ -323,6 +323,11 @@ class MuJoCoTeleop:
 
         # Hand interpolation state (gradual open/close)
         self._hand_total_steps = cfg.get("hand_steps", 150)  # ~1.5s at 10ms ctrl_dt
+        # Fracción del cierre que se aplica (1.0 = HAND_CLOSE completo). Con 0.5 la mano queda
+        # como pinza (~4.6 cm entre pulgar e índice, el cubo mide 5 cm): agarra sin que los
+        # servos empujen los dedos dentro del cubo. Igual que hand_close_ratio de Gazebo.
+        self._hand_close_ratio = float(cfg.get("hand_close_ratio", 0.5))
+        self._hand_close_goal = HAND_OPEN + self._hand_close_ratio * (HAND_CLOSE - HAND_OPEN)
         self._rh_hand_start = None
         self._rh_hand_goal  = None
         self._rh_hand_step  = 0
@@ -363,6 +368,9 @@ class MuJoCoTeleop:
             if not BEAVR_IMG_AVAILABLE:
                 print(f"  [Stream] ZMQCompressedImageTransmitter not available — streaming disabled ({_BEAVR_IMG_IMPORT_ERROR!r})")
         self._last_stream_time = 0.0
+        # Errores ya informados por _stream_images (cada uno se imprime una sola vez)
+        self._stream_errors: set[str] = set()
+        self._stream_first_ok = False
         # Estado de la grabación que se dibuja en la esquina de la pantalla grande
         # (lo fija play_mujoco: ("GRABANDO", "Episodio 3/10")). Vacío = sin recuadro.
         self.vr_status_lines: tuple[str, ...] = ()
@@ -900,7 +908,7 @@ class MuJoCoTeleop:
 
     def _set_hand(self, side, action):
         """Start a gradual min-jerk open/close for the given hand."""
-        goal = HAND_OPEN if action == "open" else HAND_CLOSE
+        goal = HAND_OPEN if action == "open" else self._hand_close_goal
         act_ids = self.rh_hand_act_ids if side == "right" else self.lh_hand_act_ids
         start = np.array([self.data.ctrl[aid] for aid in act_ids])
 
@@ -1416,8 +1424,17 @@ class MuJoCoTeleop:
                 self._viewer_pub.send_image(cv2.cvtColor(viewer_img, cv2.COLOR_RGB2BGR))
                 
                 self._last_stream_time = time.time()
-            except Exception:
-                pass
+                if not self._stream_first_ok:
+                    self._stream_first_ok = True
+                    print(f"  [Stream] primer cuadro enviado al VR (head_cam {head_img.shape[1]}x{head_img.shape[0]})", flush=True)
+            except Exception as e:
+                # Antes se ignoraba en silencio y el VR quedaba sin imagen sin dejar rastro.
+                # Se informa una vez por tipo de error para no inundar el log a ~15 fps.
+                key = f"{type(e).__name__}: {e}"[:300]
+                if key not in self._stream_errors:
+                    self._stream_errors.add(key)
+                    import traceback
+                    print(f"  [Stream] ERROR enviando imágenes al VR: {key}\n{traceback.format_exc()}", flush=True)
 
     # ========================= MAIN LOOP ===================================
 

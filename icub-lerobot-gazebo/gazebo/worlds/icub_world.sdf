@@ -27,6 +27,11 @@
         name="gz::sim::systems::Contact">
     </plugin>
 
+    <!-- Sin sombras en toda la escena (además el sol no las proyecta, ver light "sun") -->
+    <scene>
+      <shadows>false</shadows>
+    </scene>
+
     <!-- YARP CLOCK -->
     <plugin
         filename="gz-sim-yarp-clock-system"
@@ -35,7 +40,12 @@
 
     <include>
       <uri>model://table</uri>
-      <pose>-0.530772 0 0 0 0 -1.57</pose>
+      <!-- Centro en x = -0.50: borde cercano a 0.20 m del iCub, igual que en MuJoCo -->
+      <pose>-0.5 0 0 0 0 -1.57</pose>
+    </include>
+
+    <include>
+      <uri>model://room</uri>
     </include>
 
     <!-- Table top at z=0.72, igual que la mesa de MuJoCo (icub_standard_table.xml) -->
@@ -53,13 +63,25 @@
       <pose>-1.6 0 1.0 0 0.2618 0</pose>
     </include>
 
-    <include>
-      <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Sun</uri>
-      <pose>0 0 10 0 -0 3.14</pose>
-    </include>
+    <!-- Sol sin sombras. Mismos parámetros que el modelo Sun de Fuel (que antes se incluía con
+         yaw 3.14 y cast_shadows true); la dirección ya va girada 180° en z. -->
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>0.5 -0.1 -0.9</direction>
+    </light>
 
     <include>
-      <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Ground Plane</uri>
+      <!-- Piso con textura (models/floor), igual al de la arena de MuJoCo -->
+      <uri>model://floor</uri>
     </include>
 
     <state world_name='default'>
@@ -71,10 +93,11 @@
     <model name="iCub">
       <include>
         <uri>model://iCubGazeboV2_5_visuomanip_camada</uri>
-        <!-- z subido 0.63 -> 0.835 (+0.205) para acompañar la mesa (tope 0.72):
-             evita que la superficie de la mesa atraviese al iCub, lo que saturaba
-             el solver de contactos single-thread de DART y hundía el RTF a ~10%. -->
-        <pose>0.0 0.0 0.835 0.0 0.0 0.0</pose>
+        <!-- z = 0.77 (MuJoCo: 0.73). Con 0.73 la pose inicial del modelo (initialConfiguration
+             de los brazos en model.urdf) deja las puntas de los dedos ~0.4 cm bajo la cubierta
+             (tope 0.72) y el solver de contactos de DART satura (RTF ~10%). Con +4 cm el dedo
+             más bajo queda a ~3.6 cm (frame) de la cubierta. Antes estaba en 0.835. -->
+        <pose>0.0 0.0 0.77 0.0 0.0 0.0</pose>
       </include>
     </model>
 

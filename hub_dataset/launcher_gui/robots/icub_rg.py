@@ -53,6 +53,9 @@ _SCRIPTS_DIR = GAZEBO_ROOT / "gazebo" / "scripts"
 _SIM_START = _SCRIPTS_DIR / "start_sim.sh"
 _SIM_STOP = _SCRIPTS_DIR / "stop_sim.sh"
 _TMUX_SESSION = "icub_sim"
+# Escena elegida: el dashboard la escribe aqui y reset_objects.sh la lee (tambien el reset del VR).
+_RESET_SCRIPT = _SCRIPTS_DIR / "reset_objects.sh"
+_SCENE_FILE = Path(os.environ.get("ICUB_SCENE_FILE", "/tmp/icub_lerobot_scene"))
 
 # ── Modo real/Gazebo ─────────────────────────────────────────────────────────
 MODE_GAZEBO = "Gazebo (Simulation)"
@@ -61,8 +64,10 @@ MODE_REAL = "Real Robot"
 
 # Name server YARP del robot real. En Gazebo no hace falta: el `yarpserver --write`
 # de start_sim.sh ya deja `yarp conf` apuntando al servidor local.
-REAL_YARP_IP = "10.0.0.1"
-REAL_YARP_PORT = 10000
+# Se pueden cambiar sin tocar el código con ICUB_YARP_IP / ICUB_YARP_PORT
+# (p. ej. desde docker-compose.yml).
+REAL_YARP_IP = os.environ.get("ICUB_YARP_IP", "10.0.0.1")
+REAL_YARP_PORT = int(os.environ.get("ICUB_YARP_PORT", "10000"))
 
 
 def _robot_name(mode: str) -> str:
@@ -381,6 +386,22 @@ def build_config_form() -> dict[str, gr.components.Component]:
     )
 
 
+def _prepare_gazebo_scene(scene_name: str) -> None:
+    """Deja la escena elegida en _SCENE_FILE y respawnea sus objetos en Gazebo.
+
+    reset_objects.sh lee ese archivo; el reset del VR (modulo YARP) usa el mismo script,
+    asi que el reset siempre queda alineado con la escena elegida aqui.
+    """
+    try:
+        _SCENE_FILE.write_text(scene_name)
+        env = dict(os.environ, ICUB_SCENE_FILE=str(_SCENE_FILE))
+        out = subprocess.run(["bash", str(_RESET_SCRIPT)], env=env,
+                             capture_output=True, text=True, timeout=30)
+        print(f"[icub_rg] scene '{scene_name}':\n{out.stdout.strip()} {out.stderr.strip()}".rstrip())
+    except Exception as exc:  # noqa: BLE001 - no debe tumbar el lanzamiento de la sesion
+        print(f"[icub_rg] could not prepare Gazebo scene '{scene_name}': {exc}")
+
+
 # ── Lanzamiento de la parte "play" (la sesión de grabación) ──────────────────
 def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
            vr, vr_ip, vr_cable, control_arms, root_dir) -> str:
@@ -404,6 +425,8 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
     rid = (repo_id.strip() or "local/icub_gazebo_demo")
     rid = rid if "/" in rid else f"local/{rid}"
     robot_name = _robot_name(mode)
+    if mode == MODE_GAZEBO:
+        _prepare_gazebo_scene(scene_name)
 
     resolved_vr_ip = vr_ip.strip() if vr_ip else None
     resolved_vr = bool(vr)
