@@ -1,0 +1,18 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <!-- hole-board de Peg-In-Hole (scene_icub_peginhole.xml): placa de 2 cm con un hueco cuadrado de 10x10 cm.
+       Fija. Geometria ya espejada al marco de Gazebo (giro de 180 grados en z); se coloca en (-0.39, -0.15, 0.73). -->
+  <model name="hole-board">
+    <static>true</static>
+    <link name="link">
+      <collision name="p0_c"><pose>0 0 0 0 0 0</pose><geometry><box><size>0.12 0.34 0.02</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision>
+      <visual name="p0_v"><pose>0 0 0 0 0 0</pose><geometry><box><size>0.12 0.34 0.02</size></box></geometry><material><ambient>0.55 0.2 0.15 1</ambient><diffuse>0.55 0.2 0.15 1</diffuse></material></visual>
+      <collision name="p1_c"><pose>-0.22 0 0 0 0 0</pose><geometry><box><size>0.12 0.34 0.02</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision>
+      <visual name="p1_v"><pose>-0.22 0 0 0 0 0</pose><geometry><box><size>0.12 0.34 0.02</size></box></geometry><material><ambient>0.55 0.2 0.15 1</ambient><diffuse>0.55 0.2 0.15 1</diffuse></material></visual>
+      <collision name="p2_c"><pose>-0.11 -0.11 0 0 0 0</pose><geometry><box><size>0.1 0.12 0.02</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision>
+      <visual name="p2_v"><pose>-0.11 -0.11 0 0 0 0</pose><geometry><box><size>0.1 0.12 0.02</size></box></geometry><material><ambient>0.55 0.2 0.15 1</ambient><diffuse>0.55 0.2 0.15 1</diffuse></material></visual>
+      <collision name="p3_c"><pose>-0.11 0.11 0 0 0 0</pose><geometry><box><size>0.1 0.12 0.02</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision>
+      <visual name="p3_v"><pose>-0.11 0.11 0 0 0 0</pose><geometry><box><size>0.1 0.12 0.02</size></box></geometry><material><ambient>0.55 0.2 0.15 1</ambient><diffuse>0.55 0.2 0.15 1</diffuse></material></visual>
+    </link>
+  </model>
+</sdf>

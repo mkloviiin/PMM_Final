@@ -1,0 +1,28 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <!-- peg de Peg-In-Hole (scene_icub_peginhole.xml): cilindro de 4 cm de diametro y 13 cm, 0.12 kg, acostado
+       a lo largo del eje x (la orientacion va en el modelo porque reset_objects.sh solo coloca posiciones).
+       mu=5 como los cubos: DART toma el minimo con las yemas del iCub. Se spawnea en (-0.4, 0.12, 0.74). -->
+  <model name="peg">
+    <link name="link">
+      <inertial>
+        <mass>0.12</mass>
+        <inertia>
+          <ixx>0.00005</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.0002</iyy><iyz>0</iyz>
+          <izz>0.0002</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <pose>0 0 0 0 1.5708 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.13</length></cylinder></geometry>
+        <surface><friction><ode><mu>5.0</mu><mu2>5.0</mu2></ode></friction></surface>
+      </collision>
+      <visual name="visual">
+        <pose>0 0 0 0 1.5708 0</pose>
+        <geometry><cylinder><radius>0.02</radius><length>0.13</length></cylinder></geometry>
+        <material><ambient>0.6 0.6 0.15 1</ambient><diffuse>0.6 0.6 0.15 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>

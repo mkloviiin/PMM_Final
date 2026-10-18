@@ -1,0 +1,16 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <!-- peg-cradle de Peg-In-Hole: dos rieles de 14x1x3 cm que forman el slot donde descansa la clavija.
+       Fijo. Se coloca en (-0.4, 0.12, 0.735). En MuJoCo el slot mide exactamente 4.00 cm (= diametro de la
+       clavija); aqui se dejan 1 mm de holgura total para evitar que el contacto sin holgura
+       haga vibrar la clavija en Gazebo. -->
+  <model name="peg-cradle">
+    <static>true</static>
+    <link name="link">
+      <collision name="rail_a_c"><pose>0 0.0255 0 0 0 0</pose><geometry><box><size>0.14 0.01 0.03</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision>
+      <visual name="rail_a_v"><pose>0 0.0255 0 0 0 0</pose><geometry><box><size>0.14 0.01 0.03</size></box></geometry><material><ambient>0.55 0.55 0.55 1</ambient><diffuse>0.55 0.55 0.55 1</diffuse></material></visual>
+      <collision name="rail_b_c"><pose>0 -0.0255 0 0 0 0</pose><geometry><box><size>0.14 0.01 0.03</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision>
+      <visual name="rail_b_v"><pose>0 -0.0255 0 0 0 0</pose><geometry><box><size>0.14 0.01 0.03</size></box></geometry><material><ambient>0.55 0.55 0.55 1</ambient><diffuse>0.55 0.55 0.55 1</diffuse></material></visual>
+    </link>
+  </model>
+</sdf>

@@ -4,3 +4,8 @@
 "Pick-and-Place":
   - model: place-bin
     pose: [-0.4, -0.12, 0.72]      # MuJoCo: place-bin en (0.4, 0.12, 0.72)
+"Two-Arm Peg-In-Hole":
+  - model: hole-board
+    pose: [-0.39, -0.15, 0.73]     # MuJoCo: hole-board en (0.39, 0.15, 0.73)
+  - model: peg-cradle
+    pose: [-0.4, 0.12, 0.735]      # MuJoCo: rieles en (0.4, -0.145 y -0.095, 0.735); centro del slot en y=-0.12
