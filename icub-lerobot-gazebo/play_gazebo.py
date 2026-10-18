@@ -82,6 +82,30 @@ def _make_metrics(**kwargs):
     return FrameMetrics.create(**kwargs)
 
 
+def _discard_episode(dataset) -> None:
+    """Descarta el episodio en curso (B mantenido en el VR) para volver a grabarlo.
+
+    clear_episode_buffer() de lerobot solo borra los PNG temporales de las cámaras de tipo
+    'image', pero las de tipo 'video' también se escriben como PNG en images/<cam>/episode-N
+    antes de codificar. Si no se borran, al regrabar el mismo episodio los frames nuevos
+    sobrescriben los primeros y los sobrantes del intento descartado quedan al final del video
+    (p. ej. datos de 15 s con un video de 48 s). Aquí se borran también esos.
+    """
+    import shutil
+
+    if not hasattr(dataset, "clear_episode_buffer"):
+        dataset.clear_episode()  # versiones viejas de lerobot
+        return
+    ep = (getattr(dataset, "episode_buffer", None) or {}).get("episode_index", dataset.num_episodes)
+    if hasattr(ep, "size"):  # np.ndarray
+        ep = ep.item() if ep.size == 1 else ep[0]
+    dataset.clear_episode_buffer()  # espera al image writer y borra las cámaras 'image'
+    for key in getattr(dataset.meta, "video_keys", []):
+        img_dir = dataset._get_image_file_dir(int(ep), key)
+        if img_dir.is_dir():
+            shutil.rmtree(img_dir)
+
+
 def parse_args() -> argparse.Namespace:
     default_cfg = repo_root / "config" / "control_config.yaml"
 
@@ -428,10 +452,7 @@ def _manual_vr_record(
                 if discard_ev:
                     print("[Manual] Episode DISCARDED (B held) — re-recording...")
                     fm.end_episode(dataset.num_episodes, saved=False, reason="discarded")
-                    if hasattr(dataset, "clear_episode_buffer"):
-                        dataset.clear_episode_buffer()
-                    else:
-                        dataset.clear_episode()
+                    _discard_episode(dataset)
                     break
 
                 if stop_ev or stop_cmd:

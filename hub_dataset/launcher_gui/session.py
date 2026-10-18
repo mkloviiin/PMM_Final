@@ -22,7 +22,7 @@ from typing import Callable
 import gradio as gr
 
 
-from . import state
+from . import session_log, state
 
 
 # Log completo en disco, uno por ejecución del Hub: la UI solo muestra las últimas
@@ -79,20 +79,28 @@ def _cmd_source() -> str | None:
         return None
 
 
+def _set_status(new: str) -> None:
+    if new == "recording" and state.status != "recording":
+        session_log.on_recording_start()  # empieza un episodio: nuevas muestras de métricas
+    state.status = new
+
+
 def _on_status(event: str | dict) -> None:
     if isinstance(event, dict):
         if "status" in event:
-            state.status = event["status"]
+            _set_status(event["status"])
         if "metrics" in event:
             state.live_metrics.update(event["metrics"])
+            session_log.on_metrics(event["metrics"], recording=state.status == "recording")
     else:
         if event == "waiting":
-            state.status = "waiting"
+            _set_status("waiting")
         elif event == "recording":
-            state.status = "recording"
+            _set_status("recording")
         elif event.startswith("saved:"):
             state.ep_current = int(event.split(":")[1])
-            state.status = "waiting"
+            session_log.on_saved(state.ep_current, state.live_metrics.get("size_mb", 0.0))
+            _set_status("waiting")
 
 
 def cmd_close_window() -> str:
@@ -136,6 +144,7 @@ def start_session(record_fn: Callable[..., None], *, repo_id: str,
     state.ep_total = num_episodes
     state.ep_current = 0
     state.running = True
+    session_log.begin(dataset_root)  # métricas por episodio + bitácora de esta sesión
 
     def _thread_body() -> None:
         orig = sys.stdout
@@ -183,7 +192,76 @@ def cmd_exit() -> str:
     return "No active session."
 
 
+_ui_log_version = -1  # versión de session_log ya enviada a la UI (gráfico y notas)
+
+
+def _episode_metrics_figure():
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    rows = session_log.rows()
+    fig = make_subplots(rows=2, cols=2, subplot_titles=(
+        "FPS (mean ± std)", "Latency [ms] (mean ± std)", "Episode duration [s]", "Dataset size [MB]"))
+    ep = [r["episode"] for r in rows]
+    fig.add_trace(go.Scatter(x=ep, y=[r["fps_mean"] for r in rows], mode="lines+markers", name="FPS",
+                             error_y=dict(type="data", array=[r["fps_std"] for r in rows])), 1, 1)
+    fig.add_trace(go.Scatter(x=ep, y=[r["latency_ms_mean"] for r in rows], mode="lines+markers", name="Latency",
+                             error_y=dict(type="data", array=[r["latency_ms_std"] for r in rows])), 1, 2)
+    fig.add_trace(go.Bar(x=ep, y=[r["duration_s"] for r in rows], name="Duration"), 2, 1)
+    fig.add_trace(go.Scatter(x=ep, y=[r["dataset_size_mb"] for r in rows], mode="lines+markers", name="Size"), 2, 2)
+    fig.update_xaxes(tickformat="d", rangemode="tozero")  # episodios: solo enteros
+    fig.update_xaxes(title_text="Episode", row=2, col=1)
+    fig.update_xaxes(title_text="Episode", row=2, col=2)
+    fig.update_layout(height=520, showlegend=False, template="plotly_dark",
+                      margin=dict(l=40, r=20, t=50, b=40),
+                      title=("Per-episode metrics" if rows else "Per-episode metrics — no saved episodes yet"))
+    return fig
+
+
+def _notes_markdown() -> str:
+    notes = session_log.notes()
+    if not notes:
+        return "*No notes yet.*"
+    lines = ["| Time | Episode | Phase | Note |", "|---|---|---|---|"]
+    for n in reversed(notes):
+        note = n["note"].replace("|", "\\|").replace("\n", "<br>")
+        lines.append(f"| {n['time'][11:]} | {n['episode']} | {n['phase']} | {note} |")
+    folder = session_log.folder()
+    if folder is not None:
+        lines.append(f"\nSaved in `{folder}`")
+    return "\n".join(lines)
+
+
+def episode_panels():
+    """Gráfico por episodio + notas, completos (al abrir la pestaña Episode Control: las
+    actualizaciones del poller no llegan a componentes que aún no están dibujados)."""
+    return _episode_metrics_figure(), _notes_markdown()
+
+
+def add_note(text: str):
+    """Botón 'Add note' de la bitácora: asocia la nota al episodio en curso / siguiente."""
+    if not (text or "").strip():
+        return gr.update(), gr.update()
+    if not session_log.has_session():
+        gr.Warning("Launch a session first: the logbook is saved in the dataset folder.")
+        return gr.update(), gr.update()
+    if state.status == "recording":
+        episode, phase = state.ep_current, "recording"
+    elif state.running:
+        episode, phase = state.ep_current, "before start"
+    else:
+        episode, phase = max(state.ep_current - 1, 0), "after session"
+    session_log.add_note(text, episode, phase)
+    return "", _notes_markdown()
+
+
 def poll_status():
+    global _ui_log_version
+    if session_log.version != _ui_log_version:
+        _ui_log_version = session_log.version
+        plot_upd, notes_upd = _episode_metrics_figure(), _notes_markdown()
+    else:
+        plot_upd, notes_upd = gr.update(), gr.update()
     label = "" if state.status == "idle" else state.STATUS_LABEL.get(state.status, state.status)
     pct = state.ep_current / max(state.ep_total, 1)
     progress = f"Episode: {state.ep_current} / {state.ep_total}  ({int(pct * 100)}%)"
@@ -194,5 +272,6 @@ def poll_status():
     return (
         label, progress, state.ep_current, log_text,
         state.live_metrics["fps"], state.live_metrics["latency_ms"], state.live_metrics["size_mb"],
-        gr.update(interactive=not state.running)
+        gr.update(interactive=not state.running),
+        plot_upd, notes_upd,
     )

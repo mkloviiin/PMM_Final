@@ -16,10 +16,11 @@ import gradio as gr
 
 from . import curation, hub_push, session
 from .robots.registry import REGISTRY
-from .ui.tab_config import build_config_tab
+from .ui.tab_config import CONFIG_TAB_ID, ROBOT_HIDDEN, ROBOT_SHOWN, build_config_tab
 from .ui.tab_curation import build_curation_tab
 from .ui.tab_episodes import build_episodes_tab
 from .ui.welcome import build_welcome_screen
+from .ui.input_filters import INPUT_FILTER_JS
 from .video_sync import PLAYER_CSS, SYNC_JS
 
 WELCOME_CSS = """
@@ -70,6 +71,101 @@ WELCOME_CSS = """
     min-height: 42px !important;
     box-sizing: border-box !important;
 }
+/* Campos con botón de carpeta (ui/dir_picker.py): el botón va en `buttons=` del Textbox
+   (barra superior); aquí se baja dentro del cuadro de texto, como la flecha de un Dropdown. */
+.dir-tb textarea {
+    padding-right: 48px !important;
+}
+.dir-tb .icon-button-wrapper {
+    position: absolute !important;
+    top: auto !important;
+    bottom: 11px !important;
+    right: 22px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    z-index: 5 !important;
+}
+.dir-tb .custom-button {
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23f97316' d='M10 4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'/%3E%3C/svg%3E") center / 22px 22px no-repeat !important;
+}
+.dir-tb .custom-button:hover {
+    background-color: rgba(127, 127, 127, 0.18) !important;
+}
+/* Configuration: con "Enable VR" marcado (aparecen cable + IP) las dos columnas quedan de la
+   misma altura; sin VR cada columna mide lo suyo (equal_height fijo estiraba el panel derecho). */
+.cfg-row:has(.vr-cb input:checked) {
+    align-items: stretch !important;
+}
+/* Métricas en vivo (solo lectura): sin las flechitas del campo numérico (se veían como un cuadro gris) */
+.metric-nb input[type=number]::-webkit-inner-spin-button,
+.metric-nb input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none !important;
+    margin: 0 !important;
+}
+.metric-nb input[type=number] {
+    -moz-appearance: textfield !important;
+    appearance: textfield !important;
+}
+.metric-nb button {
+    display: none !important;
+}
+/* Pop-up de confirmación (borrar dataset): centrado sobre la pantalla; el box-shadow gigante
+   hace de fondo oscurecido. */
+.pmm-modal {
+    position: fixed !important;
+    inset: 0 !important;
+    margin: auto !important;
+    width: min(520px, 90vw) !important;
+    height: fit-content !important;
+    max-height: 90vh !important;
+    padding: 24px 28px 20px !important;
+    gap: 14px !important;
+    z-index: 1000 !important;
+    border-radius: 14px !important;
+    background: var(--block-background-fill) !important;
+    border: 1px solid var(--border-color-primary) !important;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 100vmax rgba(0, 0, 0, 0.55) !important;
+}
+.pmm-modal h3 {
+    margin-top: 0 !important;
+}
+.pmm-modal code {
+    font-size: 0.95rem !important;
+    word-break: break-all !important;
+}
+/* Botones de acción con color fijo (independiente del tema): verde = cargar/grabar, rojo = borrar/detener */
+button.btn-green, .btn-green button {
+    background: #2f9e44 !important;
+    border-color: #2f9e44 !important;
+    color: #fff !important;
+}
+button.btn-green:hover, .btn-green button:hover {
+    background: #2b8a3e !important;
+    border-color: #2b8a3e !important;
+}
+button.btn-red, .btn-red button {
+    background: #e03131 !important;
+    border-color: #e03131 !important;
+    color: #fff !important;
+}
+button.btn-red:hover, .btn-red button:hover {
+    background: #c92a2a !important;
+    border-color: #c92a2a !important;
+}
+/* Configuration: formulario del robot no elegido (ver ui/tab_config.py) */
+.robot-hidden {
+    display: none !important;
+}
 /* Task instruction row: align items and fix button height to match textbox */
 .task-row {
     align-items: center !important;
@@ -95,6 +191,8 @@ def build_ui() -> gr.Blocks:
         # Sincroniza los videos de "Visualize & Curate" y dibuja el cursor de
         # tiempo sobre los graficos (ver video_sync.py).
         demo.load(fn=None, js=SYNC_JS)
+        # Campos numéricos: solo dígitos (IP del VR: dígitos y puntos)
+        demo.load(fn=None, js=INPUT_FILTER_JS)
 
 
 
@@ -102,7 +200,7 @@ def build_ui() -> gr.Blocks:
             back_btn = gr.Button("⬅ Back to robot selection", size="sm")
             gr.Markdown("# iCub  —  Experimentation Hub")
 
-            with gr.Tabs():
+            with gr.Tabs() as main_tabs:
                 config_columns, config_forms = build_config_tab()
 
                 available_robots = [r for r in REGISTRY if r.available and r.build_config_form]
@@ -117,12 +215,19 @@ def build_ui() -> gr.Blocks:
         for robot in REGISTRY:
             btn = welcome_buttons[robot.id]
             if robot.id in config_columns:
+                # La columna del robot se muestra/oculta con la clase .robot-hidden, no con
+                # visible= (ver ui/tab_config.py: con visible Gradio dejaba Configuration en blanco).
+                # Al elegir robot se abre siempre la pestaña Configuration (aunque antes se haya
+                # salido desde Visualize & Curate o Episode Control).
                 def _select_robot(robot_id=robot.id):
                     return [
                         gr.update(visible=False), gr.update(visible=True),
-                        *(gr.update(visible=(rid == robot_id)) for rid in config_columns),
+                        gr.update(selected=CONFIG_TAB_ID),
+                        *(gr.update(elem_classes=ROBOT_SHOWN if rid == robot_id else ROBOT_HIDDEN)
+                          for rid in config_columns),
                     ]
-                btn.click(fn=_select_robot, outputs=[welcome_col, main_col, *config_columns.values()])
+                btn.click(fn=_select_robot,
+                          outputs=[welcome_col, main_col, main_tabs, *config_columns.values()])
             else:
                 label = robot.label
                 btn.click(fn=lambda label=label: gr.Warning(f"{label} — not yet available."))
@@ -137,13 +242,17 @@ def build_ui() -> gr.Blocks:
         episodes["start_btn"].click(fn=session.cmd_start, outputs=[episodes["cmd_feedback"]])
         episodes["stop_btn"].click(fn=session.cmd_stop, outputs=[episodes["cmd_feedback"]])
         episodes["exit_btn"].click(fn=session.cmd_exit, outputs=[episodes["cmd_feedback"]])
+        episodes["tab"].select(fn=session.episode_panels,
+                               outputs=[episodes["episode_metrics_plot"], episodes["notes_md"]])
+        episodes["add_note_btn"].click(fn=session.add_note, inputs=[episodes["note_tb"]],
+                                       outputs=[episodes["note_tb"], episodes["notes_md"]])
 
         gr.Timer(0.5).tick(
             fn=session.poll_status,
             outputs=[episodes["status_lbl"], episodes["progress_lbl"],
                      episodes["progress_bar"], episodes["log_box"],
                      episodes["fps_nb"], episodes["lat_nb"], episodes["size_nb"],
-                     back_btn],
+                     back_btn, episodes["episode_metrics_plot"], episodes["notes_md"]],
         )
 
         # ── Visualizar y curar (generico, no depende del robot) ──────────
@@ -158,9 +267,23 @@ def build_ui() -> gr.Blocks:
                             c["push_status"], c["push_link_html"],
                             c["hf_repo_id_tb"]]
 
-        c["refresh_btn"].click(fn=curation.refresh_datasets, inputs=[c["viz_root_tb"]],
+        # Lista de datasets: automática al abrir la pestaña (y cada vez que se vuelve a ella),
+        # conservando la selección; el botón hace lo mismo a pedido.
+        c["tab"].select(fn=curation.refresh_datasets, inputs=[c["viz_root_tb"], c["dataset_dd"]],
+                        outputs=[c["dataset_dd"], c["viz_status"]])
+        c["refresh_btn"].click(fn=curation.refresh_datasets, inputs=[c["viz_root_tb"], c["dataset_dd"]],
                                 outputs=[c["dataset_dd"], c["viz_status"]])
+        # Borrar dataset: confirmación -> papelera
+        c["delete_ds_btn"].click(fn=curation.ask_delete_dataset, inputs=[c["dataset_dd"]],
+                                 outputs=[c["delete_confirm_grp"], c["delete_confirm_md"]])
+        c["delete_cancel_btn"].click(fn=lambda: gr.update(visible=False), outputs=[c["delete_confirm_grp"]])
+        c["delete_yes_btn"].click(fn=curation.delete_dataset, inputs=[c["dataset_dd"], c["viz_root_tb"]],
+                                  outputs=[c["delete_confirm_grp"], c["dataset_dd"], c["viz_status"],
+                                           c["dataset_col"]])
         c["last_btn"].click(fn=curation.use_last_dataset, inputs=[c["viz_root_tb"]], outputs=[c["dataset_dd"]])
+        # Al elegir carpeta con el botón, refrescar la lista de datasets
+        c["browse_dir_ev"].then(fn=curation.refresh_datasets, inputs=[c["viz_root_tb"]],
+                                outputs=[c["dataset_dd"], c["viz_status"]])
         c["load_ds_btn"].click(
             fn=curation.load_viz_dataset, inputs=[c["dataset_dd"]],
             outputs=[c["dataset_col"], c["viz_status"]] + nav_outputs + curation_outputs,

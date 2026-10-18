@@ -54,6 +54,46 @@ def _make_metrics(**kwargs):
     return FrameMetrics.create(**kwargs)
 
 
+def _discard_episode(dataset) -> None:
+    """Descarta el episodio en curso (B mantenido en el VR) para volver a grabarlo.
+
+    clear_episode_buffer() de lerobot solo borra los PNG temporales de las cámaras de tipo
+    'image', pero las de tipo 'video' también se escriben como PNG en images/<cam>/episode-N
+    antes de codificar. Si no se borran, al regrabar el mismo episodio los frames nuevos
+    sobrescriben los primeros y los sobrantes del intento descartado quedan al final del video
+    (p. ej. datos de 15 s con un video de 48 s). Aquí se borran también esos.
+    """
+    import shutil
+
+    if not hasattr(dataset, "clear_episode_buffer"):
+        dataset.clear_episode()  # versiones viejas de lerobot
+        return
+    ep = (getattr(dataset, "episode_buffer", None) or {}).get("episode_index", dataset.num_episodes)
+    if hasattr(ep, "size"):  # np.ndarray
+        ep = ep.item() if ep.size == 1 else ep[0]
+    dataset.clear_episode_buffer()  # espera al image writer y borra las cámaras 'image'
+    for key in getattr(dataset.meta, "video_keys", []):
+        img_dir = dataset._get_image_file_dir(int(ep), key)
+        if img_dir.is_dir():
+            shutil.rmtree(img_dir)
+
+
+def _apply_control_arms(robot_cfg, teleop_cfg, arms, cfg_path) -> None:
+    """Brazos elegidos en el Hub / --control-arms: sobrescriben control_arms del YAML (que los
+    configs leen en __post_init__) y recalculan los actuadores de cada config."""
+    if arms not in ("right", "left", "both"):
+        return
+    from lerobot_robot_icub import config_icub_mujoco as rc
+    from lerobot_teleoperator_icubteleop import config_icubteleop as tc
+
+    ycfg = dict(rc.load_control_config(str(cfg_path)) or {})
+    ycfg["control_arms"] = arms
+    robot_cfg.control_arms = teleop_cfg.control_arms = arms
+    robot_cfg.actuators_to_use = rc._get_actuators_logic(ycfg)
+    teleop_cfg.actuators_to_use = tc._get_actuators_logic(ycfg)
+    print(f"[play_mujoco] control arms -> {arms}")
+
+
 def parse_args() -> argparse.Namespace:
     repo_root = Path(__file__).resolve().parent
     default_cfg = repo_root / "utils" / "control_config.yaml"
@@ -71,6 +111,10 @@ def parse_args() -> argparse.Namespace:
         "--root",
         default=str(repo_root.parent / "data"),
         help="Dataset root directory",
+    )
+    parser.add_argument(
+        "--control-arms", choices=["right", "left", "both"], default=None,
+        help="Arms to control (default: control_arms in control_config.yaml)",
     )
     parser.add_argument("--fps", type=int, default=30, help="Dataset FPS")
     parser.add_argument(
@@ -192,6 +236,7 @@ def _manual_vr_record(
     )
     teleop_cfg.vr_enabled = False
     teleop_cfg.vr_ip = None
+    _apply_control_arms(robot_cfg, teleop_cfg, getattr(args, "control_arms", None), cfg_path)
 
     robot = make_robot_from_config(robot_cfg)
     teleop = make_teleoperator_from_config(teleop_cfg)
@@ -404,10 +449,7 @@ def _manual_vr_record(
                 if discard_ev:
                     print("[Manual] Episodio DESCARTADO (B mantenido) — re-grabando...")
                     fm.end_episode(dataset.num_episodes, saved=False, reason="discarded")
-                    if hasattr(dataset, "clear_episode_buffer"):
-                        dataset.clear_episode_buffer()
-                    else:
-                        dataset.clear_episode() # Por si en versiones viejas se llamaba así
+                    _discard_episode(dataset)
                     break
 
                 if stop_ev or stop_cmd:
