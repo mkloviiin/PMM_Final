@@ -9,3 +9,6 @@
     pose: [-0.39, -0.15, 0.73]     # MuJoCo: hole-board en (0.39, 0.15, 0.73)
   - model: peg-cradle
     pose: [-0.4, 0.12, 0.735]      # MuJoCo: rieles en (0.4, -0.145 y -0.095, 0.735); centro del slot en y=-0.12
+"Door Opening":
+  - model: door
+    pose: [-0.42, -0.15, 0.885]    # MuJoCo: door_mount en (0.42, 0.15, 0.885). Re-crearla deja las bisagras en 0
