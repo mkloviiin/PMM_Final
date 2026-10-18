@@ -20,6 +20,7 @@ import yaml
 
 from .. import session
 from ..paths import ASSETS_DIR, HUB_ROOT, MJ_ROOT
+from ..ui.dir_picker import dir_textbox
 from .base import RobotBackend
 
 # Raíz del proyecto MuJoCo. Este backend corre in-process, así que necesita el
@@ -76,7 +77,8 @@ SCENES = _load_scenes()
 
 
 def build_config_form() -> dict[str, gr.components.Component]:
-    with gr.Row():
+    # .cfg-row (app.py): con "Enable VR" marcado, las dos columnas quedan de la misma altura
+    with gr.Row(elem_classes=["cfg-row"]):
         with gr.Column(scale=1):
             scene_dd = gr.Dropdown(
                 choices=list(SCENES), value=list(SCENES)[0],
@@ -101,11 +103,16 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 value=0, label="Max episode duration (s)", placeholder="No limit",
                 precision=0, minimum=0, info="0 = no time limit"
             )
-            root_tb = gr.Textbox(
-                value=str(HUB_ROOT.parent / "data"),
-                label="Dataset root directory",
+            root_tb, _ = dir_textbox(
+                "Dataset root directory", str(HUB_ROOT.parent / "data"),
+                title="Select the dataset root directory",
             )
-            vr_cb = gr.Checkbox(value=False, label="Enable VR")
+            arms_dd = gr.Dropdown(
+                choices=["both", "right", "left"], value=_yaml_arms(),
+                label="Control arms",
+                info="Arms driven by the teleoperation (and recorded in the dataset)",
+            )
+            vr_cb = gr.Checkbox(value=False, label="Enable VR", elem_classes=["vr-cb"])
             vr_cable_cb = gr.Checkbox(
                 value=False, visible=False,
                 label="Connect MetaQuest via USB cable",
@@ -114,11 +121,16 @@ def build_config_form() -> dict[str, gr.components.Component]:
             vr_ip_tb = gr.Textbox(
                 value="", placeholder="192.168.x.x", visible=False,
                 label="VR headset IP",
+                elem_classes=["ip-input"],
             )
 
     gr.Markdown("---")
     launch_btn = gr.Button("LAUNCH SESSION", variant="primary", size="lg")
+    with gr.Row():
+        play_stop_btn = gr.Button("■ Stop teleop / recording", size="sm")
     launch_status = gr.Textbox(label="Launch status", interactive=False)
+    # Igual que en icub_rg: cierra la sesión activa (comando "3" de la cola de session)
+    play_stop_btn.click(fn=session.cmd_exit, inputs=[], outputs=[launch_status])
 
     def _on_vr_toggle(enabled):
         if enabled:
@@ -141,12 +153,22 @@ def build_config_form() -> dict[str, gr.components.Component]:
 
     return dict(
         scene=scene_dd, repo_id=repo_id_tb, num_eps=num_eps_nb, fps=fps_nb,
-        ep_time=ep_time_sl, root=root_tb, vr=vr_cb, vr_cable=vr_cable_cb,
+        ep_time=ep_time_sl, root=root_tb, vr=vr_cb, vr_cable=vr_cable_cb, control_arms=arms_dd,
         vr_ip=vr_ip_tb, launch_btn=launch_btn, launch_status=launch_status,
     )
 
 
-def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, root_dir) -> str:
+def _yaml_arms() -> str:
+    """control_arms de utils/control_config.yaml de MuJoCo (valor inicial del selector)."""
+    try:
+        cfg = yaml.safe_load((MJ_ROOT / "utils" / "control_config.yaml").read_text(encoding="utf-8")) or {}
+        arms = cfg.get("control_arms", "both")
+        return arms if arms in ("both", "right", "left") else "both"
+    except Exception:  # noqa: BLE001
+        return "both"
+
+
+def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, control_arms, root_dir) -> str:
     if session.state.running:
         return "A session is already running."
 
@@ -193,6 +215,7 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, root
         push_to_hub=False,
         scene_objects=scene_objects,
         scene_joints=scene_joints,
+        control_arms=control_arms or None,
     )
 
     run_suffix = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -226,6 +249,6 @@ BACKEND = RobotBackend(
     launch=launch,
     config_input_order=[
         "scene", "repo_id", "num_eps", "fps", "ep_time",
-        "vr", "vr_ip", "vr_cable", "root",
+        "vr", "vr_ip", "vr_cable", "control_arms", "root",
     ],
 )

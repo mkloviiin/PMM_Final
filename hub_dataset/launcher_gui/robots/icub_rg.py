@@ -38,6 +38,7 @@ import yaml
 
 from .. import procman, session
 from ..paths import ASSETS_DIR, GAZEBO_ROOT, HUB_ROOT
+from ..ui.dir_picker import dir_textbox
 from .base import RobotBackend
 
 # ── Rutas del proyecto gazebo ────────────────────────────────────────────────
@@ -68,6 +69,39 @@ MODE_REAL = "Real Robot"
 # (p. ej. desde docker-compose.yml).
 REAL_YARP_IP = os.environ.get("ICUB_YARP_IP", "10.0.0.1")
 REAL_YARP_PORT = int(os.environ.get("ICUB_YARP_PORT", "10000"))
+
+
+# Brazos con los que se inició el módulo YARP (None = no iniciado desde el Hub).
+_module_arms: str | None = None
+
+_QUERY_ARMS_PY = (
+    "import sys, yarp\n"
+    "yarp.Network.init()\n"
+    "r = sys.argv[1]\n"
+    "ok = lambda a: yarp.Network.queryName(f'/{r}/cartesianController/{a}/rpc:i').isValid()\n"
+    "print('ARMS=' + ('R' if ok('right_arm') else '') + ('L' if ok('left_arm') else ''))\n"
+)
+
+
+def _detect_arms(robot_name: str) -> str | None:
+    """'auto': brazos cuyo cartesianController está registrado en YARP. Solo consulta el name
+    server (no contacta el puerto, ver _wait_for_port), en un subproceso con timeout para no
+    inicializar YARP en el proceso del Hub."""
+    try:
+        res = subprocess.run([sys.executable, "-c", _QUERY_ARMS_PY, robot_name],
+                             capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        return None
+    # YARP imprime sus propios mensajes en stdout: se lee solo la línea marcada.
+    found = next((ln[5:].strip() for ln in res.stdout.splitlines() if ln.startswith("ARMS=")), "")
+    return {"RL": "both", "R": "right", "L": "left"}.get(found)
+
+
+def _yaml_arms() -> str:
+    try:
+        return (yaml.safe_load(_CFG_PATH.read_text(encoding="utf-8")) or {}).get("control_arms", "both")
+    except Exception:  # noqa: BLE001
+        return "both"
 
 
 def _robot_name(mode: str) -> str:
@@ -237,7 +271,8 @@ def _bridge_play(argv, *, cmd_source, on_status, dataset_root: Path | None = Non
 def build_config_form() -> dict[str, gr.components.Component]:
     scene_choices = list(SCENES) or ["(no tasks)"]
 
-    with gr.Row():
+    # .cfg-row (app.py): con "Enable VR" marcado, las dos columnas quedan de la misma altura
+    with gr.Row(elem_classes=["cfg-row"]):
         with gr.Column(scale=1):
             mode_dd = gr.Radio(
                 choices=[MODE_GAZEBO, MODE_REAL], value=MODE_GAZEBO,
@@ -268,16 +303,16 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 value=0, label="Max episode duration (s)",
                 precision=0, minimum=0, info="0 = no time limit",
             )
-            root_tb = gr.Textbox(
-                value=str(HUB_ROOT.parent / "data"),
-                label="Dataset root directory",
+            root_tb, _ = dir_textbox(
+                "Dataset root directory", str(HUB_ROOT.parent / "data"),
+                title="Select the dataset root directory",
             )
             arms_dd = gr.Dropdown(
                 choices=["auto", "right", "left", "both"], value="auto",
                 label="Control arms",
                 info="'auto' detects the arms available in YARP",
             )
-            vr_cb = gr.Checkbox(value=False, label="Enable VR")
+            vr_cb = gr.Checkbox(value=False, label="Enable VR", elem_classes=["vr-cb"])
             vr_cable_cb = gr.Checkbox(
                 value=False, visible=False,
                 label="Connect MetaQuest via USB cable",
@@ -286,6 +321,7 @@ def build_config_form() -> dict[str, gr.components.Component]:
             vr_ip_tb = gr.Textbox(
                 value="", placeholder="192.168.x.x", visible=False,
                 label="VR headset IP",
+                elem_classes=["ip-input"],
             )
 
     gr.Markdown("---")
@@ -353,7 +389,8 @@ def build_config_form() -> dict[str, gr.components.Component]:
     sim_stop_btn.click(fn=_sim_stop, inputs=[], outputs=[sim_status])
 
     # 2. Módulo YARP (long-lived, gestionado por procman)
-    def _yarp_start(mode):
+    def _yarp_start(mode, arms):
+        global _module_arms
         if not _YARP_MODULE.exists():
             return f"Not found: {_YARP_MODULE}"
         if mode == MODE_REAL:
@@ -365,14 +402,24 @@ def build_config_form() -> dict[str, gr.components.Component]:
         robot_name = _robot_name(mode)
         if not procman.is_running("yarp_module"):
             procman.stop_stale("yarp_module", str(_YARP_MODULE))
-        argv = [sys.executable, "-u", str(_YARP_MODULE), "--robot", robot_name]
-        return procman.start(
+        # Brazos: los del formulario; 'auto' = los que tengan cartesianController en YARP
+        # (si no se detecta ninguno, el control_arms del YAML). Antes no se pasaba y el módulo
+        # usaba siempre el del YAML, así que "Control arms" no cambiaba nada.
+        if arms in ("right", "left", "both"):
+            resolved, how = arms, "selected"
+        else:
+            resolved = _detect_arms(robot_name)
+            resolved, how = (resolved, "auto-detected") if resolved else (_yaml_arms(), "from YAML")
+        argv = [sys.executable, "-u", str(_YARP_MODULE), "--robot", robot_name, "--control", resolved]
+        msg = procman.start(
             "yarp_module", argv,
             cwd=str(_YARP_MODULE.parent),
             env={"ICUB_LEROBOT_CONFIG": str(_CFG_PATH), "ICUB_ROBOT_NAME": robot_name},
         )
+        _module_arms = resolved
+        return f"{msg} — arms: {resolved} ({how})"
 
-    yarp_start_btn.click(fn=_yarp_start, inputs=[mode_dd], outputs=[yarp_status])
+    yarp_start_btn.click(fn=_yarp_start, inputs=[mode_dd, arms_dd], outputs=[yarp_status])
     yarp_stop_btn.click(fn=lambda: procman.stop("yarp_module"), inputs=[], outputs=[yarp_status])
 
     # 3. Detener play/grabación = EXIT de la sesión (mismo protocolo genérico)
@@ -410,6 +457,11 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
 
     if scene_name not in SCENES:
         return f"Invalid task: {scene_name}. Check {_SCENES_MANIFEST}."
+    # Los brazos los mueve el módulo YARP: si se inició con otros, la selección no tendría efecto.
+    if (control_arms in ("right", "left", "both") and procman.is_running("yarp_module")
+            and _module_arms not in (None, "both", control_arms)):
+        return (f"The YARP module is running with arms = '{_module_arms}'. Restart it "
+                f"(■ Stop YARP module → ▶ Start YARP module) to control '{control_arms}'.")
     # Solo importa la instrucción; el XML de la escena se ignora a propósito:
     # en gazebo/real MuJoCo es un espejo y siempre carga la mesa vacía.
     _xml_file, default_task = SCENES[scene_name]

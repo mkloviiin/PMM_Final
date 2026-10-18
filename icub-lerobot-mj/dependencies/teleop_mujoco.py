@@ -178,7 +178,7 @@ class MuJoCoTeleop:
 
     def __init__(self, model_path, vr_enabled=False,
                  record_enabled=False, repo_id="icub_mujoco",
-                 control_arms="both", primary_arm="right",
+                 control_arms=None, primary_arm="right",
                  config_path=None, vr_ip=None, scene_objects=None):
         # ----- Load config.yaml (if provided) -----
         cfg = {}
@@ -227,7 +227,9 @@ class MuJoCoTeleop:
 
         # ----- Arm configuration -----
         # CLI args override config.yaml values
-        self.control_arms = control_arms if control_arms != "both" else cfg.get("control_arms", control_arms)
+        # Explícito (Hub / --arms) manda; si no, control_arms del YAML. Antes "both" se trataba
+        # como "no especificado" y el YAML ganaba aunque se pidiera "both".
+        self.control_arms = control_arms or cfg.get("control_arms", "both")
         self.primary_arm = primary_arm if primary_arm != "right" else cfg.get("primary_arm", primary_arm)
         if self.primary_arm in ("right_arm", "r", "rh"):
             self.primary_arm = "right"
@@ -1602,7 +1604,7 @@ def main():
                         help="Enable dataset recording (LeRobot)")
     parser.add_argument("--repo-id", type=str, default="icub_mujoco",
                         help="Dataset repository / name")
-    parser.add_argument("--arms", type=str, default="both",
+    parser.add_argument("--arms", type=str, default=None,
                         choices=["both", "right", "left"],
                         help="Which arms to control (overrides config.yaml)")
     parser.add_argument("--primary-arm", type=str, default="right",

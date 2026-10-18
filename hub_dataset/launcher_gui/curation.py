@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -66,19 +67,94 @@ def _extract_repo_id(dataset_path: str) -> str:
     return base
 
 
-def refresh_datasets(root_dir: str):
+def _dataset_choices(paths: list[str]) -> list[tuple[str, str]]:
+    """Opciones del dropdown: se muestra solo el nombre de la carpeta, pero el valor
+    sigue siendo la ruta completa (la que usan load_viz_dataset y el packaging)."""
+    return [(Path(p).name, p) for p in paths]
+
+
+def refresh_datasets(root_dir: str, current: str | None = None):
+    """Rellena el dropdown. Si `current` sigue existiendo se mantiene seleccionado (al volver
+    a la pestaña no se pierde la selección); si no, se elige el más reciente."""
     datasets = _scan_datasets(root_dir)
     if not datasets:
         return gr.update(choices=[], value=None), "No datasets found in that folder."
-    return gr.update(choices=datasets, value=datasets[0]), f"{len(datasets)} dataset(s) found."
+    value = current if current in datasets else datasets[0]
+    return gr.update(choices=_dataset_choices(datasets), value=value), f"{len(datasets)} dataset(s) found."
+
+
+# ── Borrado de datasets (con confirmación, a la papelera) ─────────────────────
+
+def _deletable(dataset_path: str | None) -> tuple[Path | None, str | None]:
+    """(ruta, None) si se puede borrar; (None, motivo) si no."""
+    if not dataset_path or not str(dataset_path).strip():
+        return None, "Select a dataset first."
+    path = Path(str(dataset_path).strip()).expanduser()
+    if not (path / "meta" / "info.json").exists():
+        return None, f"Not a LeRobot dataset (no meta/info.json): {path}"
+    from . import session_log
+    rec = session_log.dataset_root()
+    if state.running and rec is not None and rec.resolve() == path.resolve():
+        return None, "This dataset is being recorded right now: end the session first."
+    return path, None
+
+
+def ask_delete_dataset(dataset_path: str):
+    """Primer click en 'Delete dataset': muestra la confirmación."""
+    path, why = _deletable(dataset_path)
+    if path is None:
+        gr.Warning(why)
+        return gr.update(visible=False), gr.update()
+    return gr.update(visible=True), gr.update(value=(
+        f"### Delete dataset\n\n`{path.name}`\n\n"
+        "It will be moved to the trash, so you can still restore it from there."))
+
+
+def _move_to_trash(path: Path) -> str:
+    """Papelera del sistema (gio, recuperable desde el gestor de archivos). Sin gio (p. ej. en
+    Docker) se mueve a <carpeta de datasets>/.trash/."""
+    if shutil.which("gio"):
+        res = subprocess.run(["gio", "trash", str(path)], capture_output=True, text=True)
+        if res.returncode == 0:
+            return "moved to the system trash"
+    trash = path.parent / ".trash"
+    trash.mkdir(exist_ok=True)
+    dst = trash / f"{path.name}_{time.strftime('%Y%m%d-%H%M%S')}"
+    shutil.move(str(path), str(dst))
+    return f"moved to {dst}"
+
+
+def delete_dataset(dataset_path: str, root_dir: str):
+    """'Yes, delete': manda el dataset a la papelera y refresca la lista. Si era el cargado
+    en el visualizador, lo descarga."""
+    path, why = _deletable(dataset_path)
+    if path is None:
+        gr.Warning(why)
+        return gr.update(visible=False), gr.update(), why, gr.update()
+    was_loaded = state.viz_dataset_path is not None and state.viz_dataset_path.resolve() == path.resolve()
+    try:
+        where = _move_to_trash(path)
+    except Exception as e:  # noqa: BLE001
+        gr.Warning(f"Could not delete {path.name}: {e}")
+        return gr.update(visible=False), gr.update(), f"Could not delete {path.name}: {e}", gr.update()
+    if was_loaded:
+        state.viz_dataset_path = None
+        state.viz_ep_rows = []
+    dd, _ = refresh_datasets(root_dir)
+    msg = f"Deleted {path.name} ({where})."
+    gr.Info(msg)
+    return gr.update(visible=False), dd, msg, gr.update(visible=False) if was_loaded else gr.update()
 
 
 def use_last_dataset(root_dir: str):
-    if state.last_dataset_root and state.last_dataset_root.exists():
-        return gr.update(value=str(state.last_dataset_root))
     datasets = _scan_datasets(root_dir)
+    if state.last_dataset_root and state.last_dataset_root.exists():
+        last = str(state.last_dataset_root)
+        if last not in datasets:
+            datasets.insert(0, last)
+        return gr.update(choices=_dataset_choices(datasets), value=last)
     if datasets:
-        return gr.update(value=datasets[0])
+        return gr.update(choices=_dataset_choices(datasets), value=datasets[0])
     return gr.update(value="")
 
 

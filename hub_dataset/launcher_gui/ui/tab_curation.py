@@ -8,18 +8,19 @@ from __future__ import annotations
 import gradio as gr
 
 from ..paths import HUB_ROOT
+from .dir_picker import dir_textbox
 from ..curation import build_custom_plotly_chart
 
 
 def build_curation_tab():
-    with gr.Tab("Visualize & Curate"):
+    with gr.Tab("Visualize & Curate") as curation_tab:
         gr.Markdown("Load a recorded dataset, explore its episodes and choose what to keep in the final version.")
 
         with gr.Row():
             with gr.Column(scale=4):
-                viz_root_tb = gr.Textbox(
-                    value=str(HUB_ROOT.parent / "data"),
-                    label="Datasets directory",
+                viz_root_tb, browse_dir_ev = dir_textbox(
+                    "Datasets directory", str(HUB_ROOT.parent / "data"),
+                    title="Select the datasets directory",
                 )
                 dataset_dd = gr.Dropdown(
                     choices=[], value=None,
@@ -31,7 +32,14 @@ def build_curation_tab():
             with gr.Column(scale=1):
                 refresh_btn = gr.Button("Refresh list")
                 last_btn = gr.Button("Use last recorded")
-                load_ds_btn = gr.Button("Load dataset", variant="primary")
+                load_ds_btn = gr.Button("Load dataset", variant="primary", elem_classes=["btn-green"])
+                delete_ds_btn = gr.Button("Delete dataset", variant="stop", elem_classes=["btn-red"])
+        # Diálogo de confirmación (pop-up centrado, ver .pmm-modal en app.py)
+        with gr.Column(visible=False, elem_classes=["pmm-modal"]) as delete_confirm_grp:
+            delete_confirm_md = gr.Markdown("")
+            with gr.Row():
+                delete_cancel_btn = gr.Button("Cancel")
+                delete_yes_btn = gr.Button("Delete", variant="primary", elem_classes=["btn-red"])
 
         with gr.Column(visible=False) as dataset_col:
             gr.Markdown("---")
@@ -212,7 +220,10 @@ def build_curation_tab():
             gr.Markdown("### Packaging")
             with gr.Row():
                 new_repo_id_tb = gr.Textbox(value="", label="Final Repo ID (local)")
-                curated_root_tb = gr.Textbox(value=str(HUB_ROOT.parent / "data_curated"), label="Root folder for the curated dataset")
+                curated_root_tb, _ = dir_textbox(
+                    "Root folder for the curated dataset", str(HUB_ROOT.parent / "data_curated"),
+                    title="Select the root folder for the curated dataset",
+                )
             package_btn = gr.Button("Package dataset", variant="primary", size="lg")
             package_status = gr.Textbox(label="Packaging status", interactive=False)
             curation_log_box = gr.Textbox(label="Curation log", lines=10, max_lines=10, interactive=False)
@@ -255,7 +266,10 @@ def build_curation_tab():
     return dict(
         dataset_col=dataset_col,
         viz_root_tb=viz_root_tb, refresh_btn=refresh_btn,
-        dataset_dd=dataset_dd, last_btn=last_btn,
+        dataset_dd=dataset_dd, last_btn=last_btn, browse_dir_ev=browse_dir_ev, tab=curation_tab,
+        delete_ds_btn=delete_ds_btn, delete_confirm_grp=delete_confirm_grp,
+        delete_confirm_md=delete_confirm_md, delete_yes_btn=delete_yes_btn,
+        delete_cancel_btn=delete_cancel_btn,
         load_ds_btn=load_ds_btn, viz_status=viz_status,
         ep_prev_btn=ep_prev_btn, ep_num_nb=ep_num_nb, ep_next_btn=ep_next_btn,
         ep_delete_btn=ep_delete_btn, ep_info_tb=ep_info_tb, marked_summary_tb=marked_summary_tb,
