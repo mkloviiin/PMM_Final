@@ -177,7 +177,7 @@ def build_curation_tab():
                     )
                     whole_feature_cbg = gr.CheckboxGroup(
                         choices=[], value=[], show_label=False,
-                        elem_classes=["scrollable-list"],
+                        elem_classes=["scrollable-list"], elem_id="cbg-whole",
                     )
 
                 with gr.Group():
@@ -191,7 +191,7 @@ def build_curation_tab():
                     )
                     dims_action_cbg = gr.CheckboxGroup(
                         choices=[], value=[], show_label=False,
-                        elem_classes=["scrollable-list"],
+                        elem_classes=["scrollable-list"], elem_id="cbg-action",
                     )
 
                 with gr.Group():
@@ -205,7 +205,7 @@ def build_curation_tab():
                     )
                     dims_state_cbg = gr.CheckboxGroup(
                         choices=[], value=[], show_label=False,
-                        elem_classes=["scrollable-list"],
+                        elem_classes=["scrollable-list"], elem_id="cbg-state",
                     )
 
             gr.Markdown("---")

@@ -185,6 +185,20 @@ button.btn-red:hover, .btn-red button:hover {
 WELCOME_CSS += PLAYER_CSS
 
 
+def _checkbox_filter_js(elem_id: str) -> str:
+    """JS que oculta las casillas del CheckboxGroup `elem_id` que no contienen el texto buscado."""
+    return """(q) => {
+        const box = document.getElementById("%s");
+        if (!box) return [];
+        const t = (q || "").trim().toLowerCase();
+        box.querySelectorAll("label").forEach(l => {
+            if (!l.querySelector("input[type=checkbox]")) return;
+            l.style.display = (!t || l.textContent.toLowerCase().includes(t)) ? "" : "none";
+        });
+        return [];
+    }""" % elem_id
+
+
 def build_ui() -> gr.Blocks:
     with gr.Blocks(title="iCub Experimentation Hub", css=WELCOME_CSS) as demo:
         welcome_col, welcome_buttons = build_welcome_screen()
@@ -287,6 +301,9 @@ def build_ui() -> gr.Blocks:
         c["load_ds_btn"].click(
             fn=curation.load_viz_dataset, inputs=[c["dataset_dd"]],
             outputs=[c["dataset_col"], c["viz_status"]] + nav_outputs + curation_outputs,
+        ).then(  # buscadores vacíos: la lista nueva se muestra completa
+            fn=lambda: ("", "", ""),
+            outputs=[c["whole_search_tb"], c["action_search_tb"], c["state_search_tb"]],
         )
 
         c["add_plot_btn"].click(
@@ -326,21 +343,13 @@ def build_ui() -> gr.Blocks:
         c["state_all_btn"].click(fn=curation.select_all_state_dims, outputs=[c["dims_state_cbg"]])
         c["state_none_btn"].click(fn=curation.select_none_list, outputs=[c["dims_state_cbg"]])
 
-        c["whole_search_tb"].change(
-            fn=curation.filter_whole_features,
-            inputs=[c["whole_search_tb"], c["whole_feature_cbg"]],
-            outputs=[c["whole_feature_cbg"]],
-        )
-        c["action_search_tb"].change(
-            fn=curation.filter_action_dims,
-            inputs=[c["action_search_tb"], c["dims_action_cbg"]],
-            outputs=[c["dims_action_cbg"]],
-        )
-        c["state_search_tb"].change(
-            fn=curation.filter_state_dims,
-            inputs=[c["state_search_tb"], c["dims_state_cbg"]],
-            outputs=[c["dims_state_cbg"]],
-        )
+        # Buscadores de features/dimensiones: filtran en el navegador (ocultan las casillas que
+        # no calzan) sin tocar las opciones, así la selección se conserva. Antes se filtraban
+        # las opciones en Python dejando siempre las marcadas, y como al cargar un dataset
+        # están todas marcadas, el buscador no ocultaba nada.
+        for tb_key, cbg_id in (("whole_search_tb", "cbg-whole"), ("action_search_tb", "cbg-action"),
+                               ("state_search_tb", "cbg-state")):
+            c[tb_key].change(fn=None, inputs=[c[tb_key]], js=_checkbox_filter_js(cbg_id))
 
         c["task_edit_btn"].click(fn=curation.task_start_edit,
                                   inputs=[c["task_tb"]],

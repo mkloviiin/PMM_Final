@@ -443,36 +443,6 @@ def load_viz_dataset(dataset_path: str):
 
 # ── Search filters for signal lists ──────────────────────────────────────────
 
-def filter_whole_features(query: str, current_value: list) -> dict:
-    all_choices = [k for k in state.viz_info.get("features", {}) if k not in state.RESERVED_FEATURES]
-    if not query or not query.strip():
-        return gr.update(choices=all_choices)
-    q = query.strip().lower()
-    kept = [c for c in (current_value or []) if c in all_choices]
-    matched = [c for c in all_choices if q in c.lower() and c not in kept]
-    return gr.update(choices=kept + matched)
-
-
-def filter_action_dims(query: str, current_value: list) -> dict:
-    all_choices = list(state.viz_info.get("features", {}).get("action", {}).get("names") or [])
-    if not query or not query.strip():
-        return gr.update(choices=all_choices)
-    q = query.strip().lower()
-    kept = [c for c in (current_value or []) if c in all_choices]
-    matched = [c for c in all_choices if q in c.lower() and c not in kept]
-    return gr.update(choices=kept + matched)
-
-
-def filter_state_dims(query: str, current_value: list) -> dict:
-    all_choices = list(state.viz_info.get("features", {}).get("observation.state", {}).get("names") or [])
-    if not query or not query.strip():
-        return gr.update(choices=all_choices)
-    q = query.strip().lower()
-    kept = [c for c in (current_value or []) if c in all_choices]
-    matched = [c for c in all_choices if q in c.lower() and c not in kept]
-    return gr.update(choices=kept + matched)
-
-
 # ── Select all/none helpers ───────────────────────────────────────────────────
 
 def select_all_whole():
@@ -575,12 +545,28 @@ def run_packaging(dataset_path, whole_kept, action_kept, state_kept,
     return gr.update(value=f"Packaging in background -> {final_root}")
 
 
+def _load_package_dataset():
+    """package_dataset de icub-lerobot-mj/dependencies/dataset_curation.py, cargado por ruta.
+
+    Es código genérico (solo usa lerobot), pero `import dependencies...` dependía de que el
+    backend de MuJoCo hubiera puesto su carpeta en sys.path al lanzar una sesión: sin haber
+    lanzado MuJoCo, empaquetar fallaba con ModuleNotFoundError."""
+    import importlib.util
+
+    from .paths import MJ_ROOT
+
+    path = MJ_ROOT / "dependencies" / "dataset_curation.py"
+    spec = importlib.util.spec_from_file_location("hub_dataset_curation", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.package_dataset
+
+
 def _run_packaging_thread(src_root, src_repo_id, episodes_drop, whole_features,
                            dims_to_drop, task_global, episode_tasks, rid, final_root):
-    from dependencies.dataset_curation import package_dataset
-
     try:
         state.curation_status = "running"
+        package_dataset = _load_package_dataset()  # dentro del try: un error se ve en el log
         final_path = package_dataset(
             source_root=src_root,
             source_repo_id=src_repo_id,
