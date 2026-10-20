@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import gradio as gr
 import yaml
 
-from .. import session
+from .. import ports, session
 from ..paths import ASSETS_DIR, HUB_ROOT, MJ_ROOT
 from ..ui.dir_picker import dir_textbox
 from .base import RobotBackend
@@ -171,6 +171,12 @@ def _yaml_arms() -> str:
 def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, control_arms, root_dir) -> str:
     if session.state.running:
         return "A session is already running."
+    # El núcleo MuJoCo abre los puertos del VR y del streaming (también los usan el
+    # teleoperador de Gazebo y el módulo YARP): libres, o liberados si son de una sesión
+    # anterior de este Hub.
+    busy = ports.preflight(ports.VR_PORTS + ports.STREAM_PORTS, "MuJoCo", log=session.log)
+    if busy:
+        return busy
 
     _ensure_mj_on_path()
 
@@ -224,15 +230,22 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, cont
 
     def _record(cmd_source, on_status) -> None:
         from play_mujoco import _manual_vr_record
-        _manual_vr_record(
-            args=args,
-            repo_id=rid,
-            dataset_root=dataset_root,
-            model_path=model_path,
-            cfg_path=cfg_path,
-            cmd_source=cmd_source,
-            on_status=on_status,
-        )
+        try:
+            _manual_vr_record(
+                args=args,
+                repo_id=rid,
+                dataset_root=dataset_root,
+                model_path=model_path,
+                cfg_path=cfg_path,
+                cmd_source=cmd_source,
+                on_status=on_status,
+            )
+        finally:
+            # Red de seguridad: ningún núcleo MuJoCo de esta sesión queda reteniendo los
+            # puertos (si no, la próxima sesión de cualquier plataforma no podría abrirlos)
+            n = ports.release_own()
+            if n:
+                session.log(f"[Hub] Closed {n} MuJoCo core(s) left open by the session.")
 
     return session.start_session(
         _record, repo_id=rid, dataset_root=dataset_root, num_episodes=int(num_eps),

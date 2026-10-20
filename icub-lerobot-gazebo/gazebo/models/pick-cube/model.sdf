@@ -21,5 +21,13 @@
         <material><ambient>0.85 0.1 0.1 1</ambient><diffuse>0.85 0.1 0.1 1</diffuse><specular>0.1 0.1 0.1 1</specular></material>
       </visual>
     </link>
+    <!-- Pose del modelo en /model/<nombre>/pose (gz.msgs.Pose, mundo Gazebo) a 30 Hz:
+         la lee el plugin lerobot_robot_icubrg (use_object_pose) como obj{i}_* del dataset. -->
+    <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+      <publish_link_pose>false</publish_link_pose>
+      <publish_model_pose>true</publish_model_pose>
+      <use_pose_vector_msg>false</use_pose_vector_msg>
+      <update_frequency>30</update_frequency>
+    </plugin>
   </model>
 </sdf>

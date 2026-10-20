@@ -66,12 +66,18 @@ if icubenv_sp not in sys.path:
 # Imports that depend on the path setup above
 # ---------------------------------------------------------------------------
 from lerobot.configs.policies import PreTrainedConfig
-from lerobot.utils.feature_utils import build_dataset_frame
+try:  # LeRobot >= 0.6; en 0.5.x está en lerobot.datasets.feature_utils
+    from lerobot.utils.feature_utils import build_dataset_frame
+except ImportError:
+    from lerobot.datasets.feature_utils import build_dataset_frame
 from lerobot.policies.factory import get_policy_class, make_pre_post_processors
 from lerobot.policies.utils import make_robot_action
 from lerobot.robots import make_robot_from_config
 from lerobot.utils.constants import ACTION, OBS_STR
-from lerobot.common.control_utils import predict_action
+try:  # LeRobot >= 0.6 (smolvla); 0.5.x (icubenv / Docker) lo tiene en lerobot.utils
+    from lerobot.common.control_utils import predict_action
+except ImportError:
+    from lerobot.utils.control_utils import predict_action
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.device_utils import get_safe_torch_device
 
@@ -209,6 +215,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--fps", type=int, default=30, help="Control frequency")
     parser.add_argument(
+        "--legacy", "--legacy-head-cams",
+        dest="legacy",
+        action="store_true",
+        help="Policy trained before 2026-10-20 (e.g. mujocotrainPMM): world-frame poses and the "
+             "old head cameras / camera names",
+    )
+    parser.add_argument(
         "--device",
         default="cuda" if torch.cuda.is_available() else "cpu",
         help="Torch device for policy inference",
@@ -221,11 +234,11 @@ def main() -> None:
 
     # Resolve scene shortcut
     if args.scene == 1:
-        args.model = str(script_dir / "dependencies" / "assets" / "scenes" / "icub_table_scene_lift.xml")
+        args.model = str(script_dir / "dependencies" / "assets" / "scenes" / "scene_icub_lift.xml")
         if args.task == "Pick up the blue cube":
             args.task = "levantar el cubo"
     elif args.scene == 2:
-        args.model = str(script_dir / "dependencies" / "assets" / "scenes" / "icub_table_scene_stack.xml")
+        args.model = str(script_dir / "dependencies" / "assets" / "scenes" / "scene_icub_stack.xml")
         if args.task == "Pick up the blue cube":
             args.task = "apilar el cubo"
 
@@ -312,6 +325,13 @@ def main() -> None:
         config_path=str(config_path),
         vr_enabled=False,
     )
+    if args.legacy:
+        # Modelos anteriores al 2026-10-20: poses en el mundo MuJoCo y cámaras de cabeza
+        # antiguas con sus nombres viejos
+        robot_cfg.pose_frame = "world"
+        robot_cfg.gripper_legacy = True
+        robot_cfg.camera_names = ["head_cam", "head_cam_track_hand", "frontview"]
+        robot_cfg.camera_sources = {"head_cam": "head_cam_v1", "head_cam_track_hand": "head_cam_track_hand_v1"}
     robot = make_robot_from_config(robot_cfg)
     robot.connect()
     print("[eval] Robot connected")
@@ -459,7 +479,7 @@ def main() -> None:
             action_rows: list[dict] = []
 
             # Video writers per camera (will be initialised on first frame)
-            record_cams = ["frontview", "head_cam", "head_cam_track_hand"]
+            record_cams = list(robot_cfg.camera_names)
             vid_writers: dict[str, cv2.VideoWriter] = {}
 
             for step in range(args.episode_len):
@@ -576,8 +596,10 @@ def main() -> None:
                 # 6) Display + record camera views
                 cam_imgs = []
                 for _cam in record_cams:
-                    if _cam in obs and isinstance(obs[_cam], torch.Tensor):
-                        img_rgb = obs[_cam].permute(1, 2, 0).cpu().numpy()  # (H,W,C) RGB
+                    if _cam in obs:
+                        img_rgb = obs[_cam]  # (H,W,C) uint8 RGB
+                        if isinstance(img_rgb, torch.Tensor):
+                            img_rgb = img_rgb.permute(1, 2, 0).cpu().numpy()
                         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
                         cam_imgs.append(img_bgr)
                         # Initialise video writer on first frame

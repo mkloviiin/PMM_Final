@@ -122,7 +122,9 @@ class iCubYARPInterface:
                  home_pose_deg=None,
                  use_gaze=False,
                  bind_eyes=True,
-                 cart_carrier="udp"):
+                 cart_carrier="udp",
+                 torso_limits_deg=None,
+                 gaze_head_only=False):
         """
         Args:
             robot_name (str): Nombre del robot.
@@ -133,7 +135,14 @@ class iCubYARPInterface:
             home_pose_deg (dict): Diccionario con la pose home {joint: deg}.
             cart_carrier (str): Carrier de los puertos de streaming del cliente
                 cartesiano (command/state/events). "udp" es el default de iCub.
+            torso_limits_deg (dict): {"pitch": [min, max], "yaw": [min, max]} del torso
+                para el cartesiano del brazo principal (default ±15 / ±10).
+            gaze_head_only (bool): mirar solo con el cuello (ojos fijos al frente, sin
+                roll de cuello), como el IK de mirada de MuJoCo.
         """
+        self.gaze_head_only = gaze_head_only
+        self.torso_limits_deg = {"pitch": (-15.0, 15.0), "yaw": (-10.0, 10.0)}
+        self.torso_limits_deg.update(torso_limits_deg or {})
         
         yarp.Network.init()
         self.robot_name = robot_name
@@ -150,6 +159,9 @@ class iCubYARPInterface:
 
         self.drivers = {}
         self.encoders = {}
+        # Torques articulares (solo lectura): en Gazebo los entrega el controlboard; en el
+        # robot real dependen de wholeBodyDynamics. None si la parte no expone ITorqueControl.
+        self.torques = {}
         self.pos_direct = {}
         self.pos_control = {}
         self.control_modes = {}
@@ -327,6 +339,7 @@ class iCubYARPInterface:
             
         self.drivers[part_name] = driver
         self.encoders[part_name] = driver.viewIEncoders()
+        self.torques[part_name] = driver.viewITorqueControl()
         self.pos_direct[part_name] = driver.viewIPositionDirect()
         self.pos_control[part_name] = driver.viewIPositionControl()
         self.control_modes[part_name] = driver.viewIControlMode()
@@ -398,6 +411,23 @@ class iCubYARPInterface:
             q_rad[control_idx] = np.deg2rad(raw_positions[part_name][yarp_idx])
             dq_rad[control_idx] = np.deg2rad(raw_velocities[part_name][yarp_idx])
         return q_rad, dq_rad
+
+    def get_joint_torques(self):
+        """Torques [Nm] en el orden de get_joint_state; NaN donde la parte no los entrega."""
+        tau = np.full(len(self.actuators_to_control), np.nan)
+        raw_torques = {}
+        for part in self.parts:
+            itrq = self.torques.get(part)
+            if itrq is None:
+                continue
+            trq_vec = yarp.Vector(self.num_joints_part[part])
+            if itrq.getTorques(trq_vec.data()):
+                raw_torques[part] = [trq_vec[j] for j in range(trq_vec.size())]
+
+        for part_name, joint_name, yarp_idx, control_idx, main_idx in self.joint_processing_map:
+            if part_name in raw_torques:
+                tau[control_idx] = raw_torques[part_name][yarp_idx]
+        return tau
 
     def send_hand_positions(self, arm, target_positions_deg):
         if arm not in self.pos_control or self.pos_control[arm] is None: return False
@@ -547,9 +577,9 @@ class iCubYARPInterface:
         self.cart_interfaces[arm].getDOF(dof)
         self.cart_interfaces[arm].setDOF(en, dof)
         #LIMITES TORSO
-        self.cart_interfaces[arm].setLimits(0,-15,15) # pitch
+        self.cart_interfaces[arm].setLimits(0, *self.torso_limits_deg["pitch"]) # pitch
         self.cart_interfaces[arm].setLimits(1,-0, 0) # roll
-        self.cart_interfaces[arm].setLimits(2,-10,10) # pitch
+        self.cart_interfaces[arm].setLimits(2, *self.torso_limits_deg["yaw"]) # yaw
 
         # Disable torso for other
         if other in self.cart_interfaces:
@@ -822,6 +852,12 @@ class iCubYARPInterface:
             return False
 
         self.igaze = self.gaze_driver.viewIGazeControl()
+        if self.gaze_head_only:
+            # Ojos al frente (vergencia 0) y sin roll: la cámara del ojo queda fija a la
+            # cabeza como head_cam en MuJoCo, y neck_roll en 0 como en sus datos.
+            self.igaze.blockEyes(0.0)
+            self.igaze.blockNeckRoll(0.0)
+            print("  [GAZE] Eyes blocked straight ahead, neck roll blocked (gaze_head_only).")
         
         # 3. Configuración de parámetros de suavizado
         #self.igaze.setEyesTrajTime(1.489)  # Optimized for eyes-down

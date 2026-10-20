@@ -85,12 +85,23 @@ class iCubMuJoCoConfig(RobotConfig):
     use_gaze: bool = False
     actuators_to_use: dict[str, list[str]] = field(default_factory=dict)
 
-    # head_cam           — cámara fija en la cabeza del robot (vista global)
-    # head_cam_track_hand — siempre apuntar a la mano derecha
-    # frontview           — cámara fija frontal externa
-    camera_names: list[str] = field(default_factory=lambda: ["head_cam", "head_cam_track_hand", "frontview"])
+    # Mismos nombres que Gazebo y el robot real (lerobot_robot_icubrg): left/right = ojos
+    # del iCub (head_cam / head_cam_right, en la pose de los ojos de iKin), front = cámara
+    # frontal externa (frontview, espejo de camera-stand de Gazebo). camera_sources dice qué
+    # cámara del XML se renderiza para cada nombre; un nombre sin entrada es la cámara del
+    # XML con ese mismo nombre (p. ej. head_cam_track_hand, head_cam_v1).
+    camera_names: list[str] = field(default_factory=lambda: ["left", "right", "front"])
+    camera_sources: dict[str, str] = field(default_factory=lambda: {
+        "left": "head_cam", "right": "head_cam_right", "front": "frontview"})
     camera_width: int = 320
     camera_height: int = 240
+    # Marco de las poses (manos, targets, mirada, objetos) en observaciones y acciones:
+    # "root" = frame root del iCub (x atrás, z arriba, origen en la cintura), el de Gazebo y
+    # el robot real; "world" = mundo MuJoCo (datasets grabados antes del 2026-10-20).
+    pose_frame: str = "root"
+    # rh/lh_gripper: False = fracción de cierre 0..1 (desde el 2026-10-21, gatillo gradual);
+    # True = convención anterior 0 abrir / 0.5 cerrar / 1 mantener (modelos --legacy).
+    gripper_legacy: bool = False
 
     sim_dt: float = 0.005
     control_dt: float = 1.0 / 30  # 30 Hz
@@ -106,5 +117,6 @@ class iCubMuJoCoConfig(RobotConfig):
         self.use_gaze = cfg.get("gaze_ctrl", self.use_gaze)
         self.vr_enabled = cfg.get("vr_enabled", self.vr_enabled)
         self.vr_ip = cfg.get("vr_ip", self.vr_ip)
+        self.pose_frame = cfg.get("pose_frame", self.pose_frame)
         if not self.actuators_to_use:
             self.actuators_to_use = _get_actuators_logic(cfg)

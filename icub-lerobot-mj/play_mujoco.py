@@ -204,7 +204,10 @@ def _manual_vr_record(
         aggregate_pipeline_dataset_features,
         create_initial_features,
     )
-    from lerobot.datasets.feature_utils import build_dataset_frame, combine_feature_dicts
+    try:  # LeRobot reciente: movidas a lerobot.utils.feature_utils
+        from lerobot.utils.feature_utils import build_dataset_frame, combine_feature_dicts
+    except ImportError:
+        from lerobot.datasets.feature_utils import build_dataset_frame, combine_feature_dicts
     from lerobot.processor import make_default_processors
     from lerobot.teleoperators import make_teleoperator_from_config
     from lerobot.robots import make_robot_from_config
@@ -268,8 +271,16 @@ def _manual_vr_record(
         use_videos=True,
     )
 
-    robot.connect()
-    teleop.connect()
+    # El try/finally de la sesión empieza más abajo: si falla una conexión, soltar lo que
+    # ya se conectó (el robot abre los puertos del VR y del streaming en connect()).
+    try:
+        robot.connect()
+        teleop.connect()
+    except BaseException:
+        for dev in (teleop, robot):
+            if dev.is_connected:
+                dev.disconnect()
+        raise
 
     # Initial reset: randomize scene objects so they're visible from the start
     teleop._reset_scenario()
@@ -359,7 +370,7 @@ def _manual_vr_record(
                 fm.mark("obs")
                 teleop.send_feedback(obs)
                 
-                # Check for reset request (KEY_R from teleop viewer)
+                # Check for reset request (KEY_N from teleop viewer)
                 if getattr(teleop, "_reset_request", False):
                     try:
                         reset_poses = getattr(teleop, "_last_reset_poses", {})
@@ -408,7 +419,7 @@ def _manual_vr_record(
                 teleop.send_feedback(obs)
                 obs_processed = robot_observation_processor(obs)
 
-                # Check for reset request (KEY_R from teleop viewer)
+                # Check for reset request (KEY_N from teleop viewer)
                 if getattr(teleop, "_reset_request", False):
                     try:
                         reset_poses = getattr(teleop, "_last_reset_poses", {})

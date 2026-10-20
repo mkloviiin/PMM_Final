@@ -43,8 +43,6 @@ class iCubMuJoCo(Robot):
         # estado y del render, costo de física y render). Se rehace en cada get_observation.
         self.metrics_meta: dict[str, Any] = {}
         self._last_touch_state: dict[str, float] = {}
-        self._rh_grip_mode: str = "stop"
-        self._lh_grip_mode: str = "stop"
         self._vr_rec_start_event   = False
         self._vr_rec_stop_event    = False
         self._vr_rec_discard_event = False   # B mantenido 1.5s → descarta episodio
@@ -58,10 +56,47 @@ class iCubMuJoCo(Robot):
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
+        # (alto, ancho, canales) como lerobot_robot_icubrg y la convención de LeRobot: con
+        # la misma forma, los datasets de MuJoCo y Gazebo se pueden combinar.
         return {
-            name: (3, self.config.camera_height, self.config.camera_width)
+            name: (self.config.camera_height, self.config.camera_width, 3)
             for name in self.config.camera_names
         }
+
+    def _arm_sides(self) -> list[str]:
+        return [side for side, arms in (("rh", ("right", "both")), ("lh", ("left", "both")))
+                if self.config.control_arms in arms]
+
+    # (prefijo de posición, prefijo de cuaternión) de las poses que pasan al frame root
+    _POSE_GROUPS = [("rh_ee_pos", "rh_ee_quat"), ("lh_ee_pos", "lh_ee_quat"),
+                    ("rh_target_pos", "rh_target_quat"), ("lh_target_pos", "lh_target_quat"),
+                    ("gaze_target_pos", None)] + [(f"obj{i}_pos", f"obj{i}_quat") for i in range(8)]
+    _ACTION_POSE_GROUPS = [("rh_pos", "rh_quat"), ("lh_pos", "lh_quat"), ("gaze", None)]
+
+    def _convert_poses(self, values: dict, groups, to_root: bool) -> None:
+        """Mundo MuJoCo <-> frame root del iCub (cintura, body "icub"), en el lugar.
+
+        Misma conversión que el teleoperador de Gazebo (_world_to_root): Gazebo y el robot
+        real usan el frame root, así los tres graban las poses en el mismo marco.
+        """
+        for pos_prefix, quat_prefix in groups:
+            pos_keys = [f"{pos_prefix}_{ax}" for ax in "xyz"]
+            if not all(k in values for k in pos_keys):
+                continue
+            pos = np.array([self._to_float(values[k]) for k in pos_keys])
+            if to_root:
+                new_pos = self._waist_R.T @ (pos - self._waist_pos)
+            else:
+                new_pos = self._waist_R @ pos + self._waist_pos
+            for k, v in zip(pos_keys, new_pos):
+                values[k] = torch.tensor(float(v), dtype=torch.float32)
+            quat_keys = [f"{quat_prefix}_{ax}" for ax in "wxyz"] if quat_prefix else []
+            if quat_keys and all(k in values for k in quat_keys):
+                quat = np.array([self._to_float(values[k]) for k in quat_keys])
+                new_quat = np.zeros(4)
+                mujoco.mju_mulQuat(new_quat, self._waist_quat_inv if to_root else self._waist_quat, quat)
+                for k, v in zip(quat_keys, new_quat):
+                    values[k] = torch.tensor(float(v), dtype=torch.float32)
 
     @property
     def observation_features(self) -> dict[str, type]:
@@ -85,30 +120,32 @@ class iCubMuJoCo(Robot):
         for name in self.actuator_list:
             features[f"{name}_vel"] = float
 
+        # Solo los brazos de control_arms (lo que elige el Hub), igual que en Gazebo:
+        # una tarea de un brazo no graba la otra mano.
+        sides = self._arm_sides()
+
         # [44-57] End-effector poses (x,y,z + quat w,x,y,z)
-        for side in ("rh", "lh"):
+        for side in sides:
             for ax in ("x", "y", "z"):
                 features[f"{side}_ee_pos_{ax}"] = float
             for ax in ("w", "x", "y", "z"):
                 features[f"{side}_ee_quat_{ax}"] = float
 
-        # [58-76] Mocap target poses — always present (VR moves them during
-        #         teleoperation; policy moves them during eval via send_action)
-        for ax in ("x", "y", "z"):
-            features[f"rh_target_pos_{ax}"] = float
-        for ax in ("w", "x", "y", "z"):
-            features[f"rh_target_quat_{ax}"] = float
-        for ax in ("x", "y", "z"):
-            features[f"lh_target_pos_{ax}"] = float
-        for ax in ("w", "x", "y", "z"):
-            features[f"lh_target_quat_{ax}"] = float
-        for ax in ("x", "y", "z"):
-            features[f"gaze_target_pos_{ax}"] = float
-        features["rh_gripper"] = float
-        features["lh_gripper"] = float
+        # [58-76] Mocap target poses (VR moves them during teleoperation; policy moves
+        #         them during eval via send_action)
+        for side in sides:
+            for ax in ("x", "y", "z"):
+                features[f"{side}_target_pos_{ax}"] = float
+            for ax in ("w", "x", "y", "z"):
+                features[f"{side}_target_quat_{ax}"] = float
+        if self.config.use_gaze:
+            for ax in ("x", "y", "z"):
+                features[f"gaze_target_pos_{ax}"] = float
+        for side in sides:
+            features[f"{side}_gripper"] = float
 
         # [77-82] Tactile contact (binary per finger)
-        for side in ("rh", "lh"):
+        for side in sides:
             for finger in ("thumb", "index", "middle"):
                 features[f"{side}_touch_{finger}"] = float
 
@@ -130,10 +167,8 @@ class iCubMuJoCo(Robot):
         for name in self.actuator_list:
             features[f"{name}_torque"] = float
 
-        # estimated external forces on EEF bodies
-        for side in ("rh", "lh"):
-            for ax in ("x", "y", "z"):
-                features[f"{side}_ext_force_{ax}"] = float
+        # (Sin fuerza externa en la mano: solo existe en MuJoCo, no en Gazebo ni en el robot
+        #  real sin wholeBodyDynamics, y un dataset sim-to-sim no puede depender de ella.)
 
         # cameras (separate observation.images.* keys, not part of state vector)
         features.update(self._cameras_ft)
@@ -210,11 +245,24 @@ class iCubMuJoCo(Robot):
             primary_arm=self.config.primary_arm,
             config_path=self.config.config_path,
             vr_ip=self.config.vr_ip,
+            scene_objects=self.config.scene_objects,
         )
+        # Objetos/joints de scenes.yaml: el reset del núcleo (botón de VR) usa los mismos
+        # rangos que la escena del Hub, no el cube_spawn heredado del YAML.
+        self.teleop_core._scene_joints = list(self.config.scene_joints or [])
 
         self.teleop_core.state = "teleop_active"
 
         model = self.teleop_core.model
+
+        # Cintura (frame root del iCub) en el mundo MuJoCo, para pose_frame="root"
+        waist_id = model.body("icub").id
+        self._waist_pos = self.teleop_core.data.xpos[waist_id].copy()
+        self._waist_R = self.teleop_core.data.xmat[waist_id].reshape(3, 3).copy()
+        self._waist_quat = np.zeros(4)
+        mujoco.mju_mat2Quat(self._waist_quat, self.teleop_core.data.xmat[waist_id].copy())
+        self._waist_quat_inv = np.zeros(4)
+        mujoco.mju_negQuat(self._waist_quat_inv, self._waist_quat)
 
         self._actuator_id_by_name = {}
         self._missing_actuator_names = set()
@@ -229,11 +277,15 @@ class iCubMuJoCo(Robot):
         # Scene option for offscreen rendering: hide mocap target geoms (group 2)
         self._cam_scene_option = mujoco.MjvOption()
         self._cam_scene_option.geomgroup[2] = 0
+        # y sus sites (puntos de los targets): no existen en Gazebo ni en el robot real
+        self._cam_scene_option.sitegroup[2] = 0
         for requested_name in self.config.camera_names:
-            resolved_name = requested_name
+            resolved_name = self.config.camera_sources.get(requested_name, requested_name)
             try:
-                model.camera(requested_name).id
+                model.camera(resolved_name).id
             except Exception:
+                print(f"[WARN] Camera '{resolved_name}' ({requested_name}) not found in the MuJoCo "
+                      f"model: using head_cam.")
                 resolved_name = "head_cam"
             self._camera_name_resolved[requested_name] = resolved_name
             self.renderers[requested_name] = mujoco.Renderer(
@@ -269,13 +321,23 @@ class iCubMuJoCo(Robot):
 
     def _set_targets_from_action(self, action: dict[str, Any]) -> None:
         data = self.teleop_core.data
+        if self.config.pose_frame == "root":
+            action = dict(action)
+            self._convert_poses(action, self._ACTION_POSE_GROUPS, to_root=False)
 
-        def grip_to_mode(grip_value: float) -> str:
-            if grip_value <= 0.1:
-                return "open"
-            if 0.4 <= grip_value <= 0.6:
-                return "close"
-            return "stop"
+        def apply_grip(side: str, grip_value: float) -> None:
+            """rh/lh_gripper = fracción de cierre 0..1. Con gripper_legacy (modelos y datasets
+            anteriores al 2026-10-21): <=0.1 abrir, 0.4-0.6 cerrar, resto = mantener."""
+            if self.config.gripper_legacy:
+                if grip_value <= 0.1:
+                    level = 0.0
+                elif 0.4 <= grip_value <= 0.6:
+                    level = 1.0
+                else:
+                    return
+            else:
+                level = float(np.clip(grip_value, 0.0, 1.0))
+            self.teleop_core._set_hand_level(side, level)
 
         if self.config.control_arms in ["right", "both"]:
             rh_pos = np.array([
@@ -300,13 +362,7 @@ class iCubMuJoCo(Robot):
             data.mocap_quat[self.teleop_core.rh_mocap_id] = rh_quat
 
             if "rh_gripper" in action:
-                grip = self._to_float(action["rh_gripper"])
-                self.teleop_core.rh_grip_state = grip
-                mode = grip_to_mode(grip)
-                if mode != self._rh_grip_mode:
-                    if mode in ("open", "close"):
-                        self.teleop_core._set_hand("right", mode)
-                    self._rh_grip_mode = mode
+                apply_grip("right", self._to_float(action["rh_gripper"]))
 
         if self.config.control_arms in ["left", "both"]:
             # Left-hand keys are optional: if the policy only controls the right
@@ -333,13 +389,7 @@ class iCubMuJoCo(Robot):
                 data.mocap_quat[self.teleop_core.lh_mocap_id] = lh_quat
 
             if "lh_gripper" in action:
-                grip = self._to_float(action["lh_gripper"])
-                self.teleop_core.lh_grip_state = grip
-                mode = grip_to_mode(grip)
-                if mode != self._lh_grip_mode:
-                    if mode in ("open", "close"):
-                        self.teleop_core._set_hand("left", mode)
-                    self._lh_grip_mode = mode
+                apply_grip("left", self._to_float(action["lh_gripper"]))
 
         if self.config.use_gaze and all(k in action for k in ("gaze_x", "gaze_y", "gaze_z")):
             gaze_pos = np.array([
@@ -582,8 +632,9 @@ class iCubMuJoCo(Robot):
         obs["gaze_target_pos_y"] = torch.tensor(float(data.mocap_pos[gaze_id][1]), dtype=torch.float32)
         obs["gaze_target_pos_z"] = torch.tensor(float(data.mocap_pos[gaze_id][2]), dtype=torch.float32)
 
-        obs["rh_gripper"] = torch.tensor(float(getattr(tc, "rh_grip_state", 1.0)), dtype=torch.float32)
-        obs["lh_gripper"] = torch.tensor(float(getattr(tc, "lh_grip_state", 1.0)), dtype=torch.float32)
+        # Fracción de cierre pedida (0 = abierta, 1 = cerrada), igual que la acción
+        obs["rh_gripper"] = torch.tensor(float(getattr(tc, "rh_grip_state", 0.0)), dtype=torch.float32)
+        obs["lh_gripper"] = torch.tensor(float(getattr(tc, "lh_grip_state", 0.0)), dtype=torch.float32)
 
         # 8. Camera images  (mocap target geoms hidden via group 2 filter)
         t_render = time.perf_counter()
@@ -592,7 +643,7 @@ class iCubMuJoCo(Robot):
             cam_name = self._camera_name_resolved[requested_name]
             renderer.update_scene(data, camera=cam_name, scene_option=self._cam_scene_option)
             img = renderer.render()
-            obs[requested_name] = torch.from_numpy(img.copy()).permute(2, 0, 1)
+            obs[requested_name] = img.copy()  # HWC uint8, igual que Gazebo
         self.metrics_meta["render_ms"] = (time.perf_counter() - t_render) * 1000.0
 
         # 9. Tactile contact — per-finger binary contact detection via data.contact.
@@ -634,7 +685,13 @@ class iCubMuJoCo(Robot):
                 self._last_touch_state[key] = touching
                 obs[f"{side}_touch_{finger}"] = torch.tensor(touching, dtype=torch.float32)
 
-        return obs
+        # 10. Poses al frame root (como Gazebo y el robot real) y solo lo declarado en
+        #     observation_features (brazos de control_arms, sin fuerza externa).
+        if self.config.pose_frame == "root":
+            self._convert_poses(obs, self._POSE_GROUPS, to_root=True)
+        if getattr(self, "_obs_keys", None) is None:
+            self._obs_keys = set(self.observation_features)
+        return {k: v for k, v in obs.items() if k in self._obs_keys}
 
     def disconnect(self) -> None:
         if not self._connected:
@@ -648,5 +705,9 @@ class iCubMuJoCo(Robot):
         self.renderers.clear()
         self.cameras.clear()
 
+        # Liberar los puertos del VR y del streaming: si no, la sesión siguiente del Hub
+        # (MuJoCo o Gazebo) falla con "Address already in use"
+        if self.teleop_core is not None:
+            self.teleop_core.close()
         self.teleop_core = None
         self._connected = False

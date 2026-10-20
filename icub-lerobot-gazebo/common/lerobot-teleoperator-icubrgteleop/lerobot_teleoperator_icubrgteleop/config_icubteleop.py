@@ -81,8 +81,13 @@ class iCubTeleopConfig(TeleoperatorConfig):
     scene_objects: list = field(default_factory=list)  # From scenes.yaml: [{body, spawn}, ...]
     scene_joints: list = field(default_factory=list)   # From scenes.yaml: [{name, qpos}, ...]
 
+    # Gatillo inferior del VR -> fracción de cierre: bajo el primer valor = 0 (abierta),
+    # sobre el segundo = 1 (cerrada), proporcional entre medio.
+    vr_grip_deadband: tuple[float, float] = (0.1, 0.9)
+
     def __post_init__(self) -> None:
         cfg = load_yarp_config(self.config_path)
+        self.vr_grip_deadband = tuple(cfg.get("vr_grip_deadband", self.vr_grip_deadband))
         self.control_arms = cfg.get("control_arms", self.control_arms)
         self.use_gaze = cfg.get("gaze_ctrl", self.use_gaze)
         self.strict_xml_init = cfg.get("strict_xml_init", self.strict_xml_init)

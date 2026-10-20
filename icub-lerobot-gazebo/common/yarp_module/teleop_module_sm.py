@@ -153,6 +153,9 @@ class TeleopModuleSM(yarp.RFModule):
             hand_closed_values = self.cfg.get("hand_close_values")
             self.use_gaze = self.cfg.get("gaze_ctrl", False)
             self.use_tactile = self.cfg.get("tactile_enabled", True)
+            # Torques en /teleop/robot_state:o (la misma opción que pide la observación del
+            # plugin lerobot_robot_icubrg). Apagado se mandan NaN y no se consulta el driver.
+            self.publish_torques = bool(self.cfg.get("use_joint_torque", False))
             # Derivados de robot_name para no cablear icub/icubSim en dos sitios.
             self.tactile_source_port = self.cfg.get(
                 "tactile_source_port", f"/{robot_name}/skin/right_hand_comp")
@@ -205,6 +208,9 @@ class TeleopModuleSM(yarp.RFModule):
                 use_gaze=self.use_gaze,
                 bind_eyes=False,
                 cart_carrier=self.cfg.get("cart_carrier", "udp"),
+                # Los mismos en el robot real, Gazebo y MuJoCo (cart_torso_limits)
+                torso_limits_deg=self.cfg.get("cart_torso_limits"),
+                gaze_head_only=self.is_gazebo and bool(self.cfg.get("gazebo_gaze_head_only", False)),
             )
             self.yarp_interface.cart_force_position_direct = bool(
                 self.cfg.get("cart_force_position_direct", False))
@@ -502,6 +508,16 @@ class TeleopModuleSM(yarp.RFModule):
         elif cmd == "close_left":
             self.pending_hand_cmds.append(("left_arm", "close"))
             reply.addString("Closing left hand.")
+
+        elif cmd in ("hand_right", "hand_left"):
+            # Fracción de cierre 0..1 (gatillo gradual del VR / rh_gripper de una política)
+            if command.size() >= 2:
+                level = float(np.clip(command.get(1).asFloat64(), 0.0, 1.0))
+                arm = "right_arm" if cmd == "hand_right" else "left_arm"
+                self.pending_hand_cmds.append((arm, level))
+                reply.addString("ok")
+            else:
+                reply.addString(f"Usage: {cmd} <level 0..1>")
             
         elif cmd == "vr_status":
             self.vr_status_text = command.get(1).asString() if command.size() > 1 else ""
@@ -850,13 +866,22 @@ class TeleopModuleSM(yarp.RFModule):
         return 'idle'
 
     def _process_hand_cmds(self):
-        """Ejecuta los open/close de mano encolados por respond()."""
+        """Ejecuta los comandos de mano encolados por respond(): "open"/"close" o una
+        fracción de cierre 0..1 (0 = hand_open_values, 1 = cierre de hand_close_ratio)."""
+        latest = {}
         while self.pending_hand_cmds:
             arm, action = self.pending_hand_cmds.popleft()
+            latest[arm] = action  # del gatillo solo importa el último valor de cada mano
+        for arm, action in latest.items():
             if arm not in self.actuators_to_use:
                 continue
-            ok = self.yarp_interface.send_hand_positions(arm, self.hand_vals[action])
-            print(f"[Hand] {arm} {action} -> {'ok' if ok else 'FAILED'}")
+            if isinstance(action, str):
+                target = self.hand_vals[action]
+            else:
+                target = self.hand_vals["open"] + action * (self.hand_vals["close"] - self.hand_vals["open"])
+            ok = self.yarp_interface.send_hand_positions(arm, target)
+            label = action if isinstance(action, str) else f"{action:.2f}"
+            print(f"[Hand] {arm} {label} -> {'ok' if ok else 'FAILED'}")
 
     def _check_cameras(self):
         """Update camera images and display/stream."""
@@ -1016,15 +1041,20 @@ class TeleopModuleSM(yarp.RFModule):
             pass
 
     def _send_robot_state(self):
-        """Publish current joint state."""
-        s, _ = self.yarp_interface.get_joint_state()
+        """Publish current joint state: q [rad] | dq [rad/s] | tau [Nm], n valores cada uno
+        en el orden de actuators_to_use (los clientes antiguos leen solo los primeros n)."""
+        q, dq = self.yarp_interface.get_joint_state()
+        if self.publish_torques:
+            tau = self.yarp_interface.get_joint_torques()
+        else:
+            tau = np.full(len(q), np.nan)
         # Envelope = (secuencia, instante de lectura de encoders): el cliente mide con él
         # la antigüedad del estado que graba y su desfase con las cámaras.
         self._state_seq += 1
         self.ports["robot_state"].setEnvelope(yarp.Stamp(self._state_seq, time.time()))
         bot = yarp.Bottle()
-        for v in s:
-            bot.addFloat64(v)
+        for v in (*q, *dq, *tau):
+            bot.addFloat64(float(v))
         self.ports["robot_state"].write(bot)
 
         # Publish executed Cartesian pose feedback as: x y z qw qx qy qz

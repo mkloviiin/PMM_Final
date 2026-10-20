@@ -92,14 +92,23 @@ class iCubTeleopConfig(TeleoperatorConfig):
     cube_spawn: dict = field(default_factory=lambda: {"x": [0.3, 0.4], "y": [-0.2, 0.2], "z": 0.725})
     scene_objects: list = field(default_factory=list)  # From scenes.yaml: [{body, spawn}, ...]
     scene_joints: list = field(default_factory=list)   # From scenes.yaml: [{name, qpos}, ...]
+    # Marco de las acciones y de la retroalimentación: "root" (frame del iCub, como Gazebo y
+    # el robot real) o "world" (mundo MuJoCo). Debe coincidir con pose_frame del robot.
+    pose_frame: str = "root"
+
+    # Gatillo inferior del VR -> fracción de cierre: bajo el primer valor = 0 (abierta),
+    # sobre el segundo = 1 (cerrada), proporcional entre medio.
+    vr_grip_deadband: tuple[float, float] = (0.1, 0.9)
 
     def __post_init__(self) -> None:
         cfg = load_yarp_config(self.config_path)
+        self.vr_grip_deadband = tuple(cfg.get("vr_grip_deadband", self.vr_grip_deadband))
         self.control_arms = cfg.get("control_arms", self.control_arms)
         self.use_gaze = cfg.get("gaze_ctrl", self.use_gaze)
         self.strict_xml_init = cfg.get("strict_xml_init", self.strict_xml_init)
         self.vr_enabled = cfg.get("vr_enabled", self.vr_enabled)
         self.vr_ip = cfg.get("vr_ip", self.vr_ip)
         self.cube_spawn = cfg.get("cube_spawn", self.cube_spawn)
+        self.pose_frame = cfg.get("pose_frame", self.pose_frame)
         if not self.actuators_to_use:
             self.actuators_to_use = _get_actuators_logic(cfg)

@@ -25,13 +25,19 @@
 
 - file: scene_icub_lift.xml
   label: "Block Lifting"
-  task: "lift the block"
+  # Única fuente para MuJoCo y Gazebo (icub-lerobot-gazebo/mujoco/assets/scenes/scenes.yaml
+  # es un enlace a este archivo). Marco MuJoCo: x adelante, y a la izquierda del robot;
+  # Gazebo lo convierte a (-x, -y) en reset_objects.sh. Antes: x [0.25, 0.40], y [-0.20, 0.20].
+  task: "lift the blue block"
   objects:
     - body: "blue-cube"
       spawn:
-        x: [0.25, 0.40]
-        y: [-0.20, 0.20]
-        z: 0.725
+        x: [0.35, 0.45]
+        y: [-0.15, -0.05]
+        z: 0.745                 # apoyado sobre la mesa (tapa 0.72 + semialtura 0.025)
+        # Girado 180 deg en z: en el frame root del robot queda con cuaternión identidad,
+        # igual que el cubo de Gazebo (su mundo ya está girado 180 deg respecto de MuJoCo).
+        quat: [0, 0, 0, 1]
 
 - file: scene_icub_stack.xml
   label: "Block Stacking"

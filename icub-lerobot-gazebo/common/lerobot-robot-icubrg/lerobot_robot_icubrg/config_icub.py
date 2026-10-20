@@ -98,6 +98,24 @@ def _camera_ports_from_robot_name(robot_name: str) -> dict[str, str]:
 _DEFAULT_CAMERA_SHAPE = (240, 320)
 _CAMERA_SHAPES = {"front": (480, 640)}
 
+def _scene_object_bodies() -> list[str]:
+    """Cuerpos de la escena activa en el orden de scenes.yaml (obj0, obj1, ...).
+
+    La escena es la etiqueta que el Hub escribe en $ICUB_SCENE_FILE (la misma que lee
+    gazebo/scripts/reset_objects.sh). Sin escena: blue-cube, como el fallback de MuJoCo.
+    """
+    scene_file = Path(os.environ.get("ICUB_SCENE_FILE", "/tmp/icub_lerobot_scene"))
+    scenes_yaml = _project_root() / "mujoco" / "assets" / "scenes" / "scenes.yaml"
+    try:
+        label = scene_file.read_text(encoding="utf-8").strip()
+        scenes = yaml.safe_load(scenes_yaml.read_text(encoding="utf-8")) or []
+        scene = next(s for s in scenes if s.get("label") == label)
+        bodies = [obj["body"] for obj in scene.get("objects", [])]
+    except (OSError, StopIteration, KeyError, TypeError, yaml.YAMLError):
+        bodies = []
+    return bodies or ["blue-cube"]
+
+
 def _get_state(robot_name: str, part_name: str) -> str:
     return f"/{robot_name}/{part_name}/state:o"
 
@@ -115,33 +133,36 @@ class iCubConfig(RobotConfig):
     remote_gaze_port: str = "/teleop/gaze_target:i"
     remote_rpc_port: str = "/teleop/rpc:i"
 
-    # --- Observaciones opcionales ---
-    use_joint_vel: bool = False
-    use_joint_torque: bool = False
-    use_external_wrench: bool = False
-    use_eef_pose: bool = False
-    use_tactile: bool = False
+    # --- Observaciones extra ---
+    # Mismos nombres y unidades que el plugin de MuJoCo (lerobot_robot_icub), para poder
+    # evaluar en un simulador políticas entrenadas en el otro. Diferencia: aquí todo va
+    # en el frame root del iCub y en MuJoCo en el mundo MuJoCo (ver README, sim-to-sim).
+    use_joint_vel: bool = False      # {joint}_vel [rad/s]      ← /teleop/robot_state:o
+    use_joint_torque: bool = False   # {joint}_torque [Nm]      ← /teleop/robot_state:o
+    use_eef_pose: bool = False       # {rh,lh}_ee_pos_*/_ee_quat_*  ← /teleop/{rh,lh}_current_pose:o
+    use_targets: bool = False        # {rh,lh}_target_*, gaze_target_pos_*, {rh,lh}_gripper (último comando)
+    use_tactile: bool = False        # {rh,lh}_touch_{thumb,index,middle} (0/1), ver touch_source
+    use_object_pose: bool = False    # obj{i}_pos_*/_quat_* (ground truth) ← gz /model/<body>/pose
 
-    # Puertos para joint velocity (wholeBodyDynamics o el puerto de estado del robot)
-    remote_vel_port_l: str = "/wholeBodyDynamics/left_arm/jointVelocities:o"
-    remote_vel_port_r: str = "/wholeBodyDynamics/right_arm/jointVelocities:o"
+    # De dónde sale el tacto: "gazebo" = sensores de contacto de las puntas (ambas manos,
+    # model.urdf), "skin" = piel del robot republicada por teleop_module_sm (solo mano
+    # derecha). "auto": gazebo con robot_name icubSim, skin con el robot real.
+    touch_source: str = "auto"
+    remote_touch_port: str = "/teleop/touch:o"
+    # Media de los 12 taxels de un dedo a partir de la cual cuenta como contacto
+    # (el mismo umbral que usa teleop_module_sm para sus avisos).
+    touch_threshold: float = 100.0 / 12.0
+    # Mirada antes del primer comando: la que fija play_gazebo.py (look_at -0.5 0.0 0.3).
+    gaze_target_init: tuple[float, float, float] = (-0.5, 0.0, 0.3)
+    # Modelos de Gazebo en el orden obj0, obj1, ... (vacío = objetos de la escena activa
+    # en scenes.yaml, igual que MuJoCo; sin escena, blue-cube).
+    object_bodies: list[str] = field(default_factory=list)
+    # root_link del iCub en el mundo Gazebo (<pose> del iCub en gazebo/worlds/icub_world.sdf).
+    gazebo_root_xyz: tuple[float, float, float] = (0.0, 0.0, 0.73)
+    # rh/lh_gripper: False = fracción de cierre 0..1 (desde el 2026-10-21, gatillo gradual);
+    # True = convención anterior 0 abrir / 0.5 cerrar / 1 mantener (modelos legacy).
+    gripper_legacy: bool = False
 
-    # Puertos para joint torque
-    remote_torque_port_l: str = "/wholeBodyDynamics/left_arm/torques:o"
-    remote_torque_port_r: str = "/wholeBodyDynamics/right_arm/torques:o"
-
-    # Puertos para wrench (fuerza/torque externo estimado en el EEF)
-    remote_wrench_port_l: str = "/wholeBodyDynamics/left_arm/cartesianEndEffectorWrench:o"
-    remote_wrench_port_r: str = "/wholeBodyDynamics/right_arm/cartesianEndEffectorWrench:o"
-
-    # Puertos para EEF pose del Cartesian Controller [x y z ax ay az theta]
-    remote_eef_port_l: str = ""   # derivado de robot_name en __post_init__
-    remote_eef_port_r: str = ""
-
-    # Puertos de tacto (skin)
-    remote_tactile_port_l: str = ""   # derivado de robot_name en __post_init__
-    remote_tactile_port_r: str = ""
-    
 
     # _YAML_CFG = load_yarp_config(config_path)
 
@@ -173,24 +194,24 @@ class iCubConfig(RobotConfig):
             name: tuple(yaml_shapes.get(name, _CAMERA_SHAPES.get(name, _DEFAULT_CAMERA_SHAPE)))
             for name in self.camera_ports
         }
-        # Flags de observaciones opcionales
-        self.use_joint_vel      = cfg.get("use_joint_vel",       self.use_joint_vel)
-        self.use_joint_torque   = cfg.get("use_joint_torque",    self.use_joint_torque)
-        self.use_external_wrench= cfg.get("use_external_wrench", self.use_external_wrench)
-        self.use_eef_pose       = cfg.get("use_eef_pose",        self.use_eef_pose)
-        self.use_tactile        = cfg.get("use_tactile",         self.use_tactile)
-        # Puertos opcionales sobreescribibles desde YAML
-        self.remote_vel_port_l     = cfg.get("remote_vel_port_l",     self.remote_vel_port_l)
-        self.remote_vel_port_r     = cfg.get("remote_vel_port_r",     self.remote_vel_port_r)
-        self.remote_torque_port_l  = cfg.get("remote_torque_port_l",  self.remote_torque_port_l)
-        self.remote_torque_port_r  = cfg.get("remote_torque_port_r",  self.remote_torque_port_r)
-        self.remote_wrench_port_l  = cfg.get("remote_wrench_port_l",  self.remote_wrench_port_l)
-        self.remote_wrench_port_r  = cfg.get("remote_wrench_port_r",  self.remote_wrench_port_r)
-        # Derivados de robot_name: el YAML solo los sobreescribe si lo pide explicitamente.
-        self.remote_eef_port_l     = cfg.get("remote_eef_port_l",     f"/{robot_name}/cartesianController/left_arm/state:o")
-        self.remote_eef_port_r     = cfg.get("remote_eef_port_r",     f"/{robot_name}/cartesianController/right_arm/state:o")
-        self.remote_tactile_port_l = cfg.get("remote_tactile_port_l", f"/{robot_name}/skin/left_arm_comp")
-        self.remote_tactile_port_r = cfg.get("remote_tactile_port_r", f"/{robot_name}/skin/right_arm_comp")
+        # Flags de observaciones extra
+        self.use_joint_vel    = cfg.get("use_joint_vel",    self.use_joint_vel)
+        self.use_joint_torque = cfg.get("use_joint_torque", self.use_joint_torque)
+        self.use_eef_pose     = cfg.get("use_eef_pose",     self.use_eef_pose)
+        self.use_targets      = cfg.get("use_targets",      self.use_targets)
+        self.use_tactile      = cfg.get("use_tactile",      self.use_tactile)
+        # Ground truth del simulador: en el robot real no hay de dónde leerla
+        self.use_object_pose  = (cfg.get("use_object_pose", self.use_object_pose)
+                                 and robot_name.strip().lower() == "icubsim")
+        self.remote_touch_port = cfg.get("remote_touch_port", self.remote_touch_port)
+        self.touch_source = cfg.get("touch_source", self.touch_source)
+        if self.touch_source == "auto":
+            self.touch_source = "gazebo" if robot_name.strip().lower() == "icubsim" else "skin"
+        self.touch_threshold = float(cfg.get("touch_threshold", self.touch_threshold))
+        self.gaze_target_init = tuple(cfg.get("gaze_target_init", self.gaze_target_init))
+        self.gazebo_root_xyz = tuple(cfg.get("gazebo_root_xyz", self.gazebo_root_xyz))
+        if not self.object_bodies:
+            self.object_bodies = cfg.get("object_bodies") or _scene_object_bodies()
 
 
 

@@ -17,13 +17,24 @@
   </visual>
 
   <worldbody>
-    <body name="blue-cube" pos="0.4 -0.1 0.745">
-      <inertial pos="0 0 0" mass="0.1" diaginertia="0.000625 0.000729 0.000729" />
-      <geom type="box" size="0.025 0.025 0.025" group="0" name="blue_cube_collision" friction="1 0.005 0.0001" />
+    <!-- Igual que gazebo/models/blue-cube: 5 cm, 0.1 kg, inercia m*a^2/6 y fricción 5 (antes
+         1 y una inercia ~15 veces mayor). quat 180 deg en z = identidad en el frame root,
+         como el cubo de Gazebo (ver scenes.yaml). -->
+    <body name="blue-cube" pos="0.4 -0.1 0.745" quat="0 0 0 1">
+      <inertial pos="0 0 0" mass="0.1" diaginertia="4.1667e-05 4.1667e-05 4.1667e-05" />
+      <geom type="box" size="0.025 0.025 0.025" group="0" name="blue_cube_collision" friction="5 0.005 0.0001" />
       <geom type="box" size="0.025 0.025 0.025" conaffinity="0" contype="0" group="1" name="blue_cube_visual" material="blue" />
       <site pos="0 0 0.026" name="blue_cube_top" size="0.002 0.002 0.002" rgba="1 0 0 0" />
       <freejoint />
     </body>
   </worldbody>
+
+  <contact>
+    <!-- MuJoCo combina la fricción con el máximo de las dos superficies: con el cubo en 5
+         (para agarrarlo, como en Gazebo) el contacto cubo-mesa también quedaría en 5 y, con
+         el cono piramidal, el cubo se hunde ~3 cm en la mesa. Gazebo (DART) usa el mínimo:
+         cubo-dedos 5, cubo-mesa 1. Este par reproduce lo mismo. -->
+    <pair geom1="blue_cube_collision" geom2="table_collision" friction="1 1 0.005 0.0001 0.0001"/>
+  </contact>
 
 </mujoco>

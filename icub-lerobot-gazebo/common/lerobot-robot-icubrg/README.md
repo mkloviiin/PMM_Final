@@ -42,10 +42,9 @@ export ICUB_LEROBOT_CONFIG=/home/icub/mujoco_ws/REPO_ICUB/icub-lerobot-gazebo/co
 
 ## Observation features
 
-Unlike `lerobot_robot_icub_mujoco` (the MuJoCo robot used by `icub-lerobot-mj`), this robot
-**does not** publish `object_pos_*` / `object_quat_*` observation features:
-a real or Gazebo-simulated robot has no ground-truth pose for the
-manipulated object (no motion-capture/vision system wired up), so those
-fields simply don't exist here. Everything else — joint state, optional
-joint velocity/torque/wrench/EEF-pose/tactile, and cameras — mirrors the
-MuJoCo robot's feature set.
+Besides joint positions and cameras, the `use_*` flags in `config/control_config.yaml`
+(`use_joint_vel`, `use_joint_torque`, `use_eef_pose`, `use_targets`, `use_tactile`,
+`use_object_pose`) add the same state features, with the same names, as
+`lerobot_robot_icub_mujoco`, expressed in the iCub root frame. `obj{i}_*` is Gazebo ground
+truth (PosePublisher on the object models) and does not exist on the real robot. See
+"Sim-to-sim" in the top-level README.

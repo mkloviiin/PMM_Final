@@ -36,7 +36,7 @@ from pathlib import Path
 import gradio as gr
 import yaml
 
-from .. import procman, session
+from .. import ports, procman, session
 from ..paths import ASSETS_DIR, GAZEBO_ROOT, HUB_ROOT
 from ..ui.dir_picker import dir_textbox
 from .base import RobotBackend
@@ -402,6 +402,10 @@ def build_config_form() -> dict[str, gr.components.Component]:
         robot_name = _robot_name(mode)
         if not procman.is_running("yarp_module"):
             procman.stop_stale("yarp_module", str(_YARP_MODULE))
+            # El módulo publica el streaming a los lentes en los mismos puertos que MuJoCo
+            busy = ports.preflight(ports.STREAM_PORTS, "the YARP module (VR streaming)", log=session.log)
+            if busy:
+                return busy
         # Brazos: los del formulario; 'auto' = los que tengan cartesianController en YARP
         # (si no se detecta ninguno, el control_arms del YAML). Antes no se pasaba y el módulo
         # usaba siempre el del YAML, así que "Control arms" no cambiaba nada.
@@ -482,6 +486,11 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
 
     resolved_vr_ip = vr_ip.strip() if vr_ip else None
     resolved_vr = bool(vr)
+    if resolved_vr or vr_cable:
+        # play_gazebo abre los puertos del VR (los mismos que usa el núcleo MuJoCo)
+        busy = ports.preflight(ports.VR_PORTS, "the Gazebo/robot session (VR)", log=session.log)
+        if busy:
+            return busy
     resolved_cable = bool(vr_cable)
 
     run_suffix = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

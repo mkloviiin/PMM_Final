@@ -29,6 +29,7 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import torch
+import yaml
 
 # ── Inject local robot / teleop plugins ─────────────────────────────────────
 repo_root = Path(__file__).resolve().parent
@@ -81,6 +82,22 @@ def parse_args() -> argparse.Namespace:
         help="1=lift cube, 2=stack cubes",
     )
     p.add_argument(
+        "--control-arms",
+        choices=["right", "left", "both"],
+        default=None,
+        help="Arms to control (default: inferred from the training dataset action names, "
+             "else control_arms in control_config.yaml)",
+    )
+    p.add_argument(
+        "--cube-pos",
+        type=float,
+        nargs=3,
+        default=None,
+        metavar=("X", "Y", "Z"),
+        help="Fixed blue-cube spawn position (default: random within cube_spawn of "
+             "control_config.yaml, as during recording)",
+    )
+    p.add_argument(
         "--config",
         default=str(repo_root / "utils" / "control_config.yaml"),
         help="Path to control_config.yaml",
@@ -100,20 +117,78 @@ def parse_args() -> argparse.Namespace:
         "--min-hand-z",
         type=float,
         default=0.55,
-        help="Minimum z for rh/lh mocap targets during eval",
+        help="Minimum z (MuJoCo world, m) for rh/lh targets during eval; converted to the robot's "
+             "pose frame",
+    )
+    p.add_argument(
+        "--camera-source",
+        nargs="*",
+        default=[],
+        metavar="TRAINED=SOURCE",
+        help="Ablation: feed the policy camera SOURCE where it expects TRAINED, e.g. "
+             "head_cam_track_hand=head_cam (Gazebo has no hand-tracking camera)",
+    )
+    p.add_argument(
+        "--legacy", "--legacy-head-cams",
+        dest="legacy",
+        action="store_true",
+        help="Policy trained before 2026-10-20 (e.g. mujocotrainPMM): world-frame poses, the old "
+             "head cameras / camera names and the old gripper convention (0 open / 0.5 close)",
+    )
+    p.add_argument(
+        "--zero-touch",
+        action="store_true",
+        help="Ablation: rh_touch_* always 0, like Gazebo's iCub (no skin)",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Seed for the cube spawn, to compare runs on the same positions",
     )
     p.add_argument(
         "--min-gaze-z",
         type=float,
-        default=0.55,
-        help="Minimum z for gaze mocap target during eval",
+        default=None,
+        help="Minimum z for gaze mocap target during eval (default: no clamp; "
+             "trained gaze_z is mostly 0.1-0.5, so a clamp pushes it out of distribution)",
     )
     return p.parse_args()
 
 
+class _Tee:
+    """Copia stdout/stderr a un archivo (eval.log del run), para revisar la corrida después."""
+
+    def __init__(self, stream, log):
+        self.stream, self.log = stream, log
+
+    def write(self, data):
+        self.stream.write(data)
+        self.log.write(data)
+        self.log.flush()
+
+    def flush(self):
+        self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+
+def log_to(path: Path) -> None:
+    log = open(path, "a", buffering=1)
+    sys.stdout, sys.stderr = _Tee(sys.stdout, log), _Tee(sys.stderr, log)
+    print(f"[eval] command: {' '.join(sys.argv)}")
+
+
 # ── Observation → policy batch ───────────────────────────────────────────────
 
-CAMERA_NAMES = ("head_cam", "head_cam_track_hand", "frontview")
+# Cámaras de los modelos anteriores al 2026-10-20 (--legacy): nombres viejos, y las de cabeza
+# en su pose antigua (ver dependencies/assets/scenes/icub_visuomanip_ikin_limits.xml)
+LEGACY_CAMERA_NAMES = ["head_cam", "head_cam_track_hand", "frontview"]
+LEGACY_CAMERA_SOURCES = {"head_cam": "head_cam_v1", "head_cam_track_hand": "head_cam_track_hand_v1"}
+
+SCENES_DIR = repo_root / "dependencies" / "assets" / "scenes"
+SCENE_FILES = {1: "scene_icub_lift.xml", 2: "scene_icub_stack.xml"}
 
 FULL_ACTION_ORDER = [
     "rh_pos_x", "rh_pos_y", "rh_pos_z",
@@ -126,27 +201,35 @@ FULL_ACTION_ORDER = [
 ]
 
 
-def build_raw_observation_dict(obs: dict, device: str) -> dict:
+def build_raw_observation_dict(
+    obs: dict, device: str, camera_names, state_names: list[str] | None = None
+) -> dict:
     """
     Convert the raw iCub-MuJoCo observation dict into exactly the state
     and image formats expected by the PreTrained Policy inputs, before 
     any normalizations or tokenization strings are handled by the preprocessor.
+
+    If `state_names` (from the training dataset) is given, the state vector is
+    built in that exact order; otherwise the observation dict order is used.
     """
     batch: dict = {}
     state_vals: list[float] = []
 
     for key, val in obs.items():
-        if key in CAMERA_NAMES:
-            # val is a (C, H, W) torch.Tensor with values in [0, 255]
-            # Must remain on CPU for raw formatting; preprocessor moves it to target device
-            img = val.float() / 255.0           # expected to be in [0, 1] usually
+        if key in camera_names:
+            # val is an (H, W, C) uint8 image (like the Gazebo robot); the policy wants
+            # (C, H, W) floats in [0, 1]
+            img = torch.from_numpy(np.ascontiguousarray(val)).permute(2, 0, 1).float() / 255.0
             batch[f"observation.images.{key}"] = img.unsqueeze(0).to(device)
-        else:
+        elif state_names is None:
             # Scalar observation feature (joint pos, vel, torque, EE pose, …)
             if isinstance(val, torch.Tensor):
                 state_vals.append(val.item())
             else:
                 state_vals.append(float(val))
+
+    if state_names is not None:
+        state_vals = [to_float(obs[name]) for name in state_names]
 
     batch["observation.state"] = torch.tensor(
         state_vals, dtype=torch.float32
@@ -176,12 +259,48 @@ def read_expected_dims_from_train_config(policy_repo: str) -> tuple[int | None, 
         return None, None
 
 
-def actions_tensor_to_dict(actions: torch.Tensor, action_keys: list[str]) -> dict[str, float]:
+def read_trained_feature_names(policy_repo: str) -> tuple[list[str] | None, list[str] | None]:
+    """State/action names of the training dataset (via train_config.json → dataset root)."""
+    try:
+        cfg = json.loads((Path(policy_repo).expanduser() / "train_config.json").read_text())
+        info_path = Path(cfg["dataset"]["root"]).expanduser() / "meta" / "info.json"
+        feats = json.loads(info_path.read_text())["features"]
+        return feats["observation.state"]["names"], feats["action"]["names"]
+    except Exception:
+        return None, None
+
+
+def infer_control_arms(action_names: list[str] | None) -> str | None:
+    if not action_names:
+        return None
+    has_r = any(n.startswith("rh_") for n in action_names)
+    has_l = any(n.startswith("lh_") for n in action_names)
+    if has_r and has_l:
+        return "both"
+    return "right" if has_r else "left" if has_l else None
+
+
+def load_scene_entry(xml_name: str) -> dict:
+    """Entry of scenes.yaml for this XML (objects/joints to reset, default task)."""
+    try:
+        entries = yaml.safe_load((SCENES_DIR / "scenes.yaml").read_text()) or []
+    except Exception:
+        return {}
+    return next((e for e in entries if e.get("file") == xml_name), {})
+
+
+def actions_tensor_to_dict(
+    actions: torch.Tensor, action_keys: list[str], action_names: list[str] | None = None
+) -> dict[str, float]:
     """
     Convert the 1-D action tensor returned by `policy.select_action`
     into the dict format expected by `robot.send_action`.
     """
     a = actions.detach().cpu().numpy().flatten()
+
+    if action_names and len(action_names) == len(a):
+        named = {name: float(a[idx]) for idx, name in enumerate(action_names)}
+        return {key: named.get(key, 0.0) for key in action_keys}
 
     if len(a) == len(FULL_ACTION_ORDER):
         full_action = {name: float(a[idx]) for idx, name in enumerate(FULL_ACTION_ORDER)}
@@ -190,7 +309,9 @@ def actions_tensor_to_dict(actions: torch.Tensor, action_keys: list[str]) -> dic
     return {key: float(a[i]) for i, key in enumerate(action_keys) if i < len(a)}
 
 
-def clamp_action_targets(action_dict: dict[str, float], min_hand_z: float, min_gaze_z: float) -> bool:
+def clamp_action_targets(
+    action_dict: dict[str, float], min_hand_z: float, min_gaze_z: float | None
+) -> bool:
     clamped = False
 
     for key in ("rh_pos_z", "lh_pos_z"):
@@ -198,7 +319,7 @@ def clamp_action_targets(action_dict: dict[str, float], min_hand_z: float, min_g
             action_dict[key] = min_hand_z
             clamped = True
 
-    if "gaze_z" in action_dict and action_dict["gaze_z"] < min_gaze_z:
+    if min_gaze_z is not None and "gaze_z" in action_dict and action_dict["gaze_z"] < min_gaze_z:
         action_dict["gaze_z"] = min_gaze_z
         clamped = True
 
@@ -209,26 +330,18 @@ def clamp_action_targets(action_dict: dict[str, float], min_hand_z: float, min_g
 
 def main() -> None:
     args = parse_args()
+    policy_path = Path(args.policy_repo).expanduser()
+    exp_name = policy_path.resolve().parents[2].name if policy_path.exists() else "policy"
+    run_dir = repo_root.parent / "outputs" / "tests" / f"{exp_name}_mujoco_{time.strftime('%Y%m%d-%H%M%S')}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    log_to(run_dir / "eval.log")
 
-    # Pick the right scene XML
-    if args.scene == 1:
-        model_file = (
-            repo_root
-            / "dependencies"
-            / "assets"
-            / "scenes"
-            / "icub_table_scene_lift.xml"
-        )
-        task = args.task or "Pick up the blue cube"
-    else:
-        model_file = (
-            repo_root
-            / "dependencies"
-            / "assets"
-            / "scenes"
-            / "icub_table_scene_stack.xml"
-        )
-        task = args.task or "Stack the blue cube"
+    # Pick the right scene XML (same files / objects as the hub uses for recording)
+    model_file = SCENES_DIR / SCENE_FILES[args.scene]
+    if not model_file.exists():
+        raise FileNotFoundError(f"MuJoCo scene not found: {model_file}")
+    scene_entry = load_scene_entry(model_file.name)
+    task = args.task or scene_entry.get("task", "lift the blue block")
 
     # Set env vars used by the robot plugin
     os.environ.setdefault("ICUB_LEROBOT_CONFIG", args.config)
@@ -258,13 +371,48 @@ def main() -> None:
     from lerobot.robots import make_robot_from_config
     from lerobot.utils.robot_utils import precise_sleep
 
+    from lerobot_robot_icub.config_icub_mujoco import _get_actuators_logic, load_control_config
+
+    state_names, action_names = read_trained_feature_names(args.policy_repo)
+    if state_names is None:
+        print("[eval][warn] Training dataset meta/info.json not found: state/action order "
+              "falls back to the robot's feature order.")
+
     robot_cfg = iCubMuJoCoConfig(
         model_path=str(model_file),
         config_path=args.config,
+        scene_objects=scene_entry.get("objects", []),
+        scene_joints=scene_entry.get("joints", []),
     )
+    # Arms used in training override control_arms from the YAML (read in __post_init__)
+    control_arms = args.control_arms or infer_control_arms(action_names)
+    if control_arms:
+        ycfg = dict(load_control_config(args.config) or {})
+        ycfg["control_arms"] = control_arms
+        robot_cfg.control_arms = control_arms
+        robot_cfg.actuators_to_use = _get_actuators_logic(ycfg)
+    print(f"[eval] Control arms: {robot_cfg.control_arms}")
+    if args.legacy:
+        robot_cfg.pose_frame = "world"
+        robot_cfg.gripper_legacy = True
+        robot_cfg.camera_names = list(LEGACY_CAMERA_NAMES)
+        robot_cfg.camera_sources = dict(LEGACY_CAMERA_SOURCES)
+    trained_cams = list(robot_cfg.camera_names)
+    # Ablación --camera-source: la cámara fuente también hay que renderizarla
+    camera_sources = dict(pair.split("=", 1) for pair in args.camera_source)
+    robot_cfg.camera_names = list(dict.fromkeys([*trained_cams, *camera_sources.values()]))
     robot = make_robot_from_config(robot_cfg)
     robot.connect()
     print("[eval] Robot connected ✓")
+    if args.seed is not None:
+        np.random.seed(args.seed)
+    print(f"[eval] Pose frame: {robot_cfg.pose_frame} | cameras: {trained_cams}")
+    if camera_sources:
+        print(f"[eval][ablation] Cameras (trained <- source): {camera_sources}")
+    # --min-hand-z / --min-gaze-z vienen en el mundo MuJoCo; las acciones, en pose_frame
+    z_offset = float(robot._waist_pos[2]) if robot_cfg.pose_frame == "root" else 0.0
+    min_hand_z = args.min_hand_z - z_offset
+    min_gaze_z = None if args.min_gaze_z is None else args.min_gaze_z - z_offset
     print(f"[eval] Task: {task!r}")
     print(f"[eval] Running {args.n_episodes} episodes × {args.episode_steps} steps @ {args.fps} fps\n")
 
@@ -272,7 +420,32 @@ def main() -> None:
 
     expected_state_dim, expected_action_dim = read_expected_dims_from_train_config(args.policy_repo)
     obs_probe = robot.get_observation()
-    current_state_dim = sum(1 for key in obs_probe if key not in CAMERA_NAMES)
+    # Torques of actuators outside control_arms (e.g. l_pinky_torque, left over by the
+    # curation of a dataset recorded with both arms) are read straight from MuJoCo.
+    extra_torque_ids: dict[str, int] = {}
+    if state_names is not None:
+        missing = []
+        for name in state_names:
+            if name in obs_probe:
+                continue
+            try:
+                extra_torque_ids[name] = robot.teleop_core.model.actuator(name.removesuffix("_torque")).id
+            except KeyError:
+                missing.append(name)
+        if missing:
+            # p. ej. rh_ext_force_* de un modelo --legacy: ya no se graban
+            print(f"[eval][warn] Robot observation lacks {len(missing)} trained state features "
+                  f"{missing[:6]}: fed as 0. Check --scene / --control-arms / --legacy.")
+        if extra_torque_ids:
+            print(f"[eval] Read from MuJoCo actuator_force: {list(extra_torque_ids)}")
+        current_state_dim = len(state_names)
+    else:
+        current_state_dim = sum(1 for key in obs_probe if key not in trained_cams)
+    if action_names and set(action_names) != set(action_keys):
+        print(
+            "[eval][warn] Action mismatch: "
+            f"trained={action_names}, robot={action_keys}."
+        )
 
     if expected_state_dim is not None and expected_state_dim != current_state_dim:
         print(
@@ -302,21 +475,29 @@ def main() -> None:
         for ep in range(args.n_episodes):
             print(f"── Episode {ep + 1}/{args.n_episodes} ──")
 
-            # Reset scenario: place the cube
+            # Reset scenario: randomize the cube (cube_spawn of control_config.yaml)
             if hasattr(robot, "teleop_core") and robot.teleop_core:
                 tc = robot.teleop_core
                 if hasattr(tc, "_reset_scenario"):
                     tc._reset_scenario()
-                
-                # Set fixed position
-                pos = np.array([0.40, -0.20, 0.72])
-                quat = np.array([1.0, 0.0, 0.0, 0.0])
-                if hasattr(tc, "set_cube_pose"):
+
+                # Optional fixed position
+                if args.cube_pos is not None and hasattr(tc, "set_cube_pose"):
+                    pos = np.array(args.cube_pos)
+                    quat = np.array([1.0, 0.0, 0.0, 0.0])
                     tc.set_cube_pose(pos, quat)
-                print(f"[Reset] Fixed blue-cube → {pos}")
+                    print(f"[Reset] Fixed blue-cube → {pos}")
+
+                # Targets on the current EE pose + physics warm-up (as eval_policy_mujoco.py)
+                if hasattr(tc, "_snap_targets_to_ee"):
+                    tc._snap_targets_to_ee()
+                for _ in range(10):
+                    mujoco.mj_step(tc.model, tc.data)
 
             # Reset policy hidden state / action chunk
             policy.reset()
+            preprocessor.reset()
+            postprocessor.reset()
 
             ep_initial_cube_z: float | None = None
             ep_max_cube_z: float | None = None
@@ -328,9 +509,21 @@ def main() -> None:
 
                 # 1. Get observation from the simulator
                 obs = robot.get_observation()
+                for trained_cam, source_cam in camera_sources.items():
+                    obs[trained_cam] = obs[source_cam]
+                for extra_cam in set(camera_sources.values()) - set(trained_cams):
+                    obs.pop(extra_cam, None)
+                for name in missing if state_names is not None else []:
+                    obs[name] = torch.tensor(0.0)
+                if args.zero_touch:
+                    for touch_key in ("rh_touch_thumb", "rh_touch_index", "rh_touch_middle"):
+                        if touch_key in obs:
+                            obs[touch_key] = torch.tensor(0.0)
+                for name, aid in extra_torque_ids.items():
+                    obs[name] = float(robot.teleop_core.data.actuator_force[aid])
 
-                if "object_pos_z" in obs:
-                    cube_z = to_float(obs["object_pos_z"])
+                if "obj0_pos_z" in obs:
+                    cube_z = to_float(obs["obj0_pos_z"])
                     if ep_initial_cube_z is None:
                         ep_initial_cube_z = cube_z
                     if ep_max_cube_z is None:
@@ -347,7 +540,7 @@ def main() -> None:
                     ep_touch_frames += 1
 
                 # 2. Build the policy input batch
-                raw_obs = build_raw_observation_dict(obs, args.device)
+                raw_obs = build_raw_observation_dict(obs, args.device, trained_cams, state_names)
 
                 # Preprocessor loaded from checkpoint expects flat batch format
                 # (observation.* keys + complementary fields like "task").
@@ -364,8 +557,8 @@ def main() -> None:
                 action_tensor = postprocessor(action_tensor)
 
                 # 5. Convert tensor → dict and send to robot
-                action_dict = actions_tensor_to_dict(action_tensor, action_keys)
-                if clamp_action_targets(action_dict, args.min_hand_z, args.min_gaze_z):
+                action_dict = actions_tensor_to_dict(action_tensor, action_keys, action_names)
+                if clamp_action_targets(action_dict, min_hand_z, min_gaze_z):
                     ep_clamp_steps += 1
                 robot.send_action(action_dict)
 
@@ -421,6 +614,13 @@ def main() -> None:
             print(f"  avg_lift_delta: {avg_lift_str}")
             print(f"  avg_touch_ratio: {avg_touch:.1%}")
             print(f"  avg_clamp_ratio: {avg_clamp:.1%}")
+
+        (run_dir / "summary.json").write_text(json.dumps(
+            {"args": vars(args), "episodes": episode_metrics,
+             "success_rate": (sum(m["lifted"] for m in episode_metrics) / len(episode_metrics))
+             if episode_metrics else None},
+            indent=2, default=float))
+        print(f"[eval] Summary saved to {run_dir / 'summary.json'}")
 
     finally:
         print("[eval] Cleaning up …")

@@ -59,6 +59,23 @@ ICUB_YARP_IP=10.0.0.2 docker compose up
 No corras un `yarpserver` en el host al mismo tiempo que Gazebo en el
 contenedor: ambos usan el puerto 10000.
 
+## Puertos del VR
+
+MuJoCo y Gazebo/robot real usan los mismos puertos para los lentes: 8115-8121 (entrada del
+VR) y 10505/15001 (streaming de imagen). Con `network_mode: host` también chocan con
+procesos del host (otro Hub abierto fuera del contenedor, un `teleop_module_sm.py`, etc.).
+Antes de lanzar una sesión el Hub revisa los que necesita
+(`hub_dataset/launcher_gui/ports.py`): si los retiene una sesión anterior del propio Hub
+los libera; si los tiene otro proceso, muestra cuál en vez de lanzar la sesión. No hace
+falta reiniciar el Hub para pasar de MuJoCo a Gazebo o al revés.
+
+## LeRobot en la imagen y en el host
+
+La imagen trae lerobot en `017ff73f` (v0.5.x), el mismo que el `icubenv` del host con el que
+corre el Hub y se graban los datasets. El entrenamiento (notebook `training_smolvla.ipynb`)
+corre en el host con el submódulo `lerobot/` (v0.6.x, entorno `smolvla`). Los scripts de
+grabación y de evaluación (`play_*.py`, `eval_*.py`) funcionan con ambas versiones.
+
 ## Gazebo
 
 `start_sim.sh` usa el controlboard parchado (modo MIXED para los ojos de
@@ -91,5 +108,5 @@ aplicando (`build_controlboard.sh` clona la v0.5.3).
 | `GZ_RENDER_ENV` | variables PRIME | prefijo de `gz sim` en `start_sim.sh` |
 | `GZ_PATCHED_PLUGIN_DIR` | `gazebo/plugins` del repo | carpeta del controlboard parchado |
 | `ICUBENV_SITE_PACKAGES` | `~/miniconda3/envs/icubenv/...` | site-packages extra de los scripts |
-| `ICUBENV_PREFIX` | `~/miniconda3/envs/icubenv` | entorno que usa `reset_objects.sh` |
+| `ICUBENV_PREFIX` | `~/miniconda3/envs/icubenv` | entorno del `gz` que usan `reset_objects.sh` y los lectores de pose del cubo y tacto (`gz_pose.py`) |
 | `CONDA_ENV` | `icubenv` | entorno que activan `start_sim.sh` y `build_controlboard.sh` |

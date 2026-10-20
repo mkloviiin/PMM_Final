@@ -20,12 +20,27 @@ except Exception:
     class DeviceAlreadyConnectedError(RuntimeError):
         pass
 
-from .config_icub import iCubConfig
+from .config_icub import iCubConfig, load_yarp_config
+from .gz_pose import GzContactReader, GzPoseReader
 
 # Espera máxima al primer frame de cada cámara en connect(), y antigüedad a partir de
 # la cual se avisa que una cámara dejó de mandar frames.
 CAMERA_FIRST_FRAME_TIMEOUT_S = 5.0
 CAMERA_STALE_S = 1.0
+# /teleop/touch:o: 12 taxels por dedo en este orden (teleop_module_sm._touch_names),
+# luego la palma. MuJoCo solo registra pulgar, índice y medio.
+TOUCH_FINGER_SLOT = {"thumb": 4, "index": 0, "middle": 1}
+TAXELS_PER_FINGER = 12
+
+
+def _grip_mode(value: float) -> str:
+    """Mismos umbrales que el plugin de MuJoCo: el teleop manda 0.0/0.5/1.0 exactos,
+    pero una política entrega valores continuos."""
+    if value <= 0.1:
+        return "open"
+    if 0.4 <= value <= 0.6:
+        return "close"
+    return "stop"
 
 class iCub(Robot):
     config_class = iCubConfig
@@ -58,10 +73,19 @@ class iCub(Robot):
         self._cam_stale_warn_t = 0.0
         self._connected = False
         self._calibrated = True 
-        self._prev_r_cmd = None
-        self._prev_l_cmd = None
+        self._grip_sent = {"rh": None, "lh": None}
+        # Último comando enviado (observaciones use_targets). Pinza = fracción de cierre
+        # pedida (0 = abierta, 1 = cerrada), como en MuJoCo.
+        self._last_target: dict[str, list[float]] = {}
+        self._last_gaze: list[float] | None = None
+        self._grip_level = {"rh": 0.0, "lh": 0.0}
+        self._last_touch: list[float] = []
+        self._pose_reader: GzPoseReader | None = None
+        self._contact_reader: GzContactReader | None = None
+        self._warned: set[str] = set()
+        # (tamaño de la Bottle, articulaciones por bloque, nombre -> índice) de robot_state
+        self._state_layout: tuple[int, int, dict[str, int]] | None = None
         self._warned_missing_gaze = False
-        self._warned_extra_joints = False
         self._rpc_enabled = False
         # Métricas por frame que lee metrics/frame_metrics.py (timestamps YARP de estado
         # y cámaras, confirmaciones de comandos). Se rehace en cada get_observation.
@@ -92,35 +116,30 @@ class iCub(Robot):
     def observation_features(self) -> dict[str, type]:     
         features = {**self._motors_ft, **self._cameras_ft}
 
-        if getattr(self.config, "use_joint_vel", False):
-            for name in self.actuator_list:
-                features[f"vel_{name}"] = float
-
-        if getattr(self.config, "use_joint_torque", False):
-            for name in self.actuator_list:
-                features[f"torque_{name}"] = float
-
-        if getattr(self.config, "use_external_wrench", False):
-            if self.config.control_arms in ["left", "both"]:
-                for i, comp in enumerate(["fx", "fy", "fz", "tx", "ty", "tz"]):
-                    features[f"lh_wrench_{comp}"] = float
-            if self.config.control_arms in ["right", "both"]:
-                for i, comp in enumerate(["fx", "fy", "fz", "tx", "ty", "tz"]):
-                    features[f"rh_wrench_{comp}"] = float
-
-        if getattr(self.config, "use_eef_pose", False):
-            if self.config.control_arms in ["left", "both"]:
-                for comp in ["x", "y", "z", "qw", "qx", "qy", "qz"]:
-                    features[f"lh_eef_{comp}"] = float
-            if self.config.control_arms in ["right", "both"]:
-                for comp in ["x", "y", "z", "qw", "qx", "qy", "qz"]:
-                    features[f"rh_eef_{comp}"] = float
-
-        if getattr(self.config, "use_tactile", False):
-            if self.config.control_arms in ["left", "both"]:
-                features["tactile_left"] = float
-            if self.config.control_arms in ["right", "both"]:
-                features["tactile_right"] = float
+        sides = self._arm_sides()
+        if self.config.use_joint_vel:
+            features.update({f"{name}_vel": float for name in self.actuator_list})
+        if self.config.use_eef_pose:
+            for side in sides:
+                features.update({f"{side}_ee_pos_{ax}": float for ax in "xyz"})
+                features.update({f"{side}_ee_quat_{ax}": float for ax in "wxyz"})
+        if self.config.use_targets:
+            for side in sides:
+                features.update({f"{side}_target_pos_{ax}": float for ax in "xyz"})
+                features.update({f"{side}_target_quat_{ax}": float for ax in "wxyz"})
+            if self.config.use_gaze:
+                features.update({f"gaze_target_pos_{ax}": float for ax in "xyz"})
+            for side in sides:
+                features[f"{side}_gripper"] = float
+        if self.config.use_tactile:
+            for side in self._touch_sides():
+                features.update({f"{side}_touch_{finger}": float for finger in TOUCH_FINGER_SLOT})
+        if self.config.use_object_pose:
+            for i in range(len(self.config.object_bodies)):
+                features.update({f"obj{i}_pos_{ax}": float for ax in "xyz"})
+                features.update({f"obj{i}_quat_{ax}": float for ax in "wxyz"})
+        if self.config.use_joint_torque:
+            features.update({f"{name}_torque": float for name in self.actuator_list})
 
         return features
 
@@ -150,6 +169,89 @@ class iCub(Robot):
             features["gaze_y"] = float
             features["gaze_z"] = float
         return features
+
+    def _arm_sides(self) -> list[str]:
+        return [side for side, arms in (("rh", ("right", "both")), ("lh", ("left", "both")))
+                if self.config.control_arms in arms]
+
+    def _layout_for(self, n: int) -> tuple[int, dict[str, int]]:
+        """Articulaciones por bloque y nombre -> índice de /teleop/robot_state:o.
+
+        teleop_module_sm publica torso, [left_arm], [right_arm], head según SUS brazos
+        (--control), no los de este cliente: con el módulo en 'both' y el robot en 'right'
+        tomar las primeras 25 era leer el brazo izquierdo como el derecho. Se deduce qué
+        publica a partir del tamaño (q, o q|dq|tau) y se lee por nombre.
+        """
+        if self._state_layout and self._state_layout[0] == n:
+            return self._state_layout[1], self._state_layout[2]
+        full = load_yarp_config(self.config.config_path).get("actuators", {})
+        layouts = {}
+        for arms in (("right_arm",), ("left_arm",), ("left_arm", "right_arm"), ()):
+            names = [j for part in ("torso", *arms, "head") for j in full.get(part, [])]
+            layouts.setdefault(len(names), names)
+        layouts[len(self.actuator_list)] = list(self.actuator_list)  # mismos brazos: orden propio
+        block = n // 3 if n % 3 == 0 and n // 3 in layouts else n
+        names = layouts.get(block)
+        missing = [j for j in self.actuator_list if names is None or j not in names]
+        if missing:
+            raise ConnectionError(
+                f"/teleop/robot_state:o sends {n} values, which does not match this robot's "
+                f"joints ({len(self.actuator_list)}, control_arms={self.config.control_arms}). "
+                f"Start teleop_module_sm.py with the same or more arms (--control)."
+            )
+        if block != len(self.actuator_list):
+            print(f"[iCub] robot_state has {block} joints per block (module controls more arms); "
+                  f"reading the {len(self.actuator_list)} of this robot by name.")
+        index = {j: i for i, j in enumerate(names)}
+        self._state_layout = (n, block, index)
+        return block, index
+
+    # Paso con que se manda la fracción de cierre al módulo: el gatillo cambia en cada frame
+    # y la mano real se mueve a ~10 deg/s, así que basta con mandar cambios de 5 %.
+    GRIP_STEP = 0.05
+
+    def _command_grip(self, side: str, value: float, send_rpc) -> None:
+        """rh/lh_gripper = fracción de cierre 0..1 -> RPC hand_right/hand_left <fracción>.
+
+        Con gripper_legacy (modelos/datasets anteriores al 2026-10-21): <=0.1 abrir,
+        0.4-0.6 cerrar, el resto mantiene.
+        """
+        if self.config.gripper_legacy:
+            mode = _grip_mode(value)
+            if mode == "stop":
+                return
+            value = 0.0 if mode == "open" else 1.0
+        level = float(np.clip(value, 0.0, 1.0))
+        self._grip_level[side] = level
+        step = round(level / self.GRIP_STEP) * self.GRIP_STEP
+        if self._grip_sent[side] is not None and abs(step - self._grip_sent[side]) < 1e-6:
+            return
+        word = "right" if side == "rh" else "left"
+        if send_rpc(f"hand_{word} {step:.2f}"):
+            self._grip_sent[side] = step
+        elif self.ports.get("hand_cmd") is not None and step in (0.0, 1.0):
+            # Puerto heredado: solo entiende abrir/cerrar
+            cmd = self.yarp.Bottle(); cmd.addString(f"{'open' if step == 0.0 else 'close'}_{word}")
+            self.ports["hand_cmd"].write(cmd)
+            self._grip_sent[side] = step
+
+    def reset_command_state(self) -> None:
+        """Olvida el último comando (targets, mirada, pinza) al empezar un episodio nuevo."""
+        self._last_target.clear()
+        self._last_gaze = None
+        self._grip_level = {"rh": 0.0, "lh": 0.0}
+        self._grip_sent = {"rh": None, "lh": None}
+
+    def _touch_sides(self) -> list[str]:
+        # La piel la republica teleop_module_sm solo para la mano derecha; los sensores de
+        # contacto de Gazebo están en ambas manos.
+        sides = self._arm_sides()
+        return sides if self.config.touch_source == "gazebo" else [s for s in sides if s == "rh"]
+
+    def _warn_once(self, key: str, msg: str) -> None:
+        if key not in self._warned:
+            self._warned.add(key)
+            print(f"[WARN] {msg}")
 
     @property
     def is_connected(self) -> bool:
@@ -262,47 +364,42 @@ class iCub(Robot):
                     p.close()
                     print(f"[WARN] /teleop/{side}_current_pose:o not connected: mocaps start at the XML pose.")
 
-        # 3. Puertos opcionales de observación
-        def _open_optional(key, local_suffix, remote_port):
-            """Abre un BufferedPortBottle opcional. Si falla, lo omite con un warning."""
+        # 3. Observaciones extra
+        if self.config.use_joint_vel or self.config.use_joint_torque:
+            # q | dq | tau desde teleop_module_sm._send_robot_state; un módulo anterior
+            # publica solo q y el dataset quedaría con velocidades/torques falsos.
+            first = self.ports["state"].read(True)
+            if first is not None:
+                block, _ = self._layout_for(first.size())
+                if first.size() != 3 * block:
+                    raise ConnectionError(
+                        f"/teleop/robot_state:o sends {first.size()} values ({block} joints, positions "
+                        f"only); use_joint_vel/use_joint_torque need q|dq|tau. Restart "
+                        f"teleop_module_sm.py so it runs the current version."
+                    )
+
+        if self.config.use_tactile and self.config.touch_source == "gazebo":
+            keys = [f"{side}_{finger}" for side in self._touch_sides() for finger in TOUCH_FINGER_SLOT]
+            self._contact_reader = GzContactReader(keys)
+            missing = self._contact_reader.start()
+            if missing:
+                print(f"[WARN] Gazebo does not publish {missing}: restart Gazebo so it loads the "
+                      f"fingertip contact sensors of model.urdf, or the touch will be 0.")
+            else:
+                print(f"[iCub] Touch from Gazebo fingertip contact sensors: {keys}")
+        elif self.config.use_tactile and "rh" in self._arm_sides():
             p = yarp.BufferedPortBottle()
-            local_name = f"{prefix}/{local_suffix}"
-            p.open(local_name)
-            if not yarp.Network.connect(remote_port, local_name):
+            p.open(f"{prefix}/touch:i")
+            if yarp.Network.connect(self.config.remote_touch_port, f"{prefix}/touch:i"):
+                self.ports["touch"] = p
+            else:
                 p.close()
-                print(f"[WARN] Could not connect optional port '{remote_port}' → skipped.")
-                return None
-            return p
+                print(f"[WARN] {self.config.remote_touch_port} not connected: rh_touch_* will be 0.")
 
-        if getattr(self.config, "use_joint_vel", False):
-            if self.config.control_arms in ["left", "both"]:
-                self.ports["vel_l"] = _open_optional("vel_l", "vel_l:i", self.config.remote_vel_port_l)
-            if self.config.control_arms in ["right", "both"]:
-                self.ports["vel_r"] = _open_optional("vel_r", "vel_r:i", self.config.remote_vel_port_r)
-
-        if getattr(self.config, "use_joint_torque", False):
-            if self.config.control_arms in ["left", "both"]:
-                self.ports["torque_l"] = _open_optional("torque_l", "torque_l:i", self.config.remote_torque_port_l)
-            if self.config.control_arms in ["right", "both"]:
-                self.ports["torque_r"] = _open_optional("torque_r", "torque_r:i", self.config.remote_torque_port_r)
-
-        if getattr(self.config, "use_external_wrench", False):
-            if self.config.control_arms in ["left", "both"]:
-                self.ports["wrench_l"] = _open_optional("wrench_l", "wrench_l:i", self.config.remote_wrench_port_l)
-            if self.config.control_arms in ["right", "both"]:
-                self.ports["wrench_r"] = _open_optional("wrench_r", "wrench_r:i", self.config.remote_wrench_port_r)
-
-        if getattr(self.config, "use_eef_pose", False):
-            if self.config.control_arms in ["left", "both"]:
-                self.ports["eef_l"] = _open_optional("eef_l", "eef_l:i", self.config.remote_eef_port_l)
-            if self.config.control_arms in ["right", "both"]:
-                self.ports["eef_r"] = _open_optional("eef_r", "eef_r:i", self.config.remote_eef_port_r)
-
-        if getattr(self.config, "use_tactile", False):
-            if self.config.control_arms in ["left", "both"]:
-                self.ports["tactile_l"] = _open_optional("tactile_l", "tactile_l:i", self.config.remote_tactile_port_l)
-            if self.config.control_arms in ["right", "both"]:
-                self.ports["tactile_r"] = _open_optional("tactile_r", "tactile_r:i", self.config.remote_tactile_port_r)
+        if self.config.use_object_pose:
+            self._pose_reader = GzPoseReader(self.config.object_bodies, self.config.gazebo_root_xyz)
+            self._pose_reader.start()
+            print(f"[iCub] Object poses from Gazebo: {self.config.object_bodies}")
 
         self._connected = True
         print("iCub Robot Connected via YARP")
@@ -355,16 +452,26 @@ class iCub(Robot):
              raise ConnectionError("Critical: Failed to read robot state (YARP port might be closed).")
         # Convertir Bottle a lista
         n = state_bot.size()
-        expected = len(self.actuator_list)
-        if n < expected:
-            raise ValueError(f"Joint mismatch: Received {n}, expected at least {expected}")
-        if n > expected and not self._warned_extra_joints:
-            print(f"[WARN] Joint state has extra values ({n}>{expected}). Trimming to expected actuator list.")
-            self._warned_extra_joints = True
+        block, index = self._layout_for(n)
         vals = [state_bot.get(i).asFloat64() for i in range(n)]
-        # Asignación rapida
-        for i, name in enumerate(self.actuator_list):
-            obs[name] = torch.tensor(vals[i], dtype=torch.float32)
+        # Por nombre: el módulo puede publicar más brazos que los de este robot
+        for name in self.actuator_list:
+            obs[name] = torch.tensor(vals[index[name]], dtype=torch.float32)
+        # Bloques q | dq | tau (ver connect); NaN = la parte no entrega torques
+        if self.config.use_joint_vel:
+            for name in self.actuator_list:
+                obs[f"{name}_vel"] = torch.tensor(vals[block + index[name]], dtype=torch.float32)
+        if self.config.use_joint_torque:
+            no_torque = []
+            for name in self.actuator_list:
+                tau = vals[2 * block + index[name]]
+                if math.isnan(tau):
+                    no_torque.append(name)
+                    tau = 0.0
+                obs[f"{name}_torque"] = torch.tensor(tau, dtype=torch.float32)
+            if no_torque:
+                self._warn_once("torque", f"No joint torques for {no_torque} (set use_joint_torque "
+                                          f"in the YAML read by teleop_module_sm); recording 0.")
 
         # Leer Camaras (NO bloqueante): si no llegó un frame nuevo se repite el último.
         # Con read(True) el loop de teleop (visor + targets) se congelaba cada vez que
@@ -404,81 +511,58 @@ class iCub(Robot):
 
         self._drain_acks(meta)
 
-        # --- Observaciones opcionales ---
-
-        def _read_bottle_floats(port_key: str) -> list[float] | None:
-            """Lee una Bottle del puerto indicado y retorna lista de floats, o None si falla."""
-            port = self.ports.get(port_key)
-            if port is None:
-                return None
-            bottle = port.read(False)  # no bloqueante para puertos opcionales
-            if bottle is None:
-                return None
-            return [bottle.get(i).asFloat64() for i in range(bottle.size())]
-
-        def _axis_angle_to_quat(ax: float, ay: float, az: float, theta: float) -> tuple:
-            """Convierte eje-ángulo (ax,ay,az,theta) a quaternion (qw,qx,qy,qz)."""
-            s = math.sin(theta / 2.0)
-            return (math.cos(theta / 2.0), ax * s, ay * s, az * s)
-
-        # Joint Velocity
-        if getattr(self.config, "use_joint_vel", False):
-            # El estado del robot puede dar posición y velocidad juntos dependiendo del puerto.
-            # Si hay puertos separados por brazo, los leemos y los asignamos por nombre.
-            for side, port_key in [("l", "vel_l"), ("r", "vel_r")]:
-                vals = _read_bottle_floats(port_key)
-                if vals is not None:
-                    # Los joints del lado corresponden al subgrupo del actuator_list
-                    side_joints = [
-                        name for name in self.actuator_list
-                        if name.startswith(("l_" if side == "l" else "r_",
-                                            "torso" if side == "l" else "__never__"))
-                    ]
-                    # Asignación por índice (el orden del puerto debe coincidir con actuator_list)
-                    for i, val in enumerate(vals):
-                        if i < len(self.actuator_list):
-                            obs[f"vel_{self.actuator_list[i]}"] = torch.tensor(val, dtype=torch.float32)
-
-        # Joint Torque
-        if getattr(self.config, "use_joint_torque", False):
-            for side, port_key in [("l", "torque_l"), ("r", "torque_r")]:
-                vals = _read_bottle_floats(port_key)
-                if vals is not None:
-                    for i, val in enumerate(vals):
-                        if i < len(self.actuator_list):
-                            obs[f"torque_{self.actuator_list[i]}"] = torch.tensor(val, dtype=torch.float32)
-
-        # External Wrench [Fx, Fy, Fz, Tx, Ty, Tz]
-        if getattr(self.config, "use_external_wrench", False):
-            comps = ["fx", "fy", "fz", "tx", "ty", "tz"]
-            for prefix_key, port_key in [("lh", "wrench_l"), ("rh", "wrench_r")]:
-                vals = _read_bottle_floats(port_key)
-                if vals is not None:
-                    for i, comp in enumerate(comps):
-                        val = vals[i] if i < len(vals) else 0.0
-                        obs[f"{prefix_key}_wrench_{comp}"] = torch.tensor(val, dtype=torch.float32)
-
-        # EEF Pose: el Cartesian Controller publica [x y z ax ay az theta]
-        if getattr(self.config, "use_eef_pose", False):
-            for prefix_key, port_key in [("lh", "eef_l"), ("rh", "eef_r")]:
-                vals = _read_bottle_floats(port_key)
-                if vals is not None and len(vals) >= 7:
-                    x, y, z, ax, ay, az, theta = vals[:7]
-                    qw, qx, qy, qz = _axis_angle_to_quat(ax, ay, az, theta)
-                    for comp, val in zip(["x","y","z","qw","qx","qy","qz"], [x,y,z,qw,qx,qy,qz]):
-                        obs[f"{prefix_key}_eef_{comp}"] = torch.tensor(val, dtype=torch.float32)
-
-        # Tactile (skin): cada taxel es un float en la Bottle
-        if getattr(self.config, "use_tactile", False):
-            for obs_key, port_key in [("tactile_left", "tactile_l"), ("tactile_right", "tactile_r")]:
-                vals = _read_bottle_floats(port_key)
-                if vals is not None:
-                    obs[obs_key] = torch.tensor(vals, dtype=torch.float32)
-                    max_touch = max(vals) if vals else 0
-                    if max_touch > 5.0: # Ajusta este número si hay ruido en el sensor
-                        print(f"[{obs_key}] Tacto detectado! Max valor: {max_touch:.2f}")
-
+        self._add_extra_observations(obs)
         return obs
+
+    def _add_extra_observations(self, obs: dict[str, Any]) -> None:
+        """Observaciones use_eef_pose / use_targets / use_tactile / use_object_pose."""
+        def put(prefix: str, axes: str, values) -> None:
+            for ax, val in zip(axes, values):
+                obs[f"{prefix}_{ax}"] = torch.tensor(float(val), dtype=torch.float32)
+
+        sides = self._arm_sides()
+        if self.config.use_eef_pose:
+            for side in sides:
+                pose = self._current_pose.get(side)
+                if pose is None:
+                    self._warn_once(f"ee_{side}", f"No /teleop/{side}_current_pose:o data yet: {side}_ee_* = 0.")
+                    pose = [0.0] * 7
+                put(f"{side}_ee_pos", "xyz", pose[:3])
+                put(f"{side}_ee_quat", "wxyz", pose[3:7])
+
+        if self.config.use_targets:
+            for side in sides:
+                # Antes del primer comando el target es la mano (como el snap de MuJoCo)
+                target = self._last_target.get(side) or self._current_pose.get(side) or [0.0] * 7
+                put(f"{side}_target_pos", "xyz", target[:3])
+                put(f"{side}_target_quat", "wxyz", target[3:7])
+                obs[f"{side}_gripper"] = torch.tensor(self._grip_level[side], dtype=torch.float32)
+            if self.config.use_gaze:
+                put("gaze_target_pos", "xyz", self._last_gaze or self.config.gaze_target_init)
+
+        if self.config.use_tactile and self._contact_reader is not None:
+            for side in self._touch_sides():
+                for finger in TOUCH_FINGER_SLOT:
+                    touching = self._contact_reader.touching(f"{side}_{finger}")
+                    obs[f"{side}_touch_{finger}"] = torch.tensor(float(touching), dtype=torch.float32)
+        elif self.config.use_tactile and "rh" in sides:
+            port = self.ports.get("touch")
+            if port is not None and (b := port.read(False)) is not None:
+                self._last_touch = [b.get(i).asFloat64() for i in range(b.size())]
+            for finger, slot in TOUCH_FINGER_SLOT.items():
+                taxels = self._last_touch[slot * TAXELS_PER_FINGER:(slot + 1) * TAXELS_PER_FINGER]
+                touching = bool(taxels) and sum(taxels) / len(taxels) >= self.config.touch_threshold
+                obs[f"rh_touch_{finger}"] = torch.tensor(float(touching), dtype=torch.float32)
+
+        if self.config.use_object_pose:
+            for i, body in enumerate(self.config.object_bodies):
+                pose = self._pose_reader.get(body) if self._pose_reader else None
+                if pose is None:
+                    self._warn_once(f"obj_{body}", f"No Gazebo pose for '{body}' yet (PosePublisher in "
+                                                   f"gazebo/models/{body}/model.sdf?): obj{i}_* = 0.")
+                    pose = ([0.0] * 3, [0.0] * 4)
+                put(f"obj{i}_pos", "xyz", pose[0])
+                put(f"obj{i}_quat", "wxyz", pose[1])
 
     def _drain_acks(self, meta: dict) -> None:
         """Lee las confirmaciones de targets llegadas desde el frame anterior.
@@ -579,6 +663,7 @@ class iCub(Robot):
                 to_float(action_value("rh_quat_y", "rh_qy")),
                 to_float(action_value("rh_quat_z", "rh_qz")),
             ]
+            self._last_target["rh"] = pos_rh + quat_rh
             if "rh_out" in self.ports:
                 bottle_rh = yarp.Bottle()
                 for v in pos_rh: bottle_rh.addFloat64(v)
@@ -591,20 +676,7 @@ class iCub(Robot):
                 )
             # Gripper Derecho
             if "rh_gripper" in action:
-                r_cmd = to_float(action["rh_gripper"])
-                if r_cmd == 0.0:     cmd_str = "open_right"
-                elif r_cmd == 0.5:   cmd_str = "close_right"
-                elif r_cmd == 1.0:   cmd_str = None
-                else:                cmd_str = None
-                # Se envía en cada flanco (el teleop manda un pulso 0.5/0.0 y vuelve a
-                # 1.0=stop), así cerrar→cerrar también se reenvía.
-                if cmd_str is not None and r_cmd != self._prev_r_cmd:
-                    sent_gripper_rpc = send_rpc(cmd_str)
-                    if (not sent_gripper_rpc) and self.ports.get("hand_cmd") is not None:
-                        cmd = yarp.Bottle(); cmd.addString(cmd_str)
-                        self.ports["hand_cmd"].write(cmd)
-                    print(f"[Gripper] {cmd_str} -> {'rpc' if sent_gripper_rpc else 'NOT SENT'}", flush=True)
-                self._prev_r_cmd = r_cmd
+                self._command_grip("rh", to_float(action["rh_gripper"]), send_rpc)
 
         # Lógica Mano Izquierda
         if self.config.control_arms in ["left", "both"]:
@@ -620,6 +692,7 @@ class iCub(Robot):
                 to_float(action_value("lh_quat_z", "lh_qz")),
             ]
 
+            self._last_target["lh"] = pos_lh + quat_lh
             if "lh_out" in self.ports:
                 bottle_lh = yarp.Bottle()
                 for v in pos_lh: bottle_lh.addFloat64(v)
@@ -633,20 +706,7 @@ class iCub(Robot):
 
             # Gripper Izquierdo
             if "lh_gripper" in action:
-                l_cmd = to_float(action["lh_gripper"])
-                if l_cmd == 0.0:     cmd_str = "open_left"
-                elif l_cmd == 0.5:   cmd_str = "close_left"
-                elif l_cmd == 1.0:   cmd_str = None
-                else:                cmd_str = None
-                # Se envía en cada flanco (el teleop manda un pulso 0.5/0.0 y vuelve a
-                # 1.0=stop), así cerrar→cerrar también se reenvía.
-                if cmd_str is not None and l_cmd != self._prev_l_cmd:
-                    sent_gripper_rpc = send_rpc(cmd_str)
-                    if (not sent_gripper_rpc) and self.ports.get("hand_cmd") is not None:
-                        cmd = yarp.Bottle(); cmd.addString(cmd_str)
-                        self.ports["hand_cmd"].write(cmd)
-                    print(f"[Gripper] {cmd_str} -> {'rpc' if sent_gripper_rpc else 'NOT SENT'}", flush=True)
-                self._prev_l_cmd = l_cmd
+                self._command_grip("lh", to_float(action["lh_gripper"]), send_rpc)
                     
         # Logica Gaze ctrl
         if getattr(self.config, "use_gaze", False):
@@ -660,6 +720,7 @@ class iCub(Robot):
                 to_float(action["gaze_y"]),
                 to_float(action["gaze_z"])
             ]
+            self._last_gaze = pos_gaze
             
             t_rpc = time.perf_counter()
             sent_gaze_rpc = send_rpc(
@@ -688,6 +749,12 @@ class iCub(Robot):
         if not self._connected: return
         yarp = self.yarp
         print("Disconnecting YARP ports...")
+        if self._pose_reader is not None:
+            self._pose_reader.stop()
+            self._pose_reader = None
+        if self._contact_reader is not None:
+            self._contact_reader.stop()
+            self._contact_reader = None
         for name, port in self.ports.items():
             if port is None:
                 continue

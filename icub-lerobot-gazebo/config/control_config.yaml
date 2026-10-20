@@ -21,6 +21,18 @@ cart_force_position_direct: false
 # goToPose no espera respuesta: con "udp" (default de iCub) los comandos se pierden en
 # la red del robot real y el brazo no se mueve. "tcp" sirve igual en Gazebo.
 cart_carrier: "tcp"
+# Límites del torso [deg] que usa el cartesiano del brazo principal (pitch adelante +).
+# Robot real: los de siempre. Gazebo: el máximo de pitch del IK de MuJoCo (0.5 rad); con 15
+# el robot (4 cm más alto que en MuJoCo) no alcanza a bajar al cubo como en las demos de
+# MuJoCo, que agarran con el torso a ~22 deg (mediana).
+# Mismos límites en el robot real, Gazebo y MuJoCo (icub-lerobot-mj usa cart_torso_limits
+# para su IK): una política no debe pedir posturas que el robot real no permite.
+cart_torso_limits:        {pitch: [-15, 15], yaw: [-10, 10]}
+# Gazebo: mirar solo con el cuello, ojos fijos al frente y sin roll de cuello, como el IK de
+# mirada de MuJoCo (su head_cam va fija a la cabeza y neck_roll es siempre 0). Para evaluar
+# políticas de MuJoCo; con false los ojos ayudan a mirar (comportamiento de siempre).
+# OJO: bloqueados, iKinGazeCtrl dejaba la cabeza fija (-56 deg pitch, sin yaw) en Gazebo.
+gazebo_gaze_head_only: false
 strict_xml_init: true
 
 # Tacto (skin) — republicado por teleop_module_sm.py en /teleop/touch:o
@@ -30,6 +42,24 @@ tactile_include_palm: true
 tactile_auto_connect: true
 # tactile_source_port: "/icubSim/skin/right_hand_comp"
 # tactile_palm_source_port: "/icubSim/skin/right_hand"
+
+# Observaciones extra del dataset (plugin lerobot_robot_icubrg), con los mismos nombres
+# que graba MuJoCo para poder cruzar políticas entre simuladores (sim-to-sim). Todas van en
+# el frame root del iCub; MuJoCo las graba en su mundo (eval_gazebo.py convierte).
+use_joint_vel: true      # {joint}_vel        (teleop_module_sm las publica en robot_state)
+use_joint_torque: true   # {joint}_torque     (también activa su lectura en teleop_module_sm)
+use_eef_pose: true       # rh_ee_pos_*/rh_ee_quat_*   (cartesianController)
+use_targets: true        # rh_target_*, gaze_target_pos_*, rh_gripper (último comando)
+use_tactile: true        # {rh,lh}_touch_{thumb,index,middle} (0/1). Gazebo: sensores de contacto de las
+                         # puntas (model.urdf, ambas manos); robot real: piel vía /teleop/touch:o (derecha)
+use_object_pose: true    # obj{i}_pos_*/obj{i}_quat_* (ground truth de Gazebo; con robot_name icub se ignora)
+# object_bodies: ["blue-cube"]   # por defecto: objetos de la escena activa en scenes.yaml
+# root_link del iCub en el mundo Gazebo (<pose> del iCub en gazebo/worlds/icub_world.sdf),
+# la misma altura que la cintura en MuJoCo.
+gazebo_root_xyz: [0.0, 0.0, 0.73]
+# Todas las cámaras a 320x240, igual que MuJoCo (la frontal de Gazebo publica 640x480 y el
+# plugin la redimensiona).
+camera_shapes: {front: [240, 320]}
 
 # Definición de articulaciones por parte
 actuators:
@@ -113,6 +143,10 @@ hand_close_values:
 # 0.7 deja ~3 cm entre las puntas de índice y pulgar para que no se atraviesen;
 # súbelo o bájalo para ajustar el espacio.
 hand_close_ratio: 0.5
+# Pinza = fracción de cierre 0..1 (rh/lh_gripper). Gatillo inferior del VR: bajo el primer
+# valor = abierta, sobre el segundo = cerrada, proporcional entre medio. Mismo valor en
+# icub-lerobot-mj y icub-lerobot-gazebo.
+vr_grip_deadband: [0.1, 0.9]
 
 # Área donde el visualizador MuJoCo hace aparecer el cubo (solo referencia visual;
 # el robot real/Gazebo no reporta la pose del objeto, ver README para más detalle).

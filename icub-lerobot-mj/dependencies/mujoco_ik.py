@@ -48,7 +48,7 @@ class IKinArmSolver:
 
     def __init__(self, side="right", joints_to_control=None,
                  real_robot_limits=True, limit_torso_pitch=True,
-                 waist_pos=None, waist_rot_mat=None):
+                 waist_pos=None, waist_rot_mat=None, torso_limits_deg=None):
         """
         Args:
             side: "right" or "left"
@@ -57,7 +57,11 @@ class IKinArmSolver:
             limit_torso_pitch: cap torso_pitch max at ~28.6 deg (0.5 rad)
             waist_pos: [3] position of the waist body in MuJoCo world
             waist_rot_mat: [3,3] rotation matrix of waist in MuJoCo world
+            torso_limits_deg: {"pitch": [min, max], "yaw": [min, max]} (roll locked at 0),
+                same as cart_torso_limits of the real robot's cartesian controller. When
+                given it replaces the limits of _set_real_limits and limit_torso_pitch.
         """
+        self.torso_limits_deg = dict(torso_limits_deg) if torso_limits_deg else None
         if not IKIN_AVAILABLE:
             raise RuntimeError(
                 "iKin not available. Run:  conda activate icubenv")
@@ -82,7 +86,9 @@ class IKinArmSolver:
 
         if real_robot_limits:
             self._set_real_limits()
-        if limit_torso_pitch and 'torso_pitch' in self.joints_to_control:
+        if self.torso_limits_deg:
+            self._set_torso_limits(self.torso_limits_deg)
+        elif limit_torso_pitch and 'torso_pitch' in self.joints_to_control:
             self.chain.access(0).setMax(0.5)
 
         # Create solver
@@ -138,6 +144,18 @@ class IKinArmSolver:
         elbow_idx = torso_offset + 3
         if elbow_idx < self.n_ik_joints:
             self._rest_pose.set(elbow_idx, 1.0)  # ~57 deg bent
+
+    def _set_torso_limits(self, limits_deg: dict) -> None:
+        """Límites del torso en grados, en el orden de la cadena (pitch, roll, yaw)."""
+        deg2rad = np.pi / 180
+        idx = 0
+        for name, key in (("torso_pitch", "pitch"), ("torso_roll", None), ("torso_yaw", "yaw")):
+            if name not in self.joints_to_control:
+                continue
+            lo, hi = limits_deg.get(key, (0.0, 0.0)) if key else (0.0, 0.0)  # roll fijo en 0
+            self.chain.access(idx).setMin(float(lo) * deg2rad)
+            self.chain.access(idx).setMax(float(hi) * deg2rad)
+            idx += 1
 
     def _set_real_limits(self):
         """Set tighter joint limits matching the real iCub."""

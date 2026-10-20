@@ -93,11 +93,11 @@
     <model name="iCub">
       <include>
         <uri>model://iCubGazeboV2_5_visuomanip_camada</uri>
-        <!-- z = 0.77 (MuJoCo: 0.73). Con 0.73 la pose inicial del modelo (initialConfiguration
-             de los brazos en model.urdf) deja las puntas de los dedos ~0.4 cm bajo la cubierta
-             (tope 0.72) y el solver de contactos de DART satura (RTF ~10%). Con +4 cm el dedo
-             más bajo queda a ~3.6 cm (frame) de la cubierta. Antes estaba en 0.835. -->
-        <pose>0.0 0.0 0.77 0.0 0.0 0.0</pose>
+        <!-- z = 0.73, igual que MuJoCo (cintura del iCub sobre su soporte, respecto de la mesa
+             con tapa en 0.72). Antes 0.77: con 0.73 la initialConfiguration original de los
+             brazos dejaba las puntas de los dedos ~0.4 cm dentro de la mesa y DART saturaba;
+             ahora model.urdf arranca con el codo a 1.2 rad (dedo más bajo ~9 cm sobre la mesa). -->
+        <pose>0.0 0.0 0.73 0.0 0.0 0.0</pose>
       </include>
     </model>
 

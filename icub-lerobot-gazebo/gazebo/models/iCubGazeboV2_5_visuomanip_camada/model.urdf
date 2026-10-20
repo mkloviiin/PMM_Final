@@ -99,7 +99,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_r_upper_thigh_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="r_hip_3_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -127,7 +127,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_r_thigh_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="r_upper_leg_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -164,7 +164,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_r_shank_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="r_lower_leg_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -254,7 +254,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_r_sole_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="r_foot_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -342,7 +342,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_l_upper_thigh_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="l_hip_3_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -370,7 +370,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_l_thigh_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="l_upper_leg_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -407,7 +407,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_l_shank_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="l_lower_leg_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -497,7 +497,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_l_sole_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="l_foot_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -585,7 +585,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_chest_bb_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="chest_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -705,7 +705,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_r_elbow_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="r_upper_arm_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -763,7 +763,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_r_forearm_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="r_forearm_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -1621,7 +1621,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_l_elbow_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="l_upper_arm_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -1679,7 +1679,7 @@
         <mesh filename="package://iCub/meshes/simmechanics/sim_sea_2-5_l_forearm_prt-binary.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="l_forearm_color">
-        <color rgba="0.635 0.137 0.114 1"/>
+        <color rgba="0.05 0.15 0.5 1"/>
       </material>
     </visual>
     <collision>
@@ -2707,7 +2707,7 @@
  </plugin>
   <plugin name="controlboard_left_arm_no_hand" filename="libgazebo_yarp_controlboard.so">
     <yarpConfigurationFile>model://iCub/conf/gazebo_icub_left_arm_no_hand_for_no_hand_model.ini</yarpConfigurationFile>
-    <initialConfiguration>-0.52 0.52 0 0.785 0 0 0.0</initialConfiguration>
+    <initialConfiguration>-0.52 0.52 0 1.2 0 0 0.0</initialConfiguration>
   </plugin>
   <plugin name='controlboard_left_hand_finger' filename='libgazebo_yarp_controlboard.so'>
     <yarpConfigurationFile>model://iCub/conf_manual/iCubGazeboV2_5_visuomanip/gazebo_icub_left_hand_finger.ini</yarpConfigurationFile>
@@ -2729,7 +2729,7 @@
   </plugin>
   <plugin name="controlboard_right_arm_no_hand" filename="libgazebo_yarp_controlboard.so">
     <yarpConfigurationFile>model://iCub/conf/gazebo_icub_right_arm_no_hand_for_no_hand_model.ini</yarpConfigurationFile>
-    <initialConfiguration>-0.52 0.52 0 0.785 0 0 0.0</initialConfiguration>
+    <initialConfiguration>-0.52 0.52 0 1.2 0 0 0.0</initialConfiguration>
   </plugin>
   <plugin name='controlboard_right_hand_finger' filename='libgazebo_yarp_controlboard.so'>
     <yarpConfigurationFile>model://iCub/conf_manual/iCubGazeboV2_5_visuomanip/gazebo_icub_right_hand_finger.ini</yarpConfigurationFile>
@@ -2765,14 +2765,14 @@
   </plugin>
   <plugin name="gzyarp::ControlBoard" filename="gz-sim-yarp-controlboard-system">
     <yarpConfigurationFile>model://iCub/conf/gazebo_icub_left_arm_no_hand_for_no_hand_model.ini</yarpConfigurationFile>
-    <initialConfiguration>-0.52 0.52 0 0.785 0 0 0.0</initialConfiguration>
+    <initialConfiguration>-0.52 0.52 0 1.2 0 0 0.0</initialConfiguration>
   </plugin>
   <plugin name='gzyarp::ControlBoard' filename='gz-sim-yarp-controlboard-system'>
     <yarpConfigurationFile>model://iCub/conf_manual/iCubGazeboV2_5_visuomanip/gazebo_icub_left_hand.ini</yarpConfigurationFile>
   </plugin>
   <plugin name="gzyarp::ControlBoard" filename="gz-sim-yarp-controlboard-system">
     <yarpConfigurationFile>model://iCub/conf/gazebo_icub_right_arm_no_hand_for_no_hand_model.ini</yarpConfigurationFile>
-    <initialConfiguration>-0.52 0.52 0 0.785 0 0 0.0</initialConfiguration>
+    <initialConfiguration>-0.52 0.52 0 1.2 0 0 0.0</initialConfiguration>
   </plugin>
   <plugin name='gzyarp::ControlBoard' filename='gz-sim-yarp-controlboard-system'>
     <yarpConfigurationFile>model://iCub/conf_manual/iCubGazeboV2_5_visuomanip/gazebo_icub_right_hand.ini</yarpConfigurationFile>
@@ -3088,5 +3088,71 @@
 </gazebo>
 <gazebo>
   <pose>0.0 0.0 0.63 0.0 0.0 3.14159265359</pose>
+</gazebo>
+
+<!-- Tacto en las puntas (última falange) de pulgar, índice y medio, como rh/lh_touch_* de
+     MuJoCo (icub-lerobot-mj, icub_mujoco.py: cualquier contacto en {r,l}_hand_*_3). El iCub
+     de Gazebo no tiene piel; estos sensores publican gz.msgs.Contacts en /icub/touch/<side>_<finger>
+     mientras hay contacto, y los lee lerobot_robot_icubrg (use_tactile). Requiere el sistema
+     gz-sim-contact-system en el mundo (gazebo/worlds/icub_world.sdf). -->
+<gazebo reference="r_hand_thumb_3">
+  <sensor name="rh_thumb_touch" type="contact">
+    <always_on>true</always_on>
+    <update_rate>30</update_rate>
+    <contact>
+      <collision>r_hand_thumb_3_collision</collision>
+      <topic>/icub/touch/rh_thumb</topic>
+    </contact>
+  </sensor>
+</gazebo>
+<gazebo reference="r_hand_index_3">
+  <sensor name="rh_index_touch" type="contact">
+    <always_on>true</always_on>
+    <update_rate>30</update_rate>
+    <contact>
+      <collision>r_hand_index_3_collision</collision>
+      <topic>/icub/touch/rh_index</topic>
+    </contact>
+  </sensor>
+</gazebo>
+<gazebo reference="r_hand_middle_3">
+  <sensor name="rh_middle_touch" type="contact">
+    <always_on>true</always_on>
+    <update_rate>30</update_rate>
+    <contact>
+      <collision>r_hand_middle_3_collision</collision>
+      <topic>/icub/touch/rh_middle</topic>
+    </contact>
+  </sensor>
+</gazebo>
+<gazebo reference="l_hand_thumb_3">
+  <sensor name="lh_thumb_touch" type="contact">
+    <always_on>true</always_on>
+    <update_rate>30</update_rate>
+    <contact>
+      <collision>l_hand_thumb_3_collision</collision>
+      <topic>/icub/touch/lh_thumb</topic>
+    </contact>
+  </sensor>
+</gazebo>
+<gazebo reference="l_hand_index_3">
+  <sensor name="lh_index_touch" type="contact">
+    <always_on>true</always_on>
+    <update_rate>30</update_rate>
+    <contact>
+      <collision>l_hand_index_3_collision</collision>
+      <topic>/icub/touch/lh_index</topic>
+    </contact>
+  </sensor>
+</gazebo>
+<gazebo reference="l_hand_middle_3">
+  <sensor name="lh_middle_touch" type="contact">
+    <always_on>true</always_on>
+    <update_rate>30</update_rate>
+    <contact>
+      <collision>l_hand_middle_3_collision</collision>
+      <topic>/icub/touch/lh_middle</topic>
+    </contact>
+  </sensor>
 </gazebo>
 </robot>

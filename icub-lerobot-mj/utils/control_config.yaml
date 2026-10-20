@@ -9,6 +9,13 @@ stream_jpeg_quality: 70
 control_arms: "both" 
 primary_arm: "right_arm"
 gaze_ctrl: true
+# Marco de las poses grabadas (manos, targets, mirada, objetos) y de las acciones:
+# "root" = frame root del iCub, igual que Gazebo y el robot real (sim-to-sim directo).
+# "world" = mundo MuJoCo, solo para datasets/modelos grabados antes del 2026-10-20.
+pose_frame: "root"
+# Límites del torso [deg] del IK de brazos: los del robot real (cart_torso_limits de
+# icub-lerobot-gazebo/config/control_config.yaml); el roll queda fijo en 0.
+cart_torso_limits: {pitch: [-15, 15], yaw: [-10, 10]}
 strict_xml_init: true
 
 # Definición de articulaciones por parte
@@ -116,8 +123,21 @@ hand_close_values:
 # dependencies/teleop_mujoco.py). 0.5 = pinza (~4.6 cm entre pulgar e índice; cubo de 5 cm):
 # agarra sin forzar los dedos dentro del cubo. 0.6 aprieta más (~3.3 cm), 0.4 casi no toca (~5.8 cm).
 hand_close_ratio: 0.5
+# Duración de un cierre completo [s]: los dedos siguen la fracción pedida a velocidad
+# limitada, como el controlador de Gazebo y del robot real (en las demos de Gazebo el índice
+# llega al 90% del cierre en ~3.4 s).
+hand_close_time_s: 3.8
+# Pinza = fracción de cierre 0..1 (rh/lh_gripper). Gatillo inferior del VR: bajo el primer
+# valor = abierta, sobre el segundo = cerrada, proporcional entre medio. Mismo valor en
+# icub-lerobot-mj y icub-lerobot-gazebo.
+vr_grip_deadband: [0.1, 0.9]
+# Targets (mocap de manos y mirada) en la vista head_cam del VR: true = se ven en los lentes
+# como guía. En las cámaras que se graban nunca aparecen.
+vr_show_targets: true
 
+# Respaldo heredado: solo se usa si la escena no declara objetos en scenes.yaml
+# (la fuente de verdad es scenes.yaml, compartido con Gazebo).
 cube_spawn:
   x: [0.35, 0.45]
   y: [-0.15, -0.05]
-  z: 0.725
+  z: 0.745

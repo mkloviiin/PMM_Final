@@ -267,7 +267,7 @@ def _vr_status(robot, *lines: str) -> None:
 
 
 def _forward_world_reset(robot, teleop) -> None:
-    """Botón de reset (Y en VR / R en el visor) -> reposiciona el cubo en Gazebo.
+    """Botón de reset (Y en VR / N en el visor) -> reposiciona el cubo en Gazebo.
 
     El teleoperador solo resetea su espejo MuJoCo (mesa vacía); el objeto real
     vive en Gazebo, así que se le pide al teleop_module_sm vía RPC, que corre
@@ -291,7 +291,10 @@ def _manual_vr_record(
         aggregate_pipeline_dataset_features,
         create_initial_features,
     )
-    from lerobot.datasets.feature_utils import build_dataset_frame, combine_feature_dicts
+    try:  # LeRobot reciente: movidas a lerobot.utils.feature_utils
+        from lerobot.utils.feature_utils import build_dataset_frame, combine_feature_dicts
+    except ImportError:
+        from lerobot.datasets.feature_utils import build_dataset_frame, combine_feature_dicts
     from lerobot.processor import make_default_processors
     from lerobot.utils.constants import ACTION, OBS_STR
     from lerobot.utils.robot_utils import precise_sleep

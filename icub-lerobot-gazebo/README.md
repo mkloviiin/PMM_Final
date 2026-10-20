@@ -112,17 +112,62 @@ y guardar, **B mantenido**=descartar episodio.
 > manualmente, o extender `SCENE_MODEL`/`SCENE_TASK`/`SCENE_OBJECTS` en
 > `play_gazebo.py` cuando haya más de un escenario listo para Gazebo.
 
-## Diferencia con `icub-lerobot-mj`: sin pose del cubo
+## Sim-to-sim con `icub-lerobot-mj`
 
-`icub-lerobot-mj` graba `object_pos_x/y/z` y `object_quat_w/x/y/z` porque el
-robot **es** la simulación MuJoCo, que conoce la pose exacta del cubo en
-todo momento. Aquí el robot es real o Gazebo/YARP puro: no existe ningún
-sistema de visión o motion-capture que reporte la pose del objeto, así que
-`lerobot_robot_icubrg.iCub` (este paquete) **no** expone esas features — ni
-siquiera como campos vacíos. El resto del contrato de observación/acción
-(estado articular, velocidad/torque/wrench/EEF-pose/tactile opcionales,
-cámaras, y las acciones cartesianas por mano) es el mismo en ambos modos.
-Ver [`lerobot-robot-icubrg/README.md`](common/lerobot-robot-icubrg/README.md).
+Con las opciones `use_*` de `config/control_config.yaml` activas, `lerobot_robot_icubrg.iCub`
+graba las mismas variables de estado que el plugin de MuJoCo, con los mismos nombres:
+
+| Opción | Variables | Fuente |
+|---|---|---|
+| `use_joint_vel` | `{joint}_vel` | `/teleop/robot_state:o` (q \| dq \| tau) |
+| `use_joint_torque` | `{joint}_torque` | ídem (`teleop_module_sm` lee `ITorqueControl`) |
+| `use_eef_pose` | `rh_ee_pos_*`, `rh_ee_quat_*` | `/teleop/rh_current_pose:o` (cartesianController) |
+| `use_targets` | `rh_target_*`, `gaze_target_pos_*`, `rh_gripper` | último comando enviado |
+| `use_tactile` | `{rh,lh}_touch_{thumb,index,middle}` (0/1) | Gazebo: sensores de contacto en las puntas de los dedos (`model.urdf`, `/icub/touch/<mano>_<dedo>`); robot real: piel vía `/teleop/touch:o` (solo derecha) |
+| `use_object_pose` | `obj{i}_pos_*`, `obj{i}_quat_*` | `PosePublisher` de `gazebo/models/<body>/model.sdf` |
+
+Desde el 2026-10-20 MuJoCo (`icub-lerobot-mj`) graba con el mismo contrato, así que un
+dataset de cada simulador tiene **las mismas variables, en el mismo marco y con las mismas
+cámaras**:
+
+- **Marco:** las poses (manos, targets, mirada, objetos) y las acciones van en el frame root
+  del iCub (x hacia atrás, z arriba, origen en la cintura) en Gazebo, MuJoCo
+  (`pose_frame: "root"`) y el robot real.
+- **Brazos:** solo se graba el brazo elegido en el Hub (`control_arms`), en ambos simuladores.
+- **Cámaras:** `left` / `right` (ojos del iCub, pose de iKin) y `front` (cámara externa
+  espejada), todas 320x240 (`camera_shapes`).
+- **Escena:** `mujoco/assets/scenes/scenes.yaml` es un enlace al de `icub-lerobot-mj` (una sola
+  fuente de rangos y tareas). Robot a 0.73 m en ambos, mesa con tapa en 0.72, mismo cubo
+  (5 cm, 0.1 kg, fricción 5) y mismos límites del torso que el robot real
+  (`cart_torso_limits`).
+- **Colores:** cubiertas azul rey (iCub real) y manos gris oscuro en ambos.
+- **Pinza:** `rh/lh_gripper` = fracción de cierre 0 (abierta, `hand_open_values`) a 1
+  (cerrada, `hand_close_values` x `hand_close_ratio`), en la acción y en la observación. VR:
+  el gatillo inferior es la fracción (suelto = abierta, a fondo = cerrada, zona muerta
+  `vr_grip_deadband`); el gatillo índice congela brazos y cabeza. Teclado del visor: 6/7
+  abrir/cerrar mano izquierda, 8/9 mano derecha, N reset (0-5 y las letras son atajos del
+  visor de MuJoCo). La mano se mueve a velocidad limitada en los tres (MuJoCo:
+  `hand_close_time_s`). Antes del 2026-10-21 era 0 abrir / 0.5 cerrar / 1 mantener
+  (`gripper_legacy`, `--legacy-gripper` en `eval_gazebo.py`).
+- **Solo en Gazebo / robot real:** los ojos (`eyes_*`), que MuJoCo no modela.
+- **No se graba:** la fuerza externa en la mano (solo existía en MuJoCo).
+- **`obj{i}_*` es ground truth del simulador:** en el robot real no existe (se desactiva).
+
+Lo que no se puede igualar: el render (iluminación, materiales), el motor físico (contactos
+y agarre) y el tiempo (MuJoCo avanza en sincronía con la política, Gazebo y el robot real en
+tiempo real).
+
+`teleop_module_sm.py` tiene que estar actualizado: con `use_joint_vel`/`use_joint_torque` el
+plugin rechaza un `robot_state` de un módulo antiguo (solo posiciones).
+
+Evaluar en Gazebo una política entrenada en MuJoCo o en Gazebo (`--legacy` para modelos de
+MuJoCo anteriores al 2026-10-20, grabados en el mundo MuJoCo y con las cámaras antiguas):
+
+```bash
+python eval_gazebo.py \
+    --policy-repo ../output/train/<run>/checkpoints/last/pretrained_model \
+    --task "lift the blue block" --n-episodes 5 --episode-steps 900
+```
 
 ## Instalación
 
@@ -151,9 +196,11 @@ conda activate icub_lerobot_gazebo_env
   `--control-arms auto` si detecta menos brazos disponibles.
 - `gaze_ctrl` / `cart_ctrl`: activan el Gaze Controller y el Cartesian
   Controller en `icubyarpinterface.py`.
-- `tactile_*`: republicado por `teleop_module_sm.py` en `/teleop/touch:o`
-  (no usado por `play_gazebo.py` salvo que se active `use_tactile` en el
-  robot; es la vía usada por herramientas de grabación de más bajo nivel).
+- `tactile_*`: republicado por `teleop_module_sm.py` en `/teleop/touch:o`; el robot
+  lo graba como `rh_touch_*` con `use_tactile`.
+- `use_joint_vel`, `use_joint_torque`, `use_eef_pose`, `use_targets`, `use_tactile`,
+  `use_object_pose`, `gazebo_root_xyz`: observaciones extra compatibles con MuJoCo (ver
+  [Sim-to-sim](#sim-to-sim-con-icub-lerobot-mj)).
 
 También puedes fijar las rutas por variable de entorno en vez de `--config`/`--model`:
 

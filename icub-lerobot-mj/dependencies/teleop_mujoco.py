@@ -32,6 +32,7 @@ import time
 import argparse
 import threading
 import json
+import weakref
 import faulthandler
 import numpy as np
 import yaml
@@ -166,6 +167,20 @@ def draw_status_corner(img, lines):
 #                            MAIN TELEOP CLASS
 # ===========================================================================
 
+# Núcleos MuJoCo vivos en este proceso. El Hub corre MuJoCo dentro de su propio proceso:
+# al terminar cada sesión llama a close_all_live() para que ningún núcleo que quedó abierto
+# (p. ej. por un error a mitad de la sesión) retenga los puertos del VR/streaming.
+_LIVE_CORES: "weakref.WeakSet[MuJoCoTeleop]" = weakref.WeakSet()
+
+
+def close_all_live() -> int:
+    """Cierra todos los MuJoCoTeleop abiertos en este proceso; devuelve cuántos cerró."""
+    cores = list(_LIVE_CORES)
+    for core in cores:
+        core.close()
+    return len(cores)
+
+
 class MuJoCoTeleop:
     """
     All-in-one MuJoCo teleoperation controller for iCub.
@@ -180,6 +195,7 @@ class MuJoCoTeleop:
                  record_enabled=False, repo_id="icub_mujoco",
                  control_arms=None, primary_arm="right",
                  config_path=None, vr_ip=None, scene_objects=None):
+        _LIVE_CORES.add(self)  # antes de abrir puertos: también si __init__ falla a medias
         # ----- Load config.yaml (if provided) -----
         cfg = {}
         if config_path is not None:
@@ -266,7 +282,8 @@ class MuJoCoTeleop:
             self._rh_solver = IKinArmSolver(
                 side="right", joints_to_control=rh_joints,
                 real_robot_limits=True, limit_torso_pitch=True,
-                waist_pos=waist_pos, waist_rot_mat=waist_mat)
+                waist_pos=waist_pos, waist_rot_mat=waist_mat,
+                torso_limits_deg=cfg.get("cart_torso_limits"))
         else:
             self._rh_solver = None
 
@@ -277,7 +294,8 @@ class MuJoCoTeleop:
             self._lh_solver = IKinArmSolver(
                 side="left", joints_to_control=lh_joints,
                 real_robot_limits=True, limit_torso_pitch=True,
-                waist_pos=waist_pos, waist_rot_mat=waist_mat)
+                waist_pos=waist_pos, waist_rot_mat=waist_mat,
+                torso_limits_deg=cfg.get("cart_torso_limits"))
         else:
             self._lh_solver = None
 
@@ -323,23 +341,30 @@ class MuJoCoTeleop:
         self._lh_ctrl_start = None
         self._lh_ctrl_goal  = None
 
-        # Hand interpolation state (gradual open/close)
-        self._hand_total_steps = cfg.get("hand_steps", 150)  # ~1.5s at 10ms ctrl_dt
-        # Fracción del cierre que se aplica (1.0 = HAND_CLOSE completo). Con 0.5 la mano queda
-        # como pinza (~4.6 cm entre pulgar e índice, el cubo mide 5 cm): agarra sin que los
-        # servos empujen los dedos dentro del cubo. Igual que hand_close_ratio de Gazebo.
-        self._hand_close_ratio = float(cfg.get("hand_close_ratio", 0.5))
-        self._hand_close_goal = HAND_OPEN + self._hand_close_ratio * (HAND_CLOSE - HAND_OPEN)
-        self._rh_hand_start = None
-        self._rh_hand_goal  = None
-        self._rh_hand_step  = 0
-        self._rh_hand_active = False
-        self.rh_grip_state = 1.0  # 0.0=open, 0.5=close, 1.0=stop/idle
-        self._lh_hand_start = None
-        self._lh_hand_goal  = None
-        self._lh_hand_step  = 0
-        self._lh_hand_active = False
-        self.lh_grip_state = 1.0  # 0.0=open, 0.5=close, 1.0=stop/idle
+        # Mano: fracción de cierre 0 (abierta) .. 1 (cerrada), seguida a velocidad limitada
+        # como el controlador de posición de Gazebo y del robot real. hand_close_time_s =
+        # duración de un cierre completo (en las demos de Gazebo el índice llega al 90% del
+        # cierre en ~3.4 s). vr_grip_deadband: gatillo inferior del VR bajo el primer valor =
+        # 0, sobre el segundo = 1, proporcional entre medio.
+        self._hand_close_time_s = float(cfg.get("hand_close_time_s", 3.8))
+        self._vr_grip_deadband = tuple(cfg.get("vr_grip_deadband", (0.1, 0.9)))
+        # Abrir/cerrar igual que Gazebo y el robot real (teleop_module_sm): hand_open_values /
+        # hand_close_values [deg, 9 motores de la mano] y hand_close_ratio del YAML.
+        # HAND_OPEN / HAND_CLOSE solo si el YAML no los trae.
+        def _hand_rad(key, default):
+            vals = cfg.get(key)
+            arr = np.radians(np.asarray(vals, dtype=float).ravel()) if vals is not None else None
+            return arr if arr is not None and arr.size == default.size else default
+        self._hand_open = _hand_rad("hand_open_values", HAND_OPEN)
+        self._hand_close_full = _hand_rad("hand_close_values", HAND_CLOSE)
+        # Fracción del cierre que se aplica (1.0 = cierre completo): deja espacio entre índice
+        # y pulgar para que los dedos no se atraviesen al cerrar sobre el objeto.
+        self._hand_close_ratio = float(np.clip(cfg.get("hand_close_ratio", 0.5), 0.0, 1.0))
+        self._hand_close_goal = self._hand_open + self._hand_close_ratio * (self._hand_close_full - self._hand_open)
+        self._hand_goal = {"right": None, "left": None}   # ctrl objetivo de los 9 motores
+        self._hand_last_t = None
+        self.rh_grip_state = 0.0  # fracción de cierre pedida (0 = abierta, 1 = cerrada)
+        self.lh_grip_state = 0.0
 
         # Go-home trajectory state
         self._home_start_ctrl = None
@@ -359,6 +384,13 @@ class MuJoCoTeleop:
                 self._head_cam_pub = ZMQCompressedImageTransmitter(host="*", port=10505, quality=stream_quality)
                 self._viewer_pub = ZMQCompressedImageTransmitter(host="*", port=15001, quality=stream_quality)
                 self._head_renderer = mujoco.Renderer(self.model, height=480, width=640)
+                # head_cam del VR: muestra las mocap de los targets (geoms y sites del grupo 2)
+                # como guía para el operador. Las cámaras que se graban (lerobot_robot_icub)
+                # las ocultan siempre. vr_show_targets: false las oculta también aquí.
+                self._head_scene_option = mujoco.MjvOption()
+                if not cfg.get("vr_show_targets", True):
+                    self._head_scene_option.geomgroup[2] = 0
+                    self._head_scene_option.sitegroup[2] = 0
                 self._viewer_renderer = mujoco.Renderer(self.model, height=480, width=640)
                 print(f"  [Stream] head_cam → port 10505, viewer → port 15001 (jpeg quality={stream_quality})")
             except Exception as e:
@@ -867,15 +899,12 @@ class MuJoCoTeleop:
         if b is None or not isinstance(b, dict):
             return
 
-        # Hands
-        if b.get("INDEX_RIGHT", 0) > 0.8:
-            self._set_hand("right", "close")
-        elif b.get("HAND_RIGHT", 0) > 0.8:
-            self._set_hand("right", "open")
-        if b.get("INDEX_LEFT", 0) > 0.8:
-            self._set_hand("left", "close")
-        elif b.get("HAND_LEFT", 0) > 0.8:
-            self._set_hand("left", "open")
+        # Manos: el gatillo inferior (HAND_*) es la fracción de cierre. Suelto = abierta,
+        # apretado a fondo = cerrada, proporcional entre medio (zona muerta en los extremos).
+        if "HAND_RIGHT" in b:
+            self._set_hand_level("right", self._trigger_to_level(b["HAND_RIGHT"]))
+        if "HAND_LEFT" in b:
+            self._set_hand_level("left", self._trigger_to_level(b["HAND_LEFT"]))
 
         # Reset
         if b.get("BTN_TWO_LEFT", 0) > 0.5 or b.get("Y", 0) > 0.8:
@@ -898,10 +927,9 @@ class MuJoCoTeleop:
         else:
             self._rec_b_held = False
 
-        # Freeze while squeezing triggers
-        any_active = any(b.get(k, 0) > 0.8
-                         for k in ("INDEX_RIGHT", "HAND_RIGHT",
-                                   "INDEX_LEFT", "HAND_LEFT"))
+        # Congelar brazos y cabeza solo con el gatillo índice: el inferior sostiene la mano
+        # cerrada mientras se mueve el brazo (para levantar el objeto).
+        any_active = any(b.get(k, 0) > 0.8 for k in ("INDEX_RIGHT", "INDEX_LEFT"))
         self.freeze_rh = any_active
         self.freeze_lh = any_active
         self.freeze_head = any_active
@@ -909,62 +937,45 @@ class MuJoCoTeleop:
     # ========================= HAND CONTROL ================================
 
     def _set_hand(self, side, action):
-        """Start a gradual min-jerk open/close for the given hand."""
-        goal = HAND_OPEN if action == "open" else self._hand_close_goal
-        act_ids = self.rh_hand_act_ids if side == "right" else self.lh_hand_act_ids
-        start = np.array([self.data.ctrl[aid] for aid in act_ids])
+        """Abrir (0) o cerrar (1) del todo: teclado y comandos open/close."""
+        self._set_hand_level(side, 0.0 if action == "open" else 1.0)
 
+    def _set_hand_level(self, side, level):
+        """Fracción de cierre 0..1 (entre hand_open_values y el cierre de hand_close_ratio)."""
+        level = float(np.clip(level, 0.0, 1.0))
+        self._hand_goal[side] = self._hand_open + level * (self._hand_close_goal - self._hand_open)
         if side == "right":
-            self._rh_hand_start = start
-            self._rh_hand_goal = goal.copy()
-            self._rh_hand_step = 0
-            self._rh_hand_active = True
-            self.rh_grip_state = 0.0 if action == "open" else 0.5
+            if abs(level - self.rh_grip_state) >= 0.05 or level in (0.0, 1.0) and level != self.rh_grip_state:
+                print(f"[Hand] right -> {level:.2f}")
+            self.rh_grip_state = level
         else:
-            self._lh_hand_start = start
-            self._lh_hand_goal = goal.copy()
-            self._lh_hand_step = 0
-            self._lh_hand_active = True
-            self.lh_grip_state = 0.0 if action == "open" else 0.5
-        print(f"[Hand] {side} {action}")
+            if abs(level - self.lh_grip_state) >= 0.05 or level in (0.0, 1.0) and level != self.lh_grip_state:
+                print(f"[Hand] left -> {level:.2f}")
+            self.lh_grip_state = level
+
+    def _trigger_to_level(self, value):
+        """Gatillo del VR (0..1) -> fracción de cierre, con zona muerta en los extremos."""
+        lo, hi = self._vr_grip_deadband
+        return float(np.clip((float(value) - lo) / max(hi - lo, 1e-6), 0.0, 1.0))
 
     def _interpolate_hands(self):
-        """Advance hand interpolation one step (called every control cycle)."""
-        N = self._hand_total_steps
-        for side in ("right", "left"):
-            if side == "right":
-                if not self._rh_hand_active:
-                    continue
-                step = self._rh_hand_step
-                start, goal = self._rh_hand_start, self._rh_hand_goal
-                act_ids = self.rh_hand_act_ids
-            else:
-                if not self._lh_hand_active:
-                    continue
-                step = self._lh_hand_step
-                start, goal = self._lh_hand_start, self._lh_hand_goal
-                act_ids = self.lh_hand_act_ids
+        """Lleva los dedos hacia el objetivo a velocidad limitada (llamado en cada ciclo).
 
-            # min-jerk scalar
-            if step >= N:
-                s = 1.0
-            else:
-                tau = step / max(1, N)
-                s = 10 * tau**3 - 15 * tau**4 + 6 * tau**5
-
-            q_t = start + (goal - start) * s
-            for i, aid in enumerate(act_ids):
-                self.data.ctrl[aid] = q_t[i]
-
-            # Advance step
-            if side == "right":
-                self._rh_hand_step += 1
-                if self._rh_hand_step > N:
-                    self._rh_hand_active = False
-            else:
-                self._lh_hand_step += 1
-                if self._lh_hand_step > N:
-                    self._lh_hand_active = False
+        Cada motor avanza a |cierre - apertura| / hand_close_time_s, así un cierre completo
+        tarda hand_close_time_s y uno parcial, la parte proporcional.
+        """
+        t = float(self.data.time)
+        dt = 0.0 if self._hand_last_t is None else max(t - self._hand_last_t, 0.0)
+        self._hand_last_t = t
+        max_step = np.abs(self._hand_close_goal - self._hand_open) / max(self._hand_close_time_s, 1e-3) * dt
+        for side, act_ids in (("right", self.rh_hand_act_ids), ("left", self.lh_hand_act_ids)):
+            goal = self._hand_goal[side]
+            if goal is None:
+                continue
+            cur = np.array([self.data.ctrl[aid] for aid in act_ids])
+            new = cur + np.clip(goal - cur, -max_step, max_step)
+            for aid, val in zip(act_ids, new):
+                self.data.ctrl[aid] = val
 
     # ========================= SCENE RESET =================================
 
@@ -1334,17 +1345,18 @@ class MuJoCoTeleop:
         """
         if keycode == glfw.KEY_F:
             self._enqueue_cmd("toggle_teleop")
-        elif keycode == glfw.KEY_1:
+        # Mano: teclas que el visor de MuJoCo no usa (0-5 = grupos de geometrías)
+        elif keycode == glfw.KEY_8:
             self._enqueue_cmd("rh_open")
-        elif keycode == glfw.KEY_2:
+        elif keycode == glfw.KEY_9:
             self._enqueue_cmd("rh_close")
-        elif keycode == glfw.KEY_4:
+        elif keycode == glfw.KEY_6:
             self._enqueue_cmd("lh_open")
-        elif keycode == glfw.KEY_5:
+        elif keycode == glfw.KEY_7:
             self._enqueue_cmd("lh_close")
         elif keycode == glfw.KEY_0:
             self._enqueue_cmd("go_home")
-        elif keycode == glfw.KEY_R:
+        elif keycode == glfw.KEY_N:  # R = reflejos en el visor
             self._enqueue_cmd("reset_scenario")
         elif keycode == glfw.KEY_SPACE:
             self._enqueue_cmd("toggle_recording")
@@ -1405,7 +1417,8 @@ class MuJoCoTeleop:
         if self.img_stream_enabled and (force or time.time() - self._last_stream_time > 0.066):
             try:
                 # head_cam → port 10505, con el estado de la grabación en la esquina
-                self._head_renderer.update_scene(self.data, camera="head_cam")
+                self._head_renderer.update_scene(self.data, camera="head_cam",
+                                                 scene_option=self._head_scene_option)
                 head_img = cv2.cvtColor(self._head_renderer.render(), cv2.COLOR_RGB2BGR)
                 self._head_cam_pub.send_image(draw_status_corner(head_img, self.vr_status_lines))
 
@@ -1558,25 +1571,48 @@ class MuJoCoTeleop:
         if self.recording_active and self.recorder:
             self.recorder.stop_episode()
             self.episode_count += 1
-        self.running = False
-        # Close image streaming
-        if self._head_renderer is not None:
-            self._head_renderer.close()
-        if self._viewer_renderer is not None:
-            self._viewer_renderer.close()
-        # Release the ZMQ ports so the next session can bind them again
-        # (otherwise the next MuJoCoTeleop's bind() fails silently and BeaVR
-        # is left showing the last frame from this now-dead publisher).
-        if self._head_cam_pub is not None:
-            self._head_cam_pub.stop()
-        if self._viewer_pub is not None:
-            self._viewer_pub.stop()
-        # Close VR sockets
-        if self.vr_enabled:
-            for _, (ctx, sock) in self._vr_sockets.items():
-                sock.close()
-                ctx.term()
+        self.close()
         print("\nTeleop session ended.")
+
+    def close(self):
+        """Libera el hilo y los sockets del VR, el streaming y los renderers (idempotente).
+
+        Lo llama el final de run() y también lerobot_robot_icub.iCubMuJoCo.disconnect():
+        el Hub corre MuJoCo dentro de su propio proceso, y si los puertos (8115-8121 del VR,
+        10505/15001 del streaming) quedaban abiertos, la sesión siguiente (otra de MuJoCo o
+        la de Gazebo, que usa los mismos puertos del VR) no podía abrirlos.
+        """
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        _LIVE_CORES.discard(self)
+        self.running = False
+        vr_thread = getattr(self, "_vr_thread", None)
+        if vr_thread is not None and vr_thread.is_alive():
+            vr_thread.join(timeout=1.0)   # deja de leer los sockets antes de cerrarlos
+        for renderer in (getattr(self, "_head_renderer", None), getattr(self, "_viewer_renderer", None)):
+            if renderer is not None:
+                try:
+                    renderer.close()
+                except Exception:
+                    pass
+        # Release the ZMQ ports so the next session can bind them again
+        # (otherwise the next MuJoCoTeleop's bind() fails and BeaVR is left
+        # showing the last frame from this now-dead publisher).
+        for pub in (getattr(self, "_head_cam_pub", None), getattr(self, "_viewer_pub", None)):
+            if pub is not None:
+                try:
+                    pub.stop()
+                except Exception:
+                    pass
+        for _, (ctx, sock) in list(getattr(self, "_vr_sockets", {}).items()):
+            try:
+                sock.close(linger=0)
+                ctx.term()
+            except Exception:
+                pass
+        if hasattr(self, "_vr_sockets"):
+            self._vr_sockets.clear()
 
 
 # ===========================================================================

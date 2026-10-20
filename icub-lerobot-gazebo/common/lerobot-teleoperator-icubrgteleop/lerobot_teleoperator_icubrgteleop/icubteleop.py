@@ -51,10 +51,12 @@ class iCubTeleop(Teleoperator):
         self._pending_visual_reset = False # Flag for internal thread-safe reset
         
         # Estado interno de botones (Gripper)
-        self.rh_grip_state = 1.0 # Default stop
-        self.lh_grip_state = 1.0 
-        self._rh_grip_pulse = False
-        self._lh_grip_pulse = False
+        # Fracción de cierre de cada mano (0 = abierta, 1 = cerrada), como rh/lh_gripper.
+        # _grip_pending: valor pedido aquí (teclado/VR) que el robot aún no confirma; mientras
+        # exista, la retroalimentación del robot no lo pisa.
+        self.rh_grip_state = 0.0
+        self.lh_grip_state = 0.0
+        self._grip_pending = {"rh": None, "lh": None}
         
         # Mujoco variables
         self.model = None
@@ -238,7 +240,7 @@ class iCubTeleop(Teleoperator):
 
 
         # Iniciar Viewer Pasivo
-        print("Launching MuJoCo Viewer... (Press 1/2/3 for Right Hand, 4/5/6 for Left Hand)")
+        print("Launching MuJoCo Viewer... (keys: 8/9 open/close right hand, 6/7 left hand, N reset)")
         print("Mouse: Ctrl + Right-click drag to move mocap targets")
         self.viewer = mujoco.viewer.launch_passive(
             self.model,
@@ -267,10 +269,12 @@ class iCubTeleop(Teleoperator):
 
     def disconnect(self) -> None:
         self._vr_running = False
-        # Close VR sockets
+        # Esperar al hilo del VR antes de cerrar sus sockets (y liberar los puertos 8115-8121)
+        if self._vr_thread is not None and self._vr_thread.is_alive():
+            self._vr_thread.join(timeout=1.0)
         for _, (ctx, sock) in self._vr_sockets.items():
             try:
-                sock.close()
+                sock.close(linger=0)
                 ctx.term()
             except Exception:
                 pass
@@ -398,9 +402,6 @@ class iCubTeleop(Teleoperator):
             actions["rh_quat_y"] = torch.tensor(quat[2], dtype=torch.float32)
             actions["rh_quat_z"] = torch.tensor(quat[3], dtype=torch.float32)
             actions["rh_gripper"] = torch.tensor(self.rh_grip_state, dtype=torch.float32)
-            if self._rh_grip_pulse:
-                self.rh_grip_state = 1.0
-                self._rh_grip_pulse = False
 
         # --- Lectura Mano Izquierda ---
         if self.config.control_arms in ["left", "both"]:
@@ -416,9 +417,6 @@ class iCubTeleop(Teleoperator):
             actions["lh_quat_y"] = torch.tensor(quat[2], dtype=torch.float32)
             actions["lh_quat_z"] = torch.tensor(quat[3], dtype=torch.float32)
             actions["lh_gripper"] = torch.tensor(self.lh_grip_state, dtype=torch.float32)
-            if self._lh_grip_pulse:
-                self.lh_grip_state = 1.0
-                self._lh_grip_pulse = False
 
         if 'gaze' in self.mocap_ids:
             gid = self.mocap_ids['gaze']
@@ -436,12 +434,20 @@ class iCubTeleop(Teleoperator):
 
         if "rh_gripper" in feedback:
             val = feedback["rh_gripper"]
-            self.rh_grip_state = float(val.item() if hasattr(val, "item") else val)
-            self._rh_grip_pulse = False
+            robot_level = float(val.item() if hasattr(val, "item") else val)
+            pending = self._grip_pending["rh"]
+            if pending is None:
+                self.rh_grip_state = robot_level     # p. ej. VR manejado por el robot
+            elif abs(robot_level - pending) < 1e-3:
+                self._grip_pending["rh"] = None      # el robot ya tomó el comando
         if "lh_gripper" in feedback:
             val = feedback["lh_gripper"]
-            self.lh_grip_state = float(val.item() if hasattr(val, "item") else val)
-            self._lh_grip_pulse = False
+            robot_level = float(val.item() if hasattr(val, "item") else val)
+            pending = self._grip_pending["lh"]
+            if pending is None:
+                self.lh_grip_state = robot_level     # p. ej. VR manejado por el robot
+            elif abs(robot_level - pending) < 1e-3:
+                self._grip_pending["lh"] = None      # el robot ya tomó el comando
         
         update_visuals = False
 
@@ -465,52 +471,21 @@ class iCubTeleop(Teleoperator):
                 prefix = f"obj{idx}"
                 if jnt_adr is not None and f"{prefix}_pos_x" in feedback:
                     try:
-                        self.data.qpos[jnt_adr + 0] = feedback[f"{prefix}_pos_x"].item()
-                        self.data.qpos[jnt_adr + 1] = feedback[f"{prefix}_pos_y"].item()
-                        self.data.qpos[jnt_adr + 2] = feedback[f"{prefix}_pos_z"].item()
-                        self.data.qpos[jnt_adr + 3] = feedback[f"{prefix}_quat_w"].item()
-                        self.data.qpos[jnt_adr + 4] = feedback[f"{prefix}_quat_x"].item()
-                        self.data.qpos[jnt_adr + 5] = feedback[f"{prefix}_quat_y"].item()
-                        self.data.qpos[jnt_adr + 6] = feedback[f"{prefix}_quat_z"].item()
+                        # El robot (use_object_pose) entrega la pose en el frame root
+                        pos_w, quat_w = self._root_to_world(
+                            [feedback[f"{prefix}_pos_{ax}"].item() for ax in "xyz"],
+                            [feedback[f"{prefix}_quat_{ax}"].item() for ax in "wxyz"],
+                        )
+                        self.data.qpos[jnt_adr:jnt_adr + 3] = pos_w
+                        self.data.qpos[jnt_adr + 3:jnt_adr + 7] = quat_w
                         update_visuals = True
                     except Exception:
                         pass
 
-        # --- VR Mocap Sync ---
-        # If the robot is sending VR target positions, update our local mocaps to match
-        if self.is_connected:
-            # Right Hand
-            if "rh_target_pos_x" in feedback and "right" in self.mocap_ids:
-                mid = self.mocap_ids['right']
-                self.data.mocap_pos[mid][0] = feedback["rh_target_pos_x"].item()
-                self.data.mocap_pos[mid][1] = feedback["rh_target_pos_y"].item()
-                self.data.mocap_pos[mid][2] = feedback["rh_target_pos_z"].item()
-                self.data.mocap_quat[mid][0] = feedback["rh_target_quat_w"].item()
-                self.data.mocap_quat[mid][1] = feedback["rh_target_quat_x"].item()
-                self.data.mocap_quat[mid][2] = feedback["rh_target_quat_y"].item()
-                self.data.mocap_quat[mid][3] = feedback["rh_target_quat_z"].item()
-                update_visuals = True
+        # Sin sincronizar mocaps desde rh/lh_target_* / gaze_target_*: en Gazebo la VR la
+        # maneja este teleoperador, y esas observaciones (use_targets del robot) son el
+        # último comando en frame root; copiarlas al mocap lo devolvería al frame anterior.
 
-            # Left Hand
-            if "lh_target_pos_x" in feedback and "left" in self.mocap_ids:
-                mid = self.mocap_ids['left']
-                self.data.mocap_pos[mid][0] = feedback["lh_target_pos_x"].item()
-                self.data.mocap_pos[mid][1] = feedback["lh_target_pos_y"].item()
-                self.data.mocap_pos[mid][2] = feedback["lh_target_pos_z"].item()
-                self.data.mocap_quat[mid][0] = feedback["lh_target_quat_w"].item()
-                self.data.mocap_quat[mid][1] = feedback["lh_target_quat_x"].item()
-                self.data.mocap_quat[mid][2] = feedback["lh_target_quat_y"].item()
-                self.data.mocap_quat[mid][3] = feedback["lh_target_quat_z"].item()
-                update_visuals = True
-            
-            # Gaze
-            if "gaze_target_pos_x" in feedback and "gaze" in self.mocap_ids:
-                gid = self.mocap_ids['gaze']
-                self.data.mocap_pos[gid][0] = feedback["gaze_target_pos_x"].item()
-                self.data.mocap_pos[gid][1] = feedback["gaze_target_pos_y"].item()
-                self.data.mocap_pos[gid][2] = feedback["gaze_target_pos_z"].item()
-                update_visuals = True
-        
         # Iteramos sobre los datos que llegan del robot
         for i, name in enumerate(self.actuator_list):
             if name in feedback:
@@ -583,10 +558,9 @@ class iCubTeleop(Teleoperator):
     def _button_levels(b: dict) -> dict[str, bool]:
         """Estado lógico de cada comando a partir de los valores crudos de BeaVR."""
         return {
-            "rh_close": b.get("INDEX_RIGHT", 0) > 0.8,
-            "rh_open": b.get("HAND_RIGHT", 0) > 0.8,
-            "lh_close": b.get("INDEX_LEFT", 0) > 0.8,
-            "lh_open": b.get("HAND_LEFT", 0) > 0.8,
+            # gatillo índice: congela brazos y cabeza (el inferior maneja la mano, ver
+            # _process_vr_button_commands)
+            "freeze": b.get("INDEX_RIGHT", 0) > 0.8 or b.get("INDEX_LEFT", 0) > 0.8,
             "reset": b.get("BTN_TWO_LEFT", 0) > 0.5 or b.get("Y", 0) > 0.8,
             "rec_a": b.get("BTN_ONE_RIGHT", 0) > 0.5 or b.get("A", 0) > 0.8,
             "rec_b": b.get("BTN_TWO_RIGHT", 0) > 0.5 or b.get("B", 0) > 0.8,
@@ -799,22 +773,19 @@ class iCubTeleop(Teleoperator):
             events = list(self._btn_events)
             self._btn_events.clear()
             levels = dict(self._btn_pressed)
+            state = dict(self._btn_state)
+
+        # Manos: el gatillo inferior (HAND_*) es la fracción de cierre (suelto = abierta,
+        # a fondo = cerrada, proporcional entre medio, con zona muerta en los extremos)
+        for side, key in (("rh", "HAND_RIGHT"), ("lh", "HAND_LEFT")):
+            if key in state:
+                level = self._trigger_to_level(state[key])
+                if abs(level - getattr(self, f"{side}_grip_state")) > 1e-3:
+                    self._set_grip(side, level)
 
         for name, kind, t in events:
             if kind == "press":
-                if name == "rh_close":
-                    self.rh_grip_state, self._rh_grip_pulse = 0.5, True
-                    print("[VR] Right hand: CLOSE")
-                elif name == "rh_open":
-                    self.rh_grip_state, self._rh_grip_pulse = 0.0, True
-                    print("[VR] Right hand: OPEN")
-                elif name == "lh_close":
-                    self.lh_grip_state, self._lh_grip_pulse = 0.5, True
-                    print("[VR] Left hand: CLOSE")
-                elif name == "lh_open":
-                    self.lh_grip_state, self._lh_grip_pulse = 0.0, True
-                    print("[VR] Left hand: OPEN")
-                elif name == "reset":
+                if name == "reset":
                     self._pending_visual_reset = True
                 elif name == "rec_a":
                     self._vr_rec_start_event = True
@@ -831,8 +802,7 @@ class iCubTeleop(Teleoperator):
                 self._vr_b_hold_start = None
 
         # Freeze while squeezing triggers
-        any_active = any(levels.get(k, False)
-                         for k in ("rh_close", "rh_open", "lh_close", "lh_open"))
+        any_active = levels.get("freeze", False)
         self.freeze_rh = any_active
         self.freeze_lh = any_active
         self.freeze_head = any_active
@@ -999,37 +969,41 @@ class iCubTeleop(Teleoperator):
         if self._scene_joints:
             mujoco.mj_forward(self.model, self.data)
 
+    def _set_grip(self, side: str, level: float) -> None:
+        """Fracción de cierre pedida desde aquí (teclado o VR); queda pendiente hasta que el
+        robot la confirme en la retroalimentación."""
+        level = float(np.clip(level, 0.0, 1.0))
+        setattr(self, f"{side}_grip_state", level)
+        self._grip_pending[side] = level
+
+    def _trigger_to_level(self, value) -> float:
+        """Gatillo inferior del VR (0..1) -> fracción de cierre, con zona muerta en los extremos."""
+        lo, hi = self.config.vr_grip_deadband
+        return float(np.clip((float(value) - lo) / max(hi - lo, 1e-6), 0.0, 1.0))
+
     def _key_callback(self, keycode):
-        """Callback para el viewer pasivo."""
-        if keycode == glfw.KEY_1: 
-            self.rh_grip_state = 0.0 # Close
-            self._rh_grip_pulse = True
+        """Callback para el viewer pasivo.
+
+        Teclas que el visor de MuJoCo no usa: los números 0-5 muestran/ocultan grupos de
+        geometrías y casi todas las letras son atajos de render (R = reflejos).
+        6/7 = abrir/cerrar mano izquierda, 8/9 = abrir/cerrar mano derecha, N = reset.
+        """
+        if keycode == glfw.KEY_8:
+            self._set_grip("rh", 0.0)
             print("Right Gripper: OPEN")
-        elif keycode == glfw.KEY_2: 
-            self.rh_grip_state = 0.5 # Open
-            self._rh_grip_pulse = True
+        elif keycode == glfw.KEY_9:
+            self._set_grip("rh", 1.0)
             print("Right Gripper: CLOSE")
-        elif keycode == glfw.KEY_3: 
-            self.rh_grip_state = 1.0 # Open
-            self._rh_grip_pulse = False
-            print("Right Gripper: STOP")
-        
-        elif keycode == glfw.KEY_R:
+
+        elif keycode == glfw.KEY_N:
             self._pending_visual_reset = True
 
-        # 4: Close Left, 5: Open Left
-        elif keycode == glfw.KEY_4: 
-            self.lh_grip_state = 0.0
-            self._lh_grip_pulse = True
+        elif keycode == glfw.KEY_6:
+            self._set_grip("lh", 0.0)
             print("Left Gripper: OPEN")
-        elif keycode == glfw.KEY_5: 
-            self.lh_grip_state = 0.5
-            self._lh_grip_pulse = True
+        elif keycode == glfw.KEY_7:
+            self._set_grip("lh", 1.0)
             print("Left Gripper: CLOSE")
-        elif keycode == glfw.KEY_6: 
-            self.lh_grip_state = 1.0
-            self._lh_grip_pulse = False
-            print("Left Gripper: STOP")
         
         # Space: Re-sincronizar mocaps (Reset visual)
         elif keycode == glfw.KEY_SPACE:
