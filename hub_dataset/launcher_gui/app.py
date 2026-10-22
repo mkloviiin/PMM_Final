@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import gradio as gr
 
-from . import curation, hub_push, session
+from . import curation, hub_push, session, state
 from .robots.registry import REGISTRY
 from .ui.tab_config import CONFIG_TAB_ID, ROBOT_HIDDEN, ROBOT_SHOWN, build_config_tab
 from .ui.tab_curation import build_curation_tab
@@ -29,10 +29,9 @@ WELCOME_CSS = """
     align-items: center !important;
     min-height: 85vh !important;
 }
-.welcome-institutional-logos {
-    justify-content: center !important;
-    align-items: center !important;
-    gap: 2.5rem !important;
+/* gr.HTML pone la clase en el bloque y en el div interno: el margen solo va en el bloque
+   (el centrado y la separación de los logos están en el propio HTML) */
+.welcome-institutional-logos:not(.prose) {
     margin-top: -5rem !important;
 }
 .toast-wrap {
@@ -105,6 +104,10 @@ WELCOME_CSS = """
    misma altura; sin VR cada columna mide lo suyo (equal_height fijo estiraba el panel derecho). */
 .cfg-row:has(.vr-cb input:checked) {
     align-items: stretch !important;
+}
+/* Opciones del VR (cable USB e IP): solo con "Enable VR" marcado */
+.cfg-row:not(:has(.vr-cb input:checked)) .vr-extra {
+    display: none !important;
 }
 /* Métricas en vivo (solo lectura): sin las flechitas del campo numérico (se veían como un cuadro gris) */
 .metric-nb input[type=number]::-webkit-inner-spin-button,
@@ -232,16 +235,26 @@ def build_ui() -> gr.Blocks:
                 # La columna del robot se muestra/oculta con la clase .robot-hidden, no con
                 # visible= (ver ui/tab_config.py: con visible Gradio dejaba Configuration en blanco).
                 # Al elegir robot se abre siempre la pestaña Configuration (aunque antes se haya
-                # salido desde Visualize & Curate o Episode Control).
-                def _select_robot(robot_id=robot.id):
+                # salido desde Visualize & Curate o Episode Control). Si es otra plataforma que la
+                # anterior, Episode Control queda como nuevo (no muestra la sesión de la otra);
+                # con una sesión activa "Back" está deshabilitado, así que no se corta nada.
+                def _select_robot(num_eps, robot_id=robot.id):
+                    switched = state.hub_robot_id not in (None, robot_id)
+                    state.hub_robot_id = robot_id
+                    cleared = switched and session.reset_episode_control(num_eps)
+                    if not switched:
+                        session.set_planned_episodes(num_eps)
                     return [
                         gr.update(visible=False), gr.update(visible=True),
                         gr.update(selected=CONFIG_TAB_ID),
                         *(gr.update(elem_classes=ROBOT_SHOWN if rid == robot_id else ROBOT_HIDDEN)
                           for rid in config_columns),
+                        gr.update(value="") if cleared else gr.update(),  # Response
+                        gr.update(value="") if cleared else gr.update(),  # nota sin agregar
                     ]
-                btn.click(fn=_select_robot,
-                          outputs=[welcome_col, main_col, main_tabs, *config_columns.values()])
+                btn.click(fn=_select_robot, inputs=[config_forms[robot.id]["num_eps"]],
+                          outputs=[welcome_col, main_col, main_tabs, *config_columns.values(),
+                                   episodes["cmd_feedback"], episodes["note_tb"]])
             else:
                 label = robot.label
                 btn.click(fn=lambda label=label: gr.Warning(f"{label} — not yet available."))
@@ -249,6 +262,9 @@ def build_ui() -> gr.Blocks:
         # ── Lanzamiento de sesion (uno por robot disponible) ──────────────
         for robot in available_robots:
             form = config_forms[robot.id]
+            # Total de la barra de progreso de Episode Control = "Number of episodes" de la
+            # plataforma activa (solo su formulario está a la vista)
+            form["num_eps"].change(fn=session.set_planned_episodes, inputs=[form["num_eps"]])
             inputs = [form[key] for key in robot.config_input_order]
             form["launch_btn"].click(fn=robot.launch, inputs=inputs, outputs=[form["launch_status"]])
 
@@ -271,7 +287,7 @@ def build_ui() -> gr.Blocks:
 
         # ── Visualizar y curar (generico, no depende del robot) ──────────
         nav_outputs = [c["ep_num_nb"], c["ep_info_tb"], c["videos_html"],
-                       c["ep_delete_btn"], c["marked_summary_tb"]]
+                       c["ep_delete_btn"], c["marked_summary_tb"], c["ep_shown_state"]]
         curation_outputs = [c["whole_feature_cbg"], c["dims_action_cbg"], c["dims_state_cbg"],
                             c["task_tb"], c["task_edit_btn"], c["task_save_btn"],
                             c["task_dirty_state"], c["new_repo_id_tb"],
@@ -330,10 +346,13 @@ def build_ui() -> gr.Blocks:
 
 
 
-        c["ep_prev_btn"].click(fn=curation.ep_prev, inputs=[c["ep_num_nb"]], outputs=nav_outputs)
-        c["ep_next_btn"].click(fn=curation.ep_next, inputs=[c["ep_num_nb"]], outputs=nav_outputs)
-        c["ep_num_nb"].submit(fn=curation.ep_goto, inputs=[c["ep_num_nb"]], outputs=nav_outputs)
-        c["ep_delete_btn"].click(fn=curation.toggle_delete_episode, inputs=[c["ep_num_nb"]],
+        # ◄ ► y "Delete this episode" actúan sobre el episodio mostrado (ep_shown_state), no
+        # sobre lo escrito en el campo sin Enter
+        c["ep_prev_btn"].click(fn=curation.ep_prev, inputs=[c["ep_shown_state"]], outputs=nav_outputs)
+        c["ep_next_btn"].click(fn=curation.ep_next, inputs=[c["ep_shown_state"]], outputs=nav_outputs)
+        c["ep_num_nb"].submit(fn=curation.ep_goto, inputs=[c["ep_num_nb"], c["ep_shown_state"]],
+                              outputs=nav_outputs)
+        c["ep_delete_btn"].click(fn=curation.toggle_delete_episode, inputs=[c["ep_shown_state"]],
                                   outputs=[c["ep_delete_btn"], c["marked_summary_tb"]])
 
         c["whole_all_btn"].click(fn=curation.select_all_whole, outputs=[c["whole_feature_cbg"]])
@@ -369,9 +388,12 @@ def build_ui() -> gr.Blocks:
 
         c["push_btn"].click(
             fn=hub_push.push_to_hub_action,
-            inputs=[c["hf_repo_id_tb"], c["hf_token_tb"], c["hf_private_cb"]],
+            inputs=[c["hf_repo_id_tb"], c["hf_token_tb"], c["hf_private_cb"],
+                    c["whole_feature_cbg"], c["dims_action_cbg"], c["dims_state_cbg"],
+                    c["task_dirty_state"]],
             outputs=[c["push_status"]],
         )
-        gr.Timer(0.5).tick(fn=hub_push.poll_push_status, outputs=[c["push_status"], c["push_link_html"]])
+        gr.Timer(0.5).tick(fn=hub_push.poll_push_status,
+                           outputs=[c["push_status"], c["push_link_html"], c["upload_target_md"]])
 
     return demo

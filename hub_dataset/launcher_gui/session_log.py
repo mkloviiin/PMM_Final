@@ -41,6 +41,17 @@ def begin(dataset_root: Path) -> None:
         version += 1
 
 
+def reset() -> None:
+    """Sin sesión (al cambiar de plataforma en el Hub): gráfico y bitácora vacíos. Lo ya
+    escrito en hub_session/ del dataset anterior no se toca."""
+    global _root, _rec_t0, version
+    with _lock:
+        _root = None
+        _samples.clear(); _rows.clear(); _notes.clear()
+        _rec_t0 = None
+        version += 1
+
+
 def on_recording_start() -> None:
     global _rec_t0
     with _lock:

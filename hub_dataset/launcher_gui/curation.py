@@ -299,10 +299,11 @@ def _marked_summary() -> str:
 
 def _goto_episode(idx):
     """Devuelve todos los outputs de la vista de un episodio (numero clamped,
-    info, HTML de videos sincronizados, estado del boton eliminar y resumen de marcados)."""
+    info, HTML de videos sincronizados, estado del boton eliminar, resumen de marcados y el
+    episodio mostrado, que usan los graficos y "Delete this episode")."""
     if not state.viz_ep_rows or state.viz_dataset_path is None:
         return (0, "No dataset loaded.", "",
-                gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.")
+                gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.", 0)
 
     ep_idx = min(max(int(idx), 0), len(state.viz_ep_rows) - 1)
     ep_row = state.viz_ep_rows[ep_idx]
@@ -312,23 +313,28 @@ def _goto_episode(idx):
     videos_html = build_synced_video_html(v0, v1, v2, labels=[k or "" for k in cam_keys])
 
     del_label = "↩️ Undo delete" if ep_idx in state.curation_marked_delete else "🗑️ Delete this episode"
-    return ep_idx, _ep_info_str(ep_row), videos_html, gr.update(value=del_label), _marked_summary()
+    return ep_idx, _ep_info_str(ep_row), videos_html, gr.update(value=del_label), _marked_summary(), ep_idx
 
 
-def ep_goto(idx):
-    return _goto_episode(idx)
+def ep_goto(idx, shown):
+    # Campo vacío + Enter: se queda en el episodio que se está mostrando
+    return _goto_episode(shown if idx is None else idx)
 
 
-def ep_prev(idx):
-    return _goto_episode(int(idx) - 1)
+def ep_prev(shown):
+    return _goto_episode(int(shown) - 1)
 
 
-def ep_next(idx):
-    return _goto_episode(int(idx) + 1)
+def ep_next(shown):
+    return _goto_episode(int(shown) + 1)
 
 
-def toggle_delete_episode(idx):
-    ep_idx = int(idx)
+def toggle_delete_episode(shown):
+    """Marca / desmarca el episodio que se está mostrando (no el número escrito en el campo:
+    antes, escribir 77 sin Enter y borrar marcaba un episodio inexistente)."""
+    if not state.viz_ep_rows:
+        return gr.update(), _marked_summary()
+    ep_idx = min(max(int(shown), 0), len(state.viz_ep_rows) - 1)
     if ep_idx in state.curation_marked_delete:
         state.curation_marked_delete.discard(ep_idx)
         label = "🗑️ Delete this episode"
@@ -350,7 +356,7 @@ def load_viz_dataset(dataset_path: str):
 
     _empty_nav = (
         0, "", "",
-        gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.",
+        gr.update(value="🗑️ Delete this episode"), "Excluded episodes: none.", 0,
     )
     _empty_curation = (
         gr.update(choices=[], value=[]),
@@ -406,6 +412,8 @@ def load_viz_dataset(dataset_path: str):
                   f"{len(state.viz_video_keys)} camera(s)")
 
         nav = _goto_episode(0)
+        # El campo de episodio no acepta números mayores que el último (ver INPUT_FILTER_JS)
+        nav = (gr.update(value=nav[0], maximum=max(n_ep - 1, 0)),) + nav[1:]
 
         features = state.viz_info.get("features", {})
         whole_choices = [k for k in features if k not in state.RESERVED_FEATURES]

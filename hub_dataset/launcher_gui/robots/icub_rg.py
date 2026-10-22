@@ -271,6 +271,7 @@ def _bridge_play(argv, *, cmd_source, on_status, dataset_root: Path | None = Non
 def build_config_form() -> dict[str, gr.components.Component]:
     scene_choices = list(SCENES) or ["(no tasks)"]
 
+    gr.Markdown("### 1. Session settings")
     # .cfg-row (app.py): con "Enable VR" marcado, las dos columnas quedan de la misma altura
     with gr.Row(elem_classes=["cfg-row"]):
         with gr.Column(scale=1):
@@ -312,23 +313,27 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 label="Control arms",
                 info="'auto' detects the arms available in YARP",
             )
+            # Cable e IP solo con "Enable VR" marcado: los muestra/oculta el CSS .vr-extra de
+            # app.py según la casilla (visible= de Gradio no era confiable y a veces quedaban
+            # a la vista sin VR).
             vr_cb = gr.Checkbox(value=False, label="Enable VR", elem_classes=["vr-cb"])
             vr_cable_cb = gr.Checkbox(
-                value=False, visible=False,
+                value=False,
                 label="Connect MetaQuest via USB cable",
                 info="Tunnels VR ports over USB; set IP = 127.0.0.1 in BeaVR",
+                elem_classes=["vr-extra"],
             )
             vr_ip_tb = gr.Textbox(
-                value="", placeholder="192.168.x.x", visible=False,
+                value="", placeholder="192.168.x.x",
                 label="VR headset IP",
-                elem_classes=["ip-input"],
+                elem_classes=["ip-input", "vr-extra"],
             )
 
     gr.Markdown("---")
-    gr.Markdown("### Stack — Start each part in order")
+    gr.Markdown("### 2. Robot stack — start each part in order")
     with gr.Row():
         with gr.Column():
-            gr.Markdown("**1. Gazebo simulation / Real robot connection**")
+            gr.Markdown("**2.1 Gazebo simulation / Real robot connection**")
             with gr.Row():
                 sim_start_btn = gr.Button(
                     "▶ Connect to robot" if mode_dd.value == MODE_REAL else "▶ Start sim",
@@ -336,7 +341,7 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 sim_stop_btn = gr.Button("■ Stop sim", size="sm")
             sim_status = gr.Textbox(label="Simulation / connection status", interactive=False)
         with gr.Column():
-            gr.Markdown("**2. YARP module**")
+            gr.Markdown("**2.2 YARP module**")
             with gr.Row():
                 yarp_start_btn = gr.Button("▶ Start YARP module", size="sm")
                 yarp_stop_btn = gr.Button("■ Stop YARP module", size="sm")
@@ -351,9 +356,10 @@ def build_config_form() -> dict[str, gr.components.Component]:
 
     # ── Wiring interno (autocontenido, como icub_sim con los toggles de VR) ──
     def _on_vr_toggle(enabled):
+        # La visibilidad la maneja el CSS (.vr-extra); al desactivar el VR se limpian los valores
         if enabled:
-            return gr.update(visible=True), gr.update(visible=True)
-        return gr.update(visible=False, value=False), gr.update(visible=False, value="")
+            return gr.update(), gr.update()
+        return gr.update(value=False), gr.update(value="", interactive=True)
 
     vr_cb.change(fn=_on_vr_toggle, inputs=[vr_cb], outputs=[vr_cable_cb, vr_ip_tb])
     vr_cable_cb.change(

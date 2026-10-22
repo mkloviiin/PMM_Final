@@ -24,6 +24,7 @@ status = "idle"  # idle | waiting | recording | done | error
 live_metrics = {"fps": 0.0, "latency_ms": 0.0, "size_mb": 0.0}
 last_dataset_root: Path | None = None
 last_repo_id: str | None = None
+hub_robot_id: str | None = None  # plataforma elegida en la bienvenida (al cambiarla se limpia Episode Control)
 
 # ── Estado del visualizador / curacion ────────────────────────────────────────
 viz_dataset_path: Path | None = None

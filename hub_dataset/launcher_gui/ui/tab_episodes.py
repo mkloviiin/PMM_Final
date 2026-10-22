@@ -1,6 +1,6 @@
-"""Pestana 'Control de episodios': generica, no depende del robot activo mas
-alla del componente de "numero de episodios" que le pasa cada robot para
-acotar la barra de progreso.
+"""Pestana 'Control de episodios': generica, no depende del robot activo. El total de
+la barra de progreso lo fija session.poll_status (state.ep_total, que sigue al "Number of
+episodes" de la plataforma activa); num_eps_component solo da el valor inicial.
 """
 
 from __future__ import annotations
@@ -9,7 +9,9 @@ import gradio as gr
 
 
 def build_episodes_tab(num_eps_component: gr.components.Component):
-    with gr.Tab("Episode Control") as episodes_tab:
+    # Pestañas y secciones numeradas en el orden de uso (pedido del cuestionario SUS)
+    with gr.Tab("2. Episode Control") as episodes_tab:
+        gr.Markdown("### 1. Status")
         with gr.Row():
             status_lbl = gr.Textbox(
                 value="Idle", label="Status",
@@ -24,22 +26,15 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
             buttons=[], elem_classes=["progress-completado"],
         )
 
-        num_eps_component.change(
-            fn=lambda n: gr.update(maximum=max(int(n or 1), 1)),
-            inputs=[num_eps_component],
-            outputs=[progress_bar],
-        )
-
         gr.Markdown("---")
-        gr.Markdown("### Episode Controls")
+        gr.Markdown("### 2. Episode controls")
         with gr.Row():
             start_btn = gr.Button("RECORD episode", variant="primary", scale=2, elem_classes=["btn-green"])
             stop_btn = gr.Button("STOP episode", variant="secondary", scale=2, elem_classes=["btn-red"])
             exit_btn = gr.Button("End session", variant="stop", scale=1)
         cmd_feedback = gr.Textbox(label="Response", interactive=False)
 
-        gr.Markdown("---")
-        gr.Markdown("### Logbook")
+        gr.Markdown("### 3. Logbook")
         with gr.Row(equal_height=True):
             note_tb = gr.Textbox(
                 label="Note", lines=2, scale=5,
@@ -49,7 +44,7 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
         notes_md = gr.Markdown("*No notes yet.*")
 
         gr.Markdown("---")
-        gr.Markdown("### Real-time Metrics")
+        gr.Markdown("### 4. Real-time metrics")
         with gr.Row():
             fps_nb = gr.Number(label="FPS", elem_classes=["metric-nb"], value=0.0, interactive=False, precision=1, scale=1)
             lat_nb = gr.Number(label="Latency (ms)", elem_classes=["metric-nb"], value=0.0, interactive=False, precision=1, scale=1)
@@ -59,6 +54,7 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
             episode_metrics_plot = gr.Plot(label="Per-episode metrics", show_label=False)
 
         gr.Markdown("---")
+        gr.Markdown("### 5. Live log")
         log_box = gr.Textbox(
             label="Live log  (last 80 lines)",
             lines=22,

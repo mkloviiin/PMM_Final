@@ -22,7 +22,7 @@ def build_config_tab():
     columns: dict[str, gr.Column] = {}
     forms: dict[str, dict] = {}
 
-    with gr.Tab("Configuration", id=CONFIG_TAB_ID):
+    with gr.Tab("1. Configuration", id=CONFIG_TAB_ID):
         available = [r for r in REGISTRY if r.available and r.build_config_form]
         for robot in available:
             # Todas "visibles" para Gradio y ocultas con la clase CSS .robot-hidden; el botón del

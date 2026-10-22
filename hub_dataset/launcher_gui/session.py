@@ -171,6 +171,29 @@ def start_session(record_fn: Callable[..., None], *, repo_id: str,
     return "Launching... waiting for robot to connect (~10-20 s)"
 
 
+def set_planned_episodes(num_episodes) -> None:
+    """'Number of episodes' del formulario -> total de la barra de progreso (sin sesión activa)."""
+    if not state.running and num_episodes:
+        state.ep_total = max(int(num_episodes), 1)
+
+
+def reset_episode_control(num_episodes) -> bool:
+    """Deja Episode Control como nuevo (estado, progreso, log, métricas, gráfico por episodio y
+    bitácora), p. ej. al cambiar de plataforma después de haber grabado con otra. No hace nada
+    con una sesión activa. "Use last recorded" (Visualize & Curate) se conserva: ese dataset
+    sigue existiendo y curar no depende de la plataforma."""
+    if state.running:
+        return False
+    state.status = "idle"
+    state.ep_current = 0
+    set_planned_episodes(num_episodes)
+    with state.log_lock:
+        state.log_lines.clear()
+    state.live_metrics.update(fps=0.0, latency_ms=0.0, size_mb=0.0)
+    session_log.reset()
+    return True
+
+
 def cmd_start() -> str:
     if state.running:
         state.cmd_queue.put("1")
@@ -270,7 +293,7 @@ def poll_status():
         log_text = "\n".join(state.log_lines[-80:])
 
     return (
-        label, progress, state.ep_current, log_text,
+        label, progress, gr.update(value=state.ep_current, maximum=max(state.ep_total, 1)), log_text,
         state.live_metrics["fps"], state.live_metrics["latency_ms"], state.live_metrics["size_mb"],
         gr.update(interactive=not state.running),
         plot_upd, notes_upd,

@@ -77,6 +77,7 @@ SCENES = _load_scenes()
 
 
 def build_config_form() -> dict[str, gr.components.Component]:
+    gr.Markdown("### 1. Session settings")
     # .cfg-row (app.py): con "Enable VR" marcado, las dos columnas quedan de la misma altura
     with gr.Row(elem_classes=["cfg-row"]):
         with gr.Column(scale=1):
@@ -112,19 +113,24 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 label="Control arms",
                 info="Arms driven by the teleoperation (and recorded in the dataset)",
             )
+            # Cable e IP solo con "Enable VR" marcado: los muestra/oculta el CSS .vr-extra de
+            # app.py según la casilla (visible= de Gradio no era confiable y a veces quedaban
+            # a la vista sin VR).
             vr_cb = gr.Checkbox(value=False, label="Enable VR", elem_classes=["vr-cb"])
             vr_cable_cb = gr.Checkbox(
-                value=False, visible=False,
+                value=False,
                 label="Connect MetaQuest via USB cable",
                 info="Tunnels VR ports over USB; set IP = 127.0.0.1 in BeaVR",
+                elem_classes=["vr-extra"],
             )
             vr_ip_tb = gr.Textbox(
-                value="", placeholder="192.168.x.x", visible=False,
+                value="", placeholder="192.168.x.x",
                 label="VR headset IP",
-                elem_classes=["ip-input"],
+                elem_classes=["ip-input", "vr-extra"],
             )
 
     gr.Markdown("---")
+    gr.Markdown("### 2. Launch session")
     launch_btn = gr.Button("LAUNCH SESSION", variant="primary", size="lg")
     with gr.Row():
         play_stop_btn = gr.Button("■ Stop teleop / recording", size="sm")
@@ -133,9 +139,10 @@ def build_config_form() -> dict[str, gr.components.Component]:
     play_stop_btn.click(fn=session.cmd_exit, inputs=[], outputs=[launch_status])
 
     def _on_vr_toggle(enabled):
+        # La visibilidad la maneja el CSS (.vr-extra); al desactivar el VR se limpian los valores
         if enabled:
-            return gr.update(visible=True), gr.update(visible=True)
-        return gr.update(visible=False, value=False), gr.update(visible=False, value="")
+            return gr.update(), gr.update()
+        return gr.update(value=False), gr.update(value="", interactive=True)
 
     vr_cb.change(
         fn=_on_vr_toggle,

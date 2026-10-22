@@ -3,6 +3,8 @@
 - <input type="number"> editables (episodios, FPS, duración, episodio en Curate): todos son
   enteros >= 0, así que solo se aceptan dígitos (el navegador deja escribir 'e', '.', '+', '-').
 - Campos con la clase .ip-input (VR headset IP): solo dígitos y puntos.
+- Campos numéricos con máximo (episodio en Curate = último episodio del dataset, FPS): un
+  valor mayor se reemplaza por el máximo al escribirlo (con 50 episodios, 77 -> 49).
 Bloquea teclas y también lo pegado/arrastrado que traiga otros caracteres.
 """
 
@@ -30,6 +32,13 @@ INPUT_FILTER_JS = """
     document.addEventListener('beforeinput', e => {
         const re = allowed(e.target);
         if (re && typeof e.data === 'string' && !re.test(e.data)) e.preventDefault();
+    }, true);
+    // Tope: corre en captura, antes de que el componente de Gradio lea el valor
+    document.addEventListener('input', e => {
+        const el = e.target;
+        if (!(el instanceof HTMLInputElement) || el.type !== 'number' || el.max === '') return;
+        const max = Number(el.max);
+        if (el.value !== '' && Number.isFinite(max) && Number(el.value) > max) el.value = String(max);
     }, true);
     document.addEventListener('paste', e => {
         const re = allowed(e.target);

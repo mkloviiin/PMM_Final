@@ -13,8 +13,9 @@ from ..curation import build_custom_plotly_chart
 
 
 def build_curation_tab():
-    with gr.Tab("Visualize & Curate") as curation_tab:
+    with gr.Tab("3. Visualize & Curate") as curation_tab:
         gr.Markdown("Load a recorded dataset, explore its episodes and choose what to keep in the final version.")
+        gr.Markdown("### 1. Dataset")
 
         with gr.Row():
             with gr.Column(scale=4):
@@ -43,6 +44,7 @@ def build_curation_tab():
 
         with gr.Column(visible=False) as dataset_col:
             gr.Markdown("---")
+            gr.Markdown("### 2. Episodes")
 
             ep_info_tb = gr.Textbox(label="Episode info", interactive=False)
             marked_summary_tb = gr.Textbox(label="Episodes excluded from the final dataset", interactive=False)
@@ -56,6 +58,9 @@ def build_curation_tab():
                     "padding:0 8px;'"
                     ">Episode</div>"
                 )
+                # maximum = último episodio (lo fija load_viz_dataset); INPUT_FILTER_JS no deja
+                # escribir un número mayor. Enter / ◄ ► van al episodio; ep_shown_state es el
+                # que se muestra (videos, gráficos y "Delete this episode" usan ese).
                 ep_num_nb = gr.Number(
                     value=0, show_label=False, precision=0,
                     scale=0, min_width=80, container=False,
@@ -67,9 +72,11 @@ def build_curation_tab():
             with gr.Row():
                 videos_html = gr.HTML(value="")
 
-            with gr.Row():
-                gr.Markdown("### Dynamic Plots")
-                add_plot_btn = gr.Button("➕ Add Plot", size="sm", scale=0)
+            ep_shown_state = gr.State(0)
+
+            gr.Markdown("---")
+            gr.Markdown("### 3. Signal plots")
+            add_plot_btn = gr.Button("➕ Add signal plot", variant="primary", size="lg")
 
             with gr.Group(visible=False) as new_plot_group:
                 gr.Markdown("Select variables and a title for the new plot:")
@@ -81,8 +88,11 @@ def build_curation_tab():
 
             dynamic_plots_state = gr.State([])
 
-            @gr.render(inputs=[dynamic_plots_state, ep_num_nb])
+            @gr.render(inputs=[dynamic_plots_state, ep_shown_state])
             def render_dynamic_plots(plots_config, ep_idx):
+                if not plots_config:
+                    gr.Markdown("*No plots yet — click **➕ Add signal plot** to plot action / "
+                                "observation.state signals of this episode.*")
                 for i, p_config in enumerate(plots_config):
                     vars_list = p_config["vars"]
                     title = p_config["title"]
@@ -163,7 +173,7 @@ def build_curation_tab():
                         )
 
             gr.Markdown("---")
-            gr.Markdown("### Signals to include in the final dataset")
+            gr.Markdown("### 4. Signals to include in the final dataset")
 
             with gr.Row(equal_height=True):
                 with gr.Group():
@@ -209,7 +219,7 @@ def build_curation_tab():
                     )
 
             gr.Markdown("---")
-            gr.Markdown("### Language Instruction — global for the whole dataset")
+            gr.Markdown("### 5. Language instruction — global for the whole dataset")
             with gr.Row(elem_classes=["task-row"]):
                 task_tb = gr.Textbox(value="", show_label=False, interactive=False, scale=10)
                 task_edit_btn = gr.Button("✏️", min_width=50, scale=0, elem_classes=["task-btn"])
@@ -217,7 +227,7 @@ def build_curation_tab():
             task_dirty_state = gr.State(False)
 
             gr.Markdown("---")
-            gr.Markdown("### Packaging")
+            gr.Markdown("### 6. Packaging")
             with gr.Row():
                 new_repo_id_tb = gr.Textbox(value="", label="Final Repo ID (local)")
                 curated_root_tb, _ = dir_textbox(
@@ -230,9 +240,11 @@ def build_curation_tab():
 
             gr.Markdown("---")
             gr.Markdown(
-                "### Upload to Hugging Face Hub\n"
-                "You must package a dataset first (section above) before uploading it."
+                "### 7. Upload to Hugging Face Hub\n"
+                "Uploads the packaged dataset if you packaged one (section 6); otherwise the loaded "
+                "dataset as recorded. Curation changes that aren't packaged yet block the upload."
             )
+            upload_target_md = gr.Markdown("")
             with gr.Accordion("❓ How do I get my Hugging Face token", open=False):
                 gr.Markdown(
                     "- Go to [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) "
@@ -273,7 +285,8 @@ def build_curation_tab():
         load_ds_btn=load_ds_btn, viz_status=viz_status,
         ep_prev_btn=ep_prev_btn, ep_num_nb=ep_num_nb, ep_next_btn=ep_next_btn,
         ep_delete_btn=ep_delete_btn, ep_info_tb=ep_info_tb, marked_summary_tb=marked_summary_tb,
-        videos_html=videos_html,
+        videos_html=videos_html, ep_shown_state=ep_shown_state,
+        upload_target_md=upload_target_md,
         add_plot_btn=add_plot_btn, new_plot_group=new_plot_group, new_plot_vars=new_plot_vars,
         new_plot_title=new_plot_title,
         confirm_plot_btn=confirm_plot_btn, cancel_plot_btn=cancel_plot_btn,
