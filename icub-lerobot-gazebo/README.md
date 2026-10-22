@@ -150,8 +150,23 @@ cámaras**:
   `hand_close_time_s`). Antes del 2026-10-21 era 0 abrir / 0.5 cerrar / 1 mantener
   (`gripper_legacy`, `--legacy-gripper` en `eval_gazebo.py`).
 - **Solo en Gazebo / robot real:** los ojos (`eyes_*`), que MuJoCo no modela.
-- **No se graba:** la fuerza externa en la mano (solo existía en MuJoCo).
+- **No se graba:** la fuerza externa en la mano (solo existía en MuJoCo) ni el torque de los
+  dedos y los ojos (Gazebo lo entrega siempre en 0 y el iCub real no lo mide), en ninguno de
+  los dos simuladores.
+- **Acción y targets:** la observación lleva el comando del paso anterior (`rh_target_*`,
+  `gaze_target_pos_*`, `rh_gripper`) y la acción el de este paso, en ambos. Antes del
+  2026-10-21 MuJoCo con VR grababa como acción el target ya aplicado (igual a la observación).
 - **`obj{i}_*` es ground truth del simulador:** en el robot real no existe (se desactiva).
+- **Signo de los cuaterniones (desde el 2026-10-21):** `q` y `-q` son la misma orientación,
+  pero no el mismo dato. Manos (`*_ee_quat`, `*_target_quat`, acción `*_quat`) con
+  `quat_y <= 0` y objetos con `quat_w >= 0`, en ambos (`canonicalize_quats`). Antes, en
+  Gazebo `rh_ee_quat` y `rh_target_quat` quedaban con signo opuesto en el 92 % de los frames.
+  Los datasets anteriores se corrigen sin regrabar con `tools/canonicalize_quats.py`; los
+  eval detectan la convención del dataset de entrenamiento en su `stats.json`.
+- **`neck_roll`:** fijo en 0 en ambos (`gaze_block_neck_roll`; MuJoCo siempre lo fijó). Los
+  ojos siguen libres en Gazebo.
+- **Límites articulares:** los del controlboard de Gazebo / robot real en el XML de MuJoCo y
+  en su IK de brazo (antes, los de iKin: p. ej. `wrist_yaw` ±25° contra -20..25°).
 
 Lo que no se puede igualar: el render (iluminación, materiales), el motor físico (contactos
 y agarre) y el tiempo (MuJoCo avanza en sincronía con la política, Gazebo y el robot real en

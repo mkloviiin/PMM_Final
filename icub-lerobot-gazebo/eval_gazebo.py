@@ -126,6 +126,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--clip-z", type=float, default=None, metavar="Z",
                    help="Clip every state value to mean ± Z·std of the training data")
     p.add_argument("--lift-threshold", type=float, default=0.03, help="Lift success threshold [m]")
+    p.add_argument("--grasp-offset", type=float, nargs=3, default=None, metavar=("X", "Y", "Z"),
+                   help="Right-hand-frame offset [m] = cube-in-hand at grasp in the eval sim minus "
+                        "the training sim (tools/grasp_offset.py). The policy sees the hand shifted "
+                        "by it and its targets are shifted back, so it grasps where the eval sim's "
+                        "fingers need the cube. MuJoCo model in Gazebo: 0.030 -0.017 -0.005")
+    p.add_argument("--n-action-steps", type=int, default=None,
+                   help="Actions executed per predicted chunk before replanning (default: the "
+                        "trained n_action_steps, e.g. 60). Lower = more closed-loop")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -195,6 +203,32 @@ def convert_poses(values: dict, groups, fn, root_xyz) -> None:
         values.update(zip(pos_keys, new_pos))
         if quat_keys:
             values.update(zip(quat_keys, new_quat))
+
+
+def quat_rotate(quat, vec) -> np.ndarray:
+    """Rota vec por el cuaternión (w, x, y, z)."""
+    w, x, y, z = np.asarray(quat, dtype=float) / max(float(np.linalg.norm(quat)), 1e-9)
+    u = np.array([x, y, z])
+    v = np.asarray(vec, dtype=float)
+    return v + 2.0 * np.cross(u, np.cross(u, v) + w * v)
+
+
+# Poses de la mano derecha a las que se aplica --grasp-offset: (posición, cuaternión)
+GRASP_OFFSET_STATE = [("rh_ee_pos", "rh_ee_quat"), ("rh_target_pos", "rh_target_quat")]
+GRASP_OFFSET_ACTION = [("rh_pos", "rh_quat")]
+
+
+def shift_hand(values: dict, groups, offset, sign: float) -> None:
+    """pos += sign · R(quat) · offset, en el lugar: la mano que ve la política queda donde
+    estaría con la geometría de dedos del simulador de entrenamiento (offset en el frame de
+    la mano, ver --grasp-offset). +1 para el estado, -1 para devolver la acción."""
+    for pos_prefix, quat_prefix in groups:
+        pos_keys = [f"{pos_prefix}_{ax}" for ax in "xyz"]
+        quat_keys = [f"{quat_prefix}_{ax}" for ax in "wxyz"]
+        if not all(k in values for k in pos_keys + quat_keys):
+            continue
+        delta = sign * quat_rotate([float(values[k]) for k in quat_keys], offset)
+        values.update({k: float(values[k]) + d for k, d in zip(pos_keys, delta)})
 
 
 class MujocoGazeAdapter:
@@ -394,7 +428,7 @@ def main() -> None:
         from lerobot.datasets.feature_utils import build_dataset_frame
     from lerobot.utils.robot_utils import precise_sleep
     from lerobot_robot_icubrg.config_icub import iCubConfig
-    from lerobot_robot_icubrg.icub import iCub
+    from lerobot_robot_icubrg.icub import dataset_uses_canonical_quats, iCub
 
     policy_repo = Path(args.policy_repo).expanduser().resolve()
     run_dir = repo_root.parent / "outputs" / "tests" / (
@@ -418,6 +452,11 @@ def main() -> None:
     policy_cfg = PreTrainedConfig.from_pretrained(str(policy_repo))
     policy_cfg.device = args.device
     policy_cfg.pretrained_path = str(policy_repo)
+    if args.n_action_steps is not None:
+        if not 1 <= args.n_action_steps <= policy_cfg.chunk_size:
+            raise SystemExit(f"--n-action-steps must be in 1..{policy_cfg.chunk_size}")
+        policy_cfg.n_action_steps = args.n_action_steps
+    print(f"[eval] n_action_steps={policy_cfg.n_action_steps} (chunk_size={policy_cfg.chunk_size})")
     policy = get_policy_class(policy_cfg.type).from_pretrained(str(policy_repo), config=policy_cfg)
     policy.to(args.device).eval()
     preprocessor, postprocessor = make_pre_post_processors(policy_cfg, pretrained_path=str(policy_repo))
@@ -429,6 +468,10 @@ def main() -> None:
         raise FileNotFoundError(f"Config not found: {cfg_path}")
     robot_cfg = iCubConfig(config_path=str(cfg_path))
     robot_cfg.gripper_legacy = args.legacy or args.legacy_gripper
+    # Misma convención de signo de cuaterniones que el dataset de entrenamiento
+    robot_cfg.canonical_quats = dataset_uses_canonical_quats(
+        ds_stats, state_names, ds_features["action"]["names"])
+    print(f"[eval] Quaternion sign: {'canonical' if robot_cfg.canonical_quats else 'raw (dataset before 2026-10-21)'}")
     root_xyz = robot_cfg.gazebo_root_xyz  # root real de Gazebo (alturas del cubo)
     # Root de Gazebo en el mundo MuJoCo para convertir poses: la cintura de MuJoCo (anclado al
     # robot) o la posición real del root sobre la mesa (anclado a la mesa).
@@ -470,6 +513,10 @@ def main() -> None:
                 MIRROR_SCENE_XML, camera="head_cam_v1")
             print("[eval] Gaze: MuJoCo head_cam axis -> iKinGazeCtrl fixation point (MujocoGazeAdapter)")
     action_groups = [g for g in ACTION_POSE_GROUPS if not (gaze_adapter and g[0] == "gaze")]
+    grasp_offset = np.array(args.grasp_offset) if args.grasp_offset else None
+    if grasp_offset is not None:
+        print(f"[eval] Grasp offset (right hand frame): {np.round(grasp_offset, 4).tolist()} m; "
+              f"CSV real_* columns hold the hand and command actually used in Gazebo")
     if any(n.startswith("lh_") for n in action_names) and robot_cfg.control_arms == "right":
         print("[eval][warn] Policy has left-arm actions but control_arms is 'right' in the YAML.")
 
@@ -499,6 +546,7 @@ def main() -> None:
             log_rows: list[dict] = []
             above = 0
             held = False
+            t_ep = t_prev = time.perf_counter()
 
             for step in range(args.episode_steps):
                 t0 = time.perf_counter()
@@ -507,6 +555,9 @@ def main() -> None:
                 values = {n: float(obs[n]) for n in robot_state if n in obs}
                 if convert:
                     convert_poses(values, STATE_POSE_GROUPS, mujoco_from_root, conv_xyz)
+                real_ee = {f"real_rh_ee_pos_{ax}": values.get(f"rh_ee_pos_{ax}") for ax in "xyz"}
+                if grasp_offset is not None:
+                    shift_hand(values, GRASP_OFFSET_STATE, grasp_offset, +1.0)
                 values.update(fill)  # ya en el marco de entrenamiento
                 if args.touch_oracle:
                     values.update(oracle_touch(values))
@@ -536,15 +587,21 @@ def main() -> None:
                     values[trained_cam] = img
 
                 frame = build_dataset_frame(ds_features, values, prefix=OBS_STR)
+                t_infer = time.perf_counter()
                 action_tensor = predict_action(
                     observation=frame, policy=policy, device=device,
                     preprocessor=preprocessor, postprocessor=postprocessor,
                     use_amp=policy.config.use_amp, task=task, robot_type=robot_type,
                 )
+                infer_ms = (time.perf_counter() - t_infer) * 1000.0
                 action = make_robot_action(action_tensor, ds_features)
                 # Lo que pide la política y dónde está la mano/el cubo, en el marco de
-                # entrenamiento (comparable con las stats del dataset)
-                row = {"step": step}
+                # entrenamiento (comparable con las stats del dataset). Tiempos: t_s desde el
+                # inicio del episodio, period_ms entre pasos, infer_ms de la política (alto =
+                # chunk nuevo; Gazebo sigue corriendo mientras tanto).
+                row = {"step": step, "t_s": round(t0 - t_ep, 4),
+                       "period_ms": round((t0 - t_prev) * 1000.0, 2), "infer_ms": round(infer_ms, 2)}
+                t_prev = t0
                 row.update({f"cmd_{k}": v for k, v in action.items()})
                 row.update({k: values[k] for k in LOG_STATE_KEYS if k in values})
                 row.update({f"state.{n}": values[n] for n in state_names})
@@ -556,6 +613,10 @@ def main() -> None:
                     torso = {n: float(obs[n]) for n in MujocoGazeAdapter.TORSO if n in obs}
                     action.update(zip(("gaze_x", "gaze_y", "gaze_z"),
                                       gaze_adapter.fixation_root(last_gaze_mj, torso)))
+                if grasp_offset is not None:
+                    shift_hand(action, GRASP_OFFSET_ACTION, grasp_offset, -1.0)
+                    row.update(real_ee)
+                    row.update({f"real_cmd_rh_pos_{ax}": float(action[f"rh_pos_{ax}"]) for ax in "xyz"})
                 if convert:
                     convert_poses(action, action_groups, root_from_mujoco, conv_xyz)
                 robot.send_action(action)
@@ -576,11 +637,19 @@ def main() -> None:
                       "held_above_0p80_1s": held}
             episodes.append(result)
             print(f"  [metrics] lift={lift:.3f} m  lifted={result['lifted']}  held={held}")
+            if log_rows:
+                inf = np.array([r["infer_ms"] for r in log_rows])
+                per = np.array([r["period_ms"] for r in log_rows[1:]])
+                print(f"  [timing] {len(log_rows) / log_rows[-1]['t_s']:.1f} Hz | inference: chunk "
+                      f"{np.sort(inf)[-max(1, len(inf) // policy_cfg.n_action_steps):].mean():.0f} ms "
+                      f"(max {inf.max():.0f}), other steps {np.median(inf):.1f} ms | period p99 "
+                      f"{np.percentile(per, 99):.0f} ms")
     finally:
         summary = {
             "policy": str(policy_repo), "source_sim": source, "task": task,
             "camera_map": camera_map, "filled_state": list(fill), "root_xyz": list(root_xyz),
             "anchor": args.anchor, "conv_xyz": list(conv_xyz),
+            "grasp_offset": args.grasp_offset,
             "episodes": episodes,
             "success_rate_lift": float(np.mean([e["lifted"] for e in episodes])) if episodes else None,
             "success_rate_held": float(np.mean([e["held_above_0p80_1s"] for e in episodes])) if episodes else None,

@@ -48,7 +48,8 @@ class IKinArmSolver:
 
     def __init__(self, side="right", joints_to_control=None,
                  real_robot_limits=True, limit_torso_pitch=True,
-                 waist_pos=None, waist_rot_mat=None, torso_limits_deg=None):
+                 waist_pos=None, waist_rot_mat=None, torso_limits_deg=None,
+                 joint_limits=None):
         """
         Args:
             side: "right" or "left"
@@ -60,6 +61,9 @@ class IKinArmSolver:
             torso_limits_deg: {"pitch": [min, max], "yaw": [min, max]} (roll locked at 0),
                 same as cart_torso_limits of the real robot's cartesian controller. When
                 given it replaces the limits of _set_real_limits and limit_torso_pitch.
+            joint_limits: {joint: (min, max)} [rad] of the arm joints (not torso), e.g. the
+                MuJoCo model's ranges (= the Gazebo / real robot controlboard [LIMITS]).
+                Replaces iKin's defaults, as iKinCartesianSolver does with the robot's limits.
         """
         self.torso_limits_deg = dict(torso_limits_deg) if torso_limits_deg else None
         if not IKIN_AVAILABLE:
@@ -86,6 +90,8 @@ class IKinArmSolver:
 
         if real_robot_limits:
             self._set_real_limits()
+        if joint_limits:
+            self._set_joint_limits(joint_limits)
         if self.torso_limits_deg:
             self._set_torso_limits(self.torso_limits_deg)
         elif limit_torso_pitch and 'torso_pitch' in self.joints_to_control:
@@ -144,6 +150,15 @@ class IKinArmSolver:
         elbow_idx = torso_offset + 3
         if elbow_idx < self.n_ik_joints:
             self._rest_pose.set(elbow_idx, 1.0)  # ~57 deg bent
+
+    def _set_joint_limits(self, limits: dict) -> None:
+        """Límites de las articulaciones del brazo [rad], en el índice de joints_to_control."""
+        for j_idx, name in enumerate(self.joints_to_control):
+            if name.startswith("torso_") or name not in limits:
+                continue
+            lo, hi = limits[name]
+            self.chain.access(j_idx).setMin(float(lo))
+            self.chain.access(j_idx).setMax(float(hi))
 
     def _set_torso_limits(self, limits_deg: dict) -> None:
         """Límites del torso en grados, en el orden de la cadena (pitch, roll, yaw)."""

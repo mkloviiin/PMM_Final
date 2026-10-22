@@ -15,6 +15,60 @@ from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnected
 
 from .config_icub_mujoco import iCubMuJoCoConfig
 
+# Articulaciones sin torque: Gazebo los entrega siempre en 0 en los dedos y los ojos (y el
+# iCub real no los mide), así que ni Gazebo ni MuJoCo los graban (mismo dataset sim-to-sim).
+NO_TORQUE_TAGS = ("_hand_finger", "_thumb_", "_index_", "_middle_", "_pinky", "eyes_")
+
+
+def has_torque(joint: str) -> bool:
+    return not any(tag in joint for tag in NO_TORQUE_TAGS)
+
+
+# Signo de los cuaterniones: q y -q son la misma orientación, pero para una política son
+# valores opuestos, y cada fuente elegía uno distinto (getPose de iKin da w >= 0, el VR no).
+# Ambos simuladores graban el mismo hemisferio: manos (ee, target y acción, frame root) con
+# quat_y <= 0, es decir q·(0, 0, -1, 0) >= 0, la orientación típica de la mano (todas las
+# poses grabadas quedan a |q_y| >= 0.65 del cambio de signo); objetos con quat_w >= 0
+# (aparecen en la identidad). Mismo criterio en lerobot_robot_icubrg (Gazebo) y en
+# icub-lerobot-gazebo/tools/canonicalize_quats.py.
+QUAT_HEMISPHERE = "hand_y<=0,obj_w>=0"
+
+
+def canonicalize_quats(values: dict) -> dict:
+    """Pasa al hemisferio de QUAT_HEMISPHERE cada cuaternión {prefijo}_quat_{w,x,y,z}
+    presente en values (tensores o floats), en el lugar. Devuelve values."""
+    prefixes = {k[:-2] for k in values if k.endswith("_quat_w")}
+    for prefix in prefixes:
+        keys = [f"{prefix}_{ax}" for ax in "wxyz"]
+        if not all(k in values for k in keys):
+            continue
+        if prefix.startswith("obj"):
+            flip = float(values[f"{prefix}_w"]) < 0.0
+        else:
+            flip = float(values[f"{prefix}_y"]) > 0.0
+        if flip:
+            for k in keys:
+                values[k] = -values[k]
+    return values
+
+
+def dataset_uses_canonical_quats(stats: dict, state_names: list[str], action_names: list[str]) -> bool:
+    """True si el dataset ya viene en el hemisferio de QUAT_HEMISPHERE, según su stats.json
+    (manos con max(quat_y) <= 0, objetos con min(quat_w) >= 0). Los eval lo usan para
+    darle a una política la misma convención con que se entrenó: los datasets anteriores al
+    2026-10-21 (sin pasar por tools/canonicalize_quats.py) dan False."""
+    groups = []
+    for key, names in (("observation.state", state_names), ("action", action_names)):
+        st = stats.get(key) or {}
+        for i, name in enumerate(names):
+            if name.endswith("_quat_y") and not name.startswith("obj"):
+                groups.append(st.get("max", [None] * len(names))[i] is not None
+                              and float(st["max"][i]) <= 1e-6)
+            elif name.endswith("_quat_w") and name.startswith("obj"):
+                groups.append(st.get("min", [None] * len(names))[i] is not None
+                              and float(st["min"][i]) >= -1e-6)
+    return bool(groups) and all(groups)
+
 
 class iCubMuJoCo(Robot):
     config_class = iCubMuJoCoConfig
@@ -111,7 +165,7 @@ class iCubMuJoCo(Robot):
         #   [77– 82]   touch contact rh + lh       (6)
         #   ── 83 training dims ──────────────────────
         #   [83– 89]   object pose                 (7)
-        #   [90–111]   joint torques              (22)
+        #   [90–102]   joint torques              (13, sin dedos)
         #   [112–117]  external forces rh + lh     (6)
         #   ── 118 total (+ cameras as separate keys) ─
         features = {**self._motors_ft}   # [0-21] joint positions
@@ -163,8 +217,8 @@ class iCubMuJoCo(Robot):
             features[f"obj{i}_quat_y"] = float
             features[f"obj{i}_quat_z"] = float
 
-        # joint torques / actuator forces
-        for name in self.actuator_list:
+        # joint torques / actuator forces (sin dedos: Gazebo no los entrega)
+        for name in filter(has_torque, self.actuator_list):
             features[f"{name}_torque"] = float
 
         # (Sin fuerza externa en la mano: solo existe en MuJoCo, no en Gazebo ni en el robot
@@ -464,6 +518,10 @@ class iCubMuJoCo(Robot):
             if self.teleop_core.latest_buttons:
                 self.teleop_core._process_button_commands()
                 self.teleop_core.latest_buttons = None
+            # El VR mueve los targets aquí, después de get_observation: la acción de este
+            # paso es lo que se aplicó ahora (no lo que leyó el teleoperador, que es el target
+            # del paso anterior, ya presente en la observación).
+            action = self._applied_action()
         else:
             self._set_targets_from_action(action)
 
@@ -490,6 +548,26 @@ class iCubMuJoCo(Robot):
              self.teleop_core._stream_images()
 
         return action
+
+    def _applied_action(self) -> dict[str, Any]:
+        """Targets y pinzas que tiene ahora el teleop_core, con las claves de action_features."""
+        tc = self.teleop_core
+        data = tc.data
+        action: dict[str, Any] = {}
+        for side, mocap_id in (("rh", tc.rh_mocap_id), ("lh", tc.lh_mocap_id)):
+            for ax, v in zip("xyz", data.mocap_pos[mocap_id]):
+                action[f"{side}_pos_{ax}"] = float(v)
+            for ax, v in zip("wxyz", data.mocap_quat[mocap_id]):
+                action[f"{side}_quat_{ax}"] = float(v)
+            action[f"{side}_gripper"] = float(getattr(tc, f"{side}_grip_state", 0.0))
+        for ax, v in zip("xyz", data.mocap_pos[tc.gaze_mocap_id]):
+            action[f"gaze_{ax}"] = float(v)
+        if self.config.pose_frame == "root":
+            self._convert_poses(action, self._ACTION_POSE_GROUPS, to_root=True)
+            if self.config.canonical_quats:
+                canonicalize_quats(action)
+        return {k: torch.tensor(self._to_float(action[k]), dtype=torch.float32)
+                for k in self.action_features}
 
     def get_observation(self) -> dict[str, Any]:
         if not self.is_connected or self.teleop_core is None:
@@ -530,7 +608,7 @@ class iCubMuJoCo(Robot):
             obs[f"{name}_vel"] = torch.tensor(vel, dtype=torch.float32)
 
         # 3. Joint torque  — data.actuator_force (computed after mj_step)
-        for name in self.actuator_list:
+        for name in filter(has_torque, self.actuator_list):
             if name in self._actuator_id_by_name:
                 aid = self._actuator_id_by_name[name]
                 torque = float(data.actuator_force[aid])
@@ -689,6 +767,8 @@ class iCubMuJoCo(Robot):
         #     observation_features (brazos de control_arms, sin fuerza externa).
         if self.config.pose_frame == "root":
             self._convert_poses(obs, self._POSE_GROUPS, to_root=True)
+            if self.config.canonical_quats:
+                canonicalize_quats(obs)
         if getattr(self, "_obs_keys", None) is None:
             self._obs_keys = set(self.observation_features)
         return {k: v for k, v in obs.items() if k in self._obs_keys}

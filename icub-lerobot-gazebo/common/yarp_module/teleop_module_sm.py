@@ -211,6 +211,7 @@ class TeleopModuleSM(yarp.RFModule):
                 # Los mismos en el robot real, Gazebo y MuJoCo (cart_torso_limits)
                 torso_limits_deg=self.cfg.get("cart_torso_limits"),
                 gaze_head_only=self.is_gazebo and bool(self.cfg.get("gazebo_gaze_head_only", False)),
+                gaze_block_neck_roll=bool(self.cfg.get("gaze_block_neck_roll", False)),
             )
             self.yarp_interface.cart_force_position_direct = bool(
                 self.cfg.get("cart_force_position_direct", False))

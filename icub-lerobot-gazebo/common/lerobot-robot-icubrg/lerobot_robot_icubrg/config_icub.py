@@ -162,6 +162,9 @@ class iCubConfig(RobotConfig):
     # rh/lh_gripper: False = fracción de cierre 0..1 (desde el 2026-10-21, gatillo gradual);
     # True = convención anterior 0 abrir / 0.5 cerrar / 1 mantener (modelos legacy).
     gripper_legacy: bool = False
+    # Signo de los cuaterniones (QUAT_HEMISPHERE en icub.py): True desde el 2026-10-21. Los
+    # eval de políticas entrenadas con datasets anteriores lo apagan (no marcados en info.json).
+    canonical_quats: bool = True
 
 
     # _YAML_CFG = load_yarp_config(config_path)

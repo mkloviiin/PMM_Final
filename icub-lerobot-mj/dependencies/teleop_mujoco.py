@@ -275,7 +275,10 @@ class MuJoCoTeleop:
         waist_pos = self.data.xpos[waist_id].copy()
         waist_mat = self.data.xmat[waist_id].reshape(3, 3).copy()
 
-        # Arm IK via iKinIpOptMin (one solver per arm)
+        # Arm IK via iKinIpOptMin (one solver per arm). Límites del brazo = rangos del modelo
+        # (los del controlboard de Gazebo y del robot real), como iKinCartesianSolver.
+        arm_limits = {self.model.joint(j).name: tuple(self.model.jnt_range[j])
+                      for j in range(self.model.njnt) if self.model.jnt_limited[j]}
         if self.control_arms in ("both", "right"):
             rh_joints = (RIGHT_ARM_JOINTS if self.primary_arm == "right"
                          else RIGHT_ARM_JOINTS[3:])
@@ -283,7 +286,8 @@ class MuJoCoTeleop:
                 side="right", joints_to_control=rh_joints,
                 real_robot_limits=True, limit_torso_pitch=True,
                 waist_pos=waist_pos, waist_rot_mat=waist_mat,
-                torso_limits_deg=cfg.get("cart_torso_limits"))
+                torso_limits_deg=cfg.get("cart_torso_limits"),
+                joint_limits=arm_limits)
         else:
             self._rh_solver = None
 
@@ -295,7 +299,8 @@ class MuJoCoTeleop:
                 side="left", joints_to_control=lh_joints,
                 real_robot_limits=True, limit_torso_pitch=True,
                 waist_pos=waist_pos, waist_rot_mat=waist_mat,
-                torso_limits_deg=cfg.get("cart_torso_limits"))
+                torso_limits_deg=cfg.get("cart_torso_limits"),
+                joint_limits=arm_limits)
         else:
             self._lh_solver = None
 

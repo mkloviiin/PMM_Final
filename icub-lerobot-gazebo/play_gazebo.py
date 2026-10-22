@@ -298,6 +298,7 @@ def _manual_vr_record(
     from lerobot.processor import make_default_processors
     from lerobot.utils.constants import ACTION, OBS_STR
     from lerobot.utils.robot_utils import precise_sleep
+    from lerobot_robot_icubrg.icub import canonicalize_quats
 
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
 
@@ -429,12 +430,16 @@ def _manual_vr_record(
                 fm.mark("send")
                 _forward_world_reset(robot, teleop)
 
+                # Mismo signo de cuaternión que la observación (canonicalize_quats)
+                recorded_action = (canonicalize_quats(dict(act_processed))
+                                   if robot.config.canonical_quats else act_processed)
+
                 observation_frame = build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR)
-                action_frame = build_dataset_frame(dataset.features, act_processed, prefix=ACTION)
+                action_frame = build_dataset_frame(dataset.features, recorded_action, prefix=ACTION)
                 frame = {**observation_frame, **action_frame, "task": args.single_task}
                 dataset.add_frame(frame)
                 fm.mark("record")
-                fm.end(robot=robot, obs=obs, action=act_processed)
+                fm.end(robot=robot, obs=obs, action=recorded_action)
                 live_i += 1
                 if live_every and live_i % live_every == 0:
                     live = fm.live()

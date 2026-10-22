@@ -102,6 +102,10 @@ class iCubMuJoCoConfig(RobotConfig):
     # rh/lh_gripper: False = fracción de cierre 0..1 (desde el 2026-10-21, gatillo gradual);
     # True = convención anterior 0 abrir / 0.5 cerrar / 1 mantener (modelos --legacy).
     gripper_legacy: bool = False
+    # Signo de los cuaterniones (QUAT_HEMISPHERE en icub_mujoco.py): True desde el 2026-10-21.
+    # Los eval de políticas entrenadas con datasets anteriores lo apagan (no marcados en
+    # info.json). Solo se aplica con pose_frame "root".
+    canonical_quats: bool = True
 
     sim_dt: float = 0.005
     control_dt: float = 1.0 / 30  # 30 Hz

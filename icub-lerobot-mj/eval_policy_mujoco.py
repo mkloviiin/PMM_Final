@@ -332,6 +332,11 @@ def main() -> None:
         robot_cfg.gripper_legacy = True
         robot_cfg.camera_names = ["head_cam", "head_cam_track_hand", "frontview"]
         robot_cfg.camera_sources = {"head_cam": "head_cam_v1", "head_cam_track_hand": "head_cam_track_hand_v1"}
+    # Misma convención de signo de cuaterniones que el dataset de entrenamiento
+    from lerobot_robot_icub.icub_mujoco import dataset_uses_canonical_quats
+    robot_cfg.canonical_quats = dataset_uses_canonical_quats(
+        dataset_stats_raw or {}, ds_features.get("observation.state", {}).get("names", []), action_names)
+    print(f"[eval] Quaternion sign: {'canonical' if robot_cfg.canonical_quats else 'raw (dataset before 2026-10-21)'}")
     robot = make_robot_from_config(robot_cfg)
     robot.connect()
     print("[eval] Robot connected")

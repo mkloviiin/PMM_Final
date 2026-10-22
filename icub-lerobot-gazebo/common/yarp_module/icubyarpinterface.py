@@ -124,7 +124,8 @@ class iCubYARPInterface:
                  bind_eyes=True,
                  cart_carrier="udp",
                  torso_limits_deg=None,
-                 gaze_head_only=False):
+                 gaze_head_only=False,
+                 gaze_block_neck_roll=False):
         """
         Args:
             robot_name (str): Nombre del robot.
@@ -139,8 +140,11 @@ class iCubYARPInterface:
                 para el cartesiano del brazo principal (default ±15 / ±10).
             gaze_head_only (bool): mirar solo con el cuello (ojos fijos al frente, sin
                 roll de cuello), como el IK de mirada de MuJoCo.
+            gaze_block_neck_roll (bool): solo neck_roll en 0 (los ojos siguen libres),
+                como el IK de mirada de MuJoCo, que lo fija siempre.
         """
         self.gaze_head_only = gaze_head_only
+        self.gaze_block_neck_roll = gaze_block_neck_roll
         self.torso_limits_deg = {"pitch": (-15.0, 15.0), "yaw": (-10.0, 10.0)}
         self.torso_limits_deg.update(torso_limits_deg or {})
         
@@ -858,6 +862,11 @@ class iCubYARPInterface:
             self.igaze.blockEyes(0.0)
             self.igaze.blockNeckRoll(0.0)
             print("  [GAZE] Eyes blocked straight ahead, neck roll blocked (gaze_head_only).")
+        elif self.gaze_block_neck_roll:
+            # neck_roll es redundante para mirar: iKinGazeCtrl lo dejaba en -0.07..0.25 rad
+            # según su optimizador, MuJoCo lo fija en 0. Mismo dato en ambos simuladores.
+            self.igaze.blockNeckRoll(0.0)
+            print("  [GAZE] Neck roll blocked at 0 (gaze_block_neck_roll); eyes free.")
         
         # 3. Configuración de parámetros de suavizado
         #self.igaze.setEyesTrajTime(1.489)  # Optimized for eyes-down

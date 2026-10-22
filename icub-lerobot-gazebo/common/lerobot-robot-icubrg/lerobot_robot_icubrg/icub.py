@@ -32,6 +32,60 @@ CAMERA_STALE_S = 1.0
 TOUCH_FINGER_SLOT = {"thumb": 4, "index": 0, "middle": 1}
 TAXELS_PER_FINGER = 12
 
+# Articulaciones sin torque: Gazebo los entrega siempre en 0 en los dedos y los ojos (y el
+# iCub real no los mide), así que ni Gazebo ni MuJoCo los graban (mismo dataset sim-to-sim).
+NO_TORQUE_TAGS = ("_hand_finger", "_thumb_", "_index_", "_middle_", "_pinky", "eyes_")
+
+
+def has_torque(joint: str) -> bool:
+    return not any(tag in joint for tag in NO_TORQUE_TAGS)
+
+
+# Signo de los cuaterniones: q y -q son la misma orientación, pero para una política son
+# valores opuestos, y cada fuente elegía uno distinto (getPose de iKin da w >= 0, el VR no).
+# Ambos simuladores graban el mismo hemisferio: manos (ee, target y acción, frame root) con
+# quat_y <= 0, es decir q·(0, 0, -1, 0) >= 0, la orientación típica de la mano (todas las
+# poses grabadas quedan a |q_y| >= 0.65 del cambio de signo); objetos con quat_w >= 0
+# (aparecen en la identidad). Mismo criterio en lerobot_robot_icub (MuJoCo) y en
+# tools/canonicalize_quats.py.
+QUAT_HEMISPHERE = "hand_y<=0,obj_w>=0"
+
+
+def canonicalize_quats(values: dict) -> dict:
+    """Pasa al hemisferio de QUAT_HEMISPHERE cada cuaternión {prefijo}_quat_{w,x,y,z}
+    presente en values (tensores o floats), en el lugar. Devuelve values."""
+    prefixes = {k[:-2] for k in values if k.endswith("_quat_w")}
+    for prefix in prefixes:
+        keys = [f"{prefix}_{ax}" for ax in "wxyz"]
+        if not all(k in values for k in keys):
+            continue
+        if prefix.startswith("obj"):
+            flip = float(values[f"{prefix}_w"]) < 0.0
+        else:
+            flip = float(values[f"{prefix}_y"]) > 0.0
+        if flip:
+            for k in keys:
+                values[k] = -values[k]
+    return values
+
+
+def dataset_uses_canonical_quats(stats: dict, state_names: list[str], action_names: list[str]) -> bool:
+    """True si el dataset ya viene en el hemisferio de QUAT_HEMISPHERE, según su stats.json
+    (manos con max(quat_y) <= 0, objetos con min(quat_w) >= 0). Los eval lo usan para
+    darle a una política la misma convención con que se entrenó: los datasets anteriores al
+    2026-10-21 (sin pasar por tools/canonicalize_quats.py) dan False."""
+    groups = []
+    for key, names in (("observation.state", state_names), ("action", action_names)):
+        st = stats.get(key) or {}
+        for i, name in enumerate(names):
+            if name.endswith("_quat_y") and not name.startswith("obj"):
+                groups.append(st.get("max", [None] * len(names))[i] is not None
+                              and float(st["max"][i]) <= 1e-6)
+            elif name.endswith("_quat_w") and name.startswith("obj"):
+                groups.append(st.get("min", [None] * len(names))[i] is not None
+                              and float(st["min"][i]) >= -1e-6)
+    return bool(groups) and all(groups)
+
 
 def _grip_mode(value: float) -> str:
     """Mismos umbrales que el plugin de MuJoCo: el teleop manda 0.0/0.5/1.0 exactos,
@@ -139,7 +193,8 @@ class iCub(Robot):
                 features.update({f"obj{i}_pos_{ax}": float for ax in "xyz"})
                 features.update({f"obj{i}_quat_{ax}": float for ax in "wxyz"})
         if self.config.use_joint_torque:
-            features.update({f"{name}_torque": float for name in self.actuator_list})
+            features.update({f"{name}_torque": float for name in self.actuator_list
+                             if has_torque(name)})
 
         return features
 
@@ -463,7 +518,7 @@ class iCub(Robot):
                 obs[f"{name}_vel"] = torch.tensor(vals[block + index[name]], dtype=torch.float32)
         if self.config.use_joint_torque:
             no_torque = []
-            for name in self.actuator_list:
+            for name in filter(has_torque, self.actuator_list):
                 tau = vals[2 * block + index[name]]
                 if math.isnan(tau):
                     no_torque.append(name)
@@ -512,6 +567,8 @@ class iCub(Robot):
         self._drain_acks(meta)
 
         self._add_extra_observations(obs)
+        if self.config.canonical_quats:
+            canonicalize_quats(obs)
         return obs
 
     def _add_extra_observations(self, obs: dict[str, Any]) -> None:

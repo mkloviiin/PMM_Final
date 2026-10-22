@@ -33,6 +33,10 @@ cart_torso_limits:        {pitch: [-15, 15], yaw: [-10, 10]}
 # políticas de MuJoCo; con false los ojos ayudan a mirar (comportamiento de siempre).
 # OJO: bloqueados, iKinGazeCtrl dejaba la cabeza fija (-56 deg pitch, sin yaw) en Gazebo.
 gazebo_gaze_head_only: false
+# neck_roll en 0 (los ojos siguen libres), como el IK de mirada de MuJoCo, que lo fija
+# siempre: iKinGazeCtrl lo movía entre -0.07 y 0.25 rad sin que nadie lo pidiera, y la misma
+# variable valía siempre 0 en MuJoCo. Gazebo y robot real.
+gaze_block_neck_roll: true
 strict_xml_init: true
 
 # Tacto (skin) — republicado por teleop_module_sm.py en /teleop/touch:o

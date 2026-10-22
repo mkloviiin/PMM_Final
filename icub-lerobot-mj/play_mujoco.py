@@ -215,6 +215,7 @@ def _manual_vr_record(
     from lerobot.utils.robot_utils import precise_sleep
 
     from lerobot_robot_icub.config_icub_mujoco import iCubMuJoCoConfig
+    from lerobot_robot_icub.icub_mujoco import canonicalize_quats
     from lerobot_teleoperator_icubteleop.config_icubteleop import iCubTeleopConfig
 
     vr_enabled = bool(args.vr or args.vr_ip)
@@ -437,16 +438,22 @@ def _manual_vr_record(
                 act_processed = teleop_action_processor((act, obs))
                 robot_action_to_send = robot_action_processor((act_processed, obs))
                 fm.mark("teleop")
-                robot.send_action(robot_action_to_send)
+                sent_action = robot.send_action(robot_action_to_send)
                 fm.mark("send")
                 current_latency = time.perf_counter() - latency_start
+                # Con VR el robot mueve los targets dentro de send_action: se graba lo que
+                # aplicó, así la observación lleva el comando anterior, igual que en Gazebo.
+                recorded_action = sent_action if robot.config.vr_enabled else act_processed
+                # Mismo signo de cuaternión que la observación (canonicalize_quats)
+                if robot.config.canonical_quats and robot.config.pose_frame == "root":
+                    recorded_action = canonicalize_quats(dict(recorded_action))
 
                 observation_frame = build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR)
-                action_frame = build_dataset_frame(dataset.features, act_processed, prefix=ACTION)
+                action_frame = build_dataset_frame(dataset.features, recorded_action, prefix=ACTION)
                 frame = {**observation_frame, **action_frame, "task": args.single_task}
                 dataset.add_frame(frame)
                 fm.mark("record")
-                fm.end(robot=robot, obs=obs, action=act_processed)
+                fm.end(robot=robot, obs=obs, action=recorded_action)
 
                 _, stop_ev, discard_ev = robot.consume_vr_record_events() if hasattr(robot, "consume_vr_record_events") else (False, False, False)
                 with cmd_lock:

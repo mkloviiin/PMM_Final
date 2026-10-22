@@ -153,7 +153,34 @@ def parse_args() -> argparse.Namespace:
         help="Minimum z for gaze mocap target during eval (default: no clamp; "
              "trained gaze_z is mostly 0.1-0.5, so a clamp pushes it out of distribution)",
     )
+    p.add_argument(
+        "--n-action-steps",
+        type=int,
+        default=None,
+        help="Actions executed per predicted chunk before replanning (default: the trained "
+             "n_action_steps, e.g. 60). Lower = more closed-loop",
+    )
+    p.add_argument(
+        "--realtime",
+        action="store_true",
+        help="Advance the physics by the wall time each step really took (inference included), "
+             "holding the previous targets, like Gazebo and the real robot. Default: the sim "
+             "waits for the policy (exactly 1/fps per step)",
+    )
     return p.parse_args()
+
+
+REALTIME_MAX_GAP_S = 1.0
+
+
+def advance_physics(robot, seconds: float) -> None:
+    """Avanza la simulación `seconds` con los targets actuales (mismo bucle que send_action)."""
+    tc = robot.teleop_core
+    for i in range(int(round(seconds / tc.model.opt.timestep))):
+        if i % max(1, tc.frame_skip) == 0:
+            tc._solve_ik()
+            tc._interpolate_hands()
+        mujoco.mj_step(tc.model, tc.data)
 
 
 class _Tee:
@@ -270,6 +297,15 @@ def read_trained_feature_names(policy_repo: str) -> tuple[list[str] | None, list
         return None, None
 
 
+def read_trained_stats(policy_repo: str) -> dict:
+    """meta/stats.json del dataset de entrenamiento ({} si no está)."""
+    try:
+        cfg = json.loads((Path(policy_repo).expanduser() / "train_config.json").read_text())
+        return json.loads((Path(cfg["dataset"]["root"]).expanduser() / "meta" / "stats.json").read_text())
+    except Exception:
+        return {}
+
+
 def infer_control_arms(action_names: list[str] | None) -> str | None:
     if not action_names:
         return None
@@ -355,6 +391,12 @@ def main() -> None:
     from lerobot.policies.factory import make_pre_post_processors
 
     policy: SmolVLAPolicy = SmolVLAPolicy.from_pretrained(args.policy_repo)
+    if args.n_action_steps is not None:
+        if not 1 <= args.n_action_steps <= policy.config.chunk_size:
+            raise SystemExit(f"--n-action-steps must be in 1..{policy.config.chunk_size}")
+        policy.config.n_action_steps = args.n_action_steps  # policy.reset() rehace la cola
+    print(f"[eval] n_action_steps={policy.config.n_action_steps} (chunk_size="
+          f"{policy.config.chunk_size}) | {'realtime' if args.realtime else 'synchronous'} physics")
     policy.eval()
     policy.to(args.device)
     
@@ -372,6 +414,7 @@ def main() -> None:
     from lerobot.utils.robot_utils import precise_sleep
 
     from lerobot_robot_icub.config_icub_mujoco import _get_actuators_logic, load_control_config
+    from lerobot_robot_icub.icub_mujoco import dataset_uses_canonical_quats
 
     state_names, action_names = read_trained_feature_names(args.policy_repo)
     if state_names is None:
@@ -397,6 +440,10 @@ def main() -> None:
         robot_cfg.gripper_legacy = True
         robot_cfg.camera_names = list(LEGACY_CAMERA_NAMES)
         robot_cfg.camera_sources = dict(LEGACY_CAMERA_SOURCES)
+    # Misma convención de signo de cuaterniones que el dataset de entrenamiento
+    robot_cfg.canonical_quats = dataset_uses_canonical_quats(
+        read_trained_stats(args.policy_repo), state_names or [], action_names or [])
+    print(f"[eval] Quaternion sign: {'canonical' if robot_cfg.canonical_quats else 'raw (dataset before 2026-10-21)'}")
     trained_cams = list(robot_cfg.camera_names)
     # Ablación --camera-source: la cámara fuente también hay que renderizarla
     camera_sources = dict(pair.split("=", 1) for pair in args.camera_source)
@@ -503,6 +550,9 @@ def main() -> None:
             ep_max_cube_z: float | None = None
             ep_touch_frames = 0
             ep_clamp_steps = 0
+            infer_ms: list[float] = []
+            rt_gap_s = 0.0
+            t_last_send = None
 
             for step in range(args.episode_steps):
                 t0 = time.perf_counter()
@@ -550,8 +600,10 @@ def main() -> None:
                 batch = preprocessor(policy_input)
 
                 # 3. Run policy inference
+                t_infer = time.perf_counter()
                 with torch.no_grad():
                     action_tensor = policy.select_action(batch)
+                infer_ms.append((time.perf_counter() - t_infer) * 1000.0)
                 
                 # 4. Unnormalize action to get simulator metric coordinates
                 action_tensor = postprocessor(action_tensor)
@@ -560,6 +612,14 @@ def main() -> None:
                 action_dict = actions_tensor_to_dict(action_tensor, action_keys, action_names)
                 if clamp_action_targets(action_dict, min_hand_z, min_gaze_z):
                     ep_clamp_steps += 1
+                if args.realtime and t_last_send is not None:
+                    # Lo que el paso tardó de más (sobre todo la inferencia de un chunk nuevo)
+                    # también pasa en el simulador, con los targets anteriores.
+                    gap = min(time.perf_counter() - t_last_send - 1.0 / args.fps, REALTIME_MAX_GAP_S)
+                    if gap > 0:
+                        advance_physics(robot, gap)
+                        rt_gap_s += gap
+                t_last_send = time.perf_counter()
                 robot.send_action(action_dict)
 
                 # 5. Sync viewer and rate-limit to --fps
@@ -587,6 +647,8 @@ def main() -> None:
                     "touch_ratio": touch_ratio,
                     "clamp_ratio": ep_clamp_steps / max(args.episode_steps, 1),
                     "lifted": lifted,
+                    "infer_ms_max": max(infer_ms) if infer_ms else None,
+                    "realtime_extra_s": rt_gap_s,
                 }
             )
 
@@ -598,6 +660,10 @@ def main() -> None:
                 f"touch={touch_ratio:.1%} clamp={ep_clamp_steps / max(args.episode_steps, 1):.1%} "
                 f"success={'yes' if lifted else 'no'}"
             )
+            chunk_ms = sorted(infer_ms)[-max(1, len(infer_ms) // policy.config.n_action_steps):]
+            print(f"  [timing] inference: chunk {np.mean(chunk_ms):.0f} ms (max {max(infer_ms):.0f}), "
+                  f"other steps {np.median(infer_ms):.1f} ms | realtime extra sim time "
+                  f"{rt_gap_s:.1f} s")
             print(f"  Episode {ep + 1} done.\n")
 
         if episode_metrics:
