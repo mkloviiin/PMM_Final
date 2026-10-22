@@ -1,10 +1,5 @@
 # Docker — Hub de experimentación iCub
 
-Una sola imagen con el Hub (Gradio), MuJoCo, Gazebo y el cliente YARP del robot
-real. El entorno es una copia exacta de `icubenv` (Python 3.12, YARP 3.12.1,
-gz-sim 10, MuJoCo 3.3.2, torch 2.7.1+cu126, lerobot v0.5.0+18 en el commit
-`017ff73f`).
-
 ## Requisitos del host
 
 - Linux con X11 (probado en Ubuntu 22.04).
