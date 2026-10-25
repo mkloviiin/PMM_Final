@@ -13,8 +13,13 @@ simulation, the **Gazebo** simulation and the **real iCub**. All three are teleo
 with a virtual reality headset (Meta Quest 2), using a modified version of the **BeaVR**
 app.
 
+**Step-by-step guide:** [User manual](docs/MANUAL.md)
+
+**Index:**
+
 - [Available platforms](#available-platforms)
 - [Installation and startup](#installation-and-startup)
+- [VR headset](#vr-headset)
 - [How to use it](#how-to-use-it)
 - [Architecture](#architecture)
 - [How to add a robot](#how-to-add-a-robot)
@@ -31,24 +36,11 @@ app.
 | **iCub Simulated MJ** | `robots/icub_sim.py` | Inside the Hub process (MuJoCo 3.3) | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
 | **iCub Real / Gazebo** | `robots/icub_rg.py` | Separate subprocess, connected to the robot through YARP | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
 
-- Tasks are declared once in
-  `icub-lerobot-mj/dependencies/assets/scenes/scenes.yaml`, and Gazebo uses the same file.
-- Both backends record **the same dataset**: same variables, in the same frame and with
-  the same cameras. A dataset from one platform therefore works for the other (see
-  [Recorded data](#recorded-data)).
-
-**Teleoperation:** with the BeaVR app on a Meta Quest, over Wi-Fi or a USB cable.
-
-| VR control | Action |
-|---|---|
-| Lower trigger (grip) | Gripper closure, gradual: 0 = open, 1 = closed |
-| Index trigger | Freezes arms and head (to reposition yourself) |
-| **A** | Start episode |
-| **B** | Stop and save episode (hold **B**: discard it) |
-| **Y** | Reposition the scene objects |
-
-Without VR, MuJoCo also accepts the viewer's keyboard: `8`/`9` open and close the right
-hand, `6`/`7` the left one, and `N` repositions the objects.
+- Tasks are declared once in a shared manifest, `shared/scenes/scenes.yaml`, which both
+  simulators read.
+- Both backends record **the same dataset**, with the same variables, frame and cameras,
+  so a dataset from one platform also works for the other
+  (see [Recorded data](#recorded-data)).
 
 ---
 
@@ -67,14 +59,14 @@ docker compose up                     # starts the Hub
 ```
 
 Then open <http://localhost:7860>. Datasets are saved in the host's `./data` and
-`./data_curated`. Details (volumes, real robot, VR ports, updating the environment) in
-[docker/README.md](docker/README.md).
+`./data_curated`. Volumes, real robot, VR ports and how to update the environment are
+described in [docker/README.md](docker/README.md).
 
 ### Without Docker
 
 The environment is `icubenv`, with Python 3.12, YARP 3.12, gz-sim 10, MuJoCo 3.3,
 torch 2.7 and LeRobot v0.5.0+18. It is reproduced exactly from the lockfiles used by the
-image:
+image.
 
 ```bash
 conda create -n icubenv --file docker/conda-linux-64.lock
@@ -90,52 +82,68 @@ compiled for this environment. If it does not load, rebuild it with
 
 ---
 
+## VR headset
+
+Teleoperation uses the BeaVR app on a Meta Quest 2, connected over Wi-Fi (entering the
+headset's IP in *Configuration*) or over a USB cable.
+
+### Controls
+
+| Control | Action |
+|---|---|
+| **A** | Start recording an episode |
+| **B** | Stop recording and save the episode |
+| **X** | Pause or resume teleoperation, to reposition yourself without moving the robot |
+| **Y** | Reset the scene (repositions the objects) |
+| **Grip** (lower trigger, middle finger) | Open and close the hand gradually |
+
+Without VR, MuJoCo also accepts the viewer's keyboard. `8`/`9` open and close the right
+hand, `6`/`7` the left one, and `N` repositions the objects.
+
+### USB cable setup (one time only)
+
+The cable connection goes through ADB, so the computer needs the Android tools and
+permission to access the headset over USB. Do these steps on the host machine, also when
+the Hub runs in Docker.
+
+1. Enable **developer mode** on the headset from the Meta Horizon mobile app
+   (*Devices → Headset settings → Developer mode*).
+2. Install ADB.
+   ```bash
+   sudo apt install adb
+   ```
+3. Add a udev rule so your user can access the headset (`2833` is Meta's USB vendor ID),
+   and add yourself to the `plugdev` group. Log out and back in afterwards.
+   ```bash
+   echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="2833", MODE="0666", GROUP="plugdev"' \
+     | sudo tee /etc/udev/rules.d/51-meta-quest.rules
+   sudo udevadm control --reload-rules && sudo udevadm trigger
+   sudo usermod -aG plugdev $USER
+   ```
+4. Connect the cable, put the headset on and accept **Allow USB debugging**
+   (tick *Always allow from this computer*).
+5. Check that the headset shows up as `device`.
+   ```bash
+   adb devices
+   ```
+   If it shows `unauthorized`, accept the prompt inside the headset again. If it does not
+   show up at all, check the cable and the udev rule.
+
+---
+
 ## How to use it
 
-The Hub follows the order of its tabs, which are numbered.
+The Hub follows the order of its numbered tabs. On the welcome screen you choose the
+platform, in **1. Configuration** you set up and launch the session, in
+**2. Episode Control** you record episodes with the VR headset, and in
+**3. Visualize & Curate** you review, curate and publish the dataset.
 
-**Welcome screen.** Choose the platform: *iCub Simulated MJ* or *iCub Real / Gazebo*.
+The full walkthrough, with screenshots of each tab, is in the
+[User manual](docs/MANUAL.md).
 
-**1. Configuration**
-
-- *1. Session settings*. Set:
-  - the task and the `Repo ID` (dataset name);
-  - the number of episodes, the FPS and the maximum duration of each episode (0 = no limit);
-  - the folder where the dataset is saved and the arms to control;
-  - the VR: over USB cable or through the Quest's IP.
-- *Gazebo / real only*: *2. Robot stack*. Start, in order:
-  1. the Gazebo simulation (or the connection to the real robot);
-  2. the YARP module.
-- **Launch the session**: *LAUNCH SESSION* in MuJoCo or *LAUNCH TELEOP / RECORDING* in Gazebo/real.
-
-**2. Episode Control**
-
-- Session status and progress (saved episodes out of the planned ones).
-- *RECORD episode*, *STOP episode* and *End session* buttons. They do the same as A and B on the VR.
-- *Logbook*: notes about the current episode, saved with its number.
-- Live metrics (FPS, latency, dataset size) and per-episode metrics.
-- Live log. The full log is kept in `hub_dataset/logs/`.
-
-**3. Visualize & Curate**
-
-1. *Dataset*: choose, load or delete a dataset. Deleting sends it to the system trash.
-2. *Episodes*: browse the episodes with their three synchronized cameras and mark the ones
-   excluded from the final dataset.
-3. *Signal plots*: plot any dimension of `action` or `observation.state` over the video.
-   Plots can be exported to HTML or PDF.
-4. *Signals to include*: remove whole features or individual dimensions.
-5. *Language instruction*: edit the task instruction for the whole dataset.
-6. *Packaging*: generates the curated dataset in `data_curated/`. The original is not modified.
-7. *Upload to Hugging Face Hub*: uploads the packaged dataset if there is one; otherwise,
-   the original as recorded.
-   - The *Will upload* line shows which of the two will be uploaded.
-   - If there are curation changes that are not packaged, the upload is blocked.
-   - Only `data/`, `meta/` and `videos/` are uploaded.
-
-Each dataset is saved in `data/<repo_id>_<date>/` and includes a `hub_session/` subfolder with:
-
-- `episode_metrics.json/.csv/.png`: FPS, latency, duration and size of each episode;
-- `logbook.json/.txt`: the logbook notes.
+Each dataset is saved in `data/<repo_id>_<date>/` and includes a `hub_session/` subfolder
+with the per-episode metrics (`episode_metrics.json/.csv/.png`) and the logbook notes
+(`logbook.json/.txt`). Curated datasets are saved separately in `data_curated/`.
 
 ---
 
@@ -158,8 +166,8 @@ flowchart LR
     RG -- "record_fn → subprocess" --> PGZ[icub-lerobot-gazebo/play_gazebo.py]
     PGZ <-->|YARP| YM[teleop_module_sm.py<br/>YARP module]
     YM <--> ROBOT[Gazebo / real iCub]
-    VR[Meta Quest + BeaVR] -. ZMQ .-> PMJ
-    VR -. ZMQ .-> PGZ
+    VR[Meta Quest + BeaVR] <-. ZMQ .-> PMJ
+    VR <-. ZMQ .-> PGZ
 
     PMJ --> DS[(LeRobot dataset<br/>data/)]
     PGZ --> DS
@@ -191,10 +199,9 @@ Only **one recording session can be active at a time**.
 
 ## How to add a robot
 
-The shared tabs do not need to be touched. A new file in `robots/` and one line in the
-registry are enough.
+Adding a robot takes a new file in `robots/` and one line in the registry.
 
-**1. Create `hub_dataset/launcher_gui/robots/my_robot.py`:**
+**1. Create `hub_dataset/launcher_gui/robots/my_robot.py`.**
 
 ```python
 from datetime import datetime
@@ -250,7 +257,7 @@ BACKEND = RobotBackend(
 )
 ```
 
-**2. Register it** in [robots/registry.py](hub_dataset/launcher_gui/robots/registry.py):
+**2. Register it** in [robots/registry.py](hub_dataset/launcher_gui/robots/registry.py).
 
 ```python
 from . import icub_rg, icub_sim, my_robot
@@ -264,41 +271,37 @@ REGISTRY = [icub_sim.BACKEND, icub_rg.BACKEND, my_robot.BACKEND]
 With that, the platform shows up on the welcome screen, has its form in *Configuration*,
 and *Episode Control*, *Visualize & Curate* and the upload work unchanged.
 
-**Recommendations:**
+**Recommendations**
 
-- **Choose the execution pattern.**
-  - If the robot's dependencies can coexist with the Hub's, `record_fn` can run in the
-    same process (like `icub_sim`).
-  - Otherwise, use a subprocess with an input/output bridge, like `_bridge_play` in
-    `icub_rg.py`.
-- **Long-lived auxiliary processes** (drivers, servers): launch them with `procman.py`, so
-  their output shows up in the Hub log.
-- **Datasets interchangeable with the iCub ones:** use the same variable names, frames and
-  cameras (see [Recorded data](#recorded-data)).
-- **Docker:** if the robot needs new packages, install them in `icubenv`, regenerate the
-  lockfiles with `docker/freeze_env.sh` and rebuild the image.
+- **Choose the execution pattern.** If the robot's dependencies can coexist with the
+  Hub's, `record_fn` can run in the same process (like `icub_sim`). Otherwise, use a
+  subprocess with an input/output bridge, like `_bridge_play` in `icub_rg.py`.
+- **Launch long-lived auxiliary processes** (drivers, servers) with `procman.py`, so their
+  output shows up in the Hub log.
+- **Use the same variable names, frames and cameras** as the iCub backends if you want
+  datasets that are interchangeable with theirs (see [Recorded data](#recorded-data)).
+- **For Docker,** install any new packages in `icubenv`, regenerate the lockfiles with
+  `docker/freeze_env.sh` and rebuild the image.
 
 ---
 
 ## Recorded data
 
 Both iCub backends record the same variables, so a MuJoCo dataset and a Gazebo dataset
-are interchangeable:
+are interchangeable.
 
-- **Action.** Target pose of each hand: position and quaternion, in the iCub *root* frame.
-  Plus the gripper closure (from 0 to 1) and the gaze point.
-- **State.**
-  - joints: position, velocity and torque;
-  - end-effector pose and last command sent (target pose, gripper and gaze);
-  - touch on the thumb, index and middle fingers;
-  - pose of the scene objects: simulator *ground truth*, not available on the real robot.
-- **Cameras.** `left` and `right` are the iCub's eyes; `front` is an external camera.
-  All of them record at 320×240.
+- **Action.** Target pose of each hand (position and quaternion, in the iCub *root*
+  frame), the gripper closure from 0 to 1 and the gaze point.
+- **State.** Joint position, velocity and torque, end-effector pose, last command sent,
+  touch on the thumb, index and middle fingers, and the pose of the scene objects. The
+  object poses are simulator *ground truth* and are not available on the real robot.
+- **Cameras.** `left` and `right` are the iCub's eyes and `front` is an external camera,
+  all recorded at 320×240. The real robot has no front camera.
 - **Only the arm chosen** in *Control arms* is recorded.
-- **Quaternions with a fixed sign.** Hand with `quat_y ≤ 0` and objects with `quat_w ≥ 0`,
-  in both simulators. This avoids jumps between `q` and `−q`.
-- **Difference between platforms.** Gazebo and the real robot also record the eyes
-  (`eyes_*`), which MuJoCo does not model.
+- **Quaternions have a fixed sign** (hand with `quat_y ≤ 0`, objects with `quat_w ≥ 0`)
+  in both simulators, which avoids jumps between `q` and `−q`.
+- **Gazebo and the real robot also record the eye joints** (`eyes_*`), which MuJoCo does
+  not model.
 
 The full contract, including the differences that remain between simulators, is in the
 *Sim-to-sim* section of [icub-lerobot-gazebo/README.md](icub-lerobot-gazebo/README.md)
@@ -317,7 +320,9 @@ PMM_Final/
 │   └── logs/                    # full log of each run
 ├── icub-lerobot-mj/             # MuJoCo backend: simulation, IK, VR teleoperation, LeRobot plugins
 ├── icub-lerobot-gazebo/         # Gazebo / real robot backend: Gazebo world, YARP module, LeRobot plugins
+├── shared/scenes/               # scene manifest shared by both simulators
 ├── metrics/                     # latency, jitter and synchronization of the recordings
+├── docs/                        # user manual and its screenshots
 ├── docker/                      # Dockerfile, environment lockfiles and their README
 ├── docker-compose.yml
 ├── data/                        # recorded datasets (not versioned)
@@ -330,6 +335,7 @@ PMM_Final/
 
 | Document | Contents |
 |---|---|
+| [docs/MANUAL.md](docs/MANUAL.md) | User manual, step by step with screenshots |
 | [docker/README.md](docker/README.md) | Docker image: requirements, volumes, real robot, VR ports, updating the environment |
 | [icub-lerobot-gazebo/README.md](icub-lerobot-gazebo/README.md) | Gazebo / real robot stack (YARP), configuration and *sim-to-sim* data contract |
 | [icub-lerobot-gazebo/gazebo/README.md](icub-lerobot-gazebo/gazebo/README.md) | Scripts to start and stop the Gazebo simulation |
