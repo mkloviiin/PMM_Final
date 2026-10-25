@@ -278,8 +278,6 @@ Con eso, la plataforma aparece en la bienvenida, tiene su formulario en *Configu
   subproceso con un puente de entrada y salida, como `_bridge_play` en `icub_rg.py`.
 - **Lanza los procesos auxiliares de larga duración** (drivers, servidores) con
   `procman.py`, para que su salida aparezca en el registro del Hub.
-- **Usa los mismos nombres de variables, marcos y cámaras** que los backends del iCub si
-  quieres datasets intercambiables con los suyos (ver [Datos grabados](#datos-grabados)).
 - **Para Docker,** instala los paquetes nuevos en `icubenv`, regenera los *lockfiles* con
   `docker/freeze_env.sh` y reconstruye la imagen.
 
@@ -298,8 +296,6 @@ de Gazebo son intercambiables.
 - **Cámaras.** `left` y `right` son los ojos del iCub y `front` es una cámara externa,
   todas grabadas a 320×240. El robot real no tiene cámara frontal.
 - **Solo se graba el brazo elegido** en *Control arms*.
-- **Los cuaterniones tienen un signo fijo** (mano con `quat_y ≤ 0`, objetos con
-  `quat_w ≥ 0`) en ambos simuladores, lo que evita saltos entre `q` y `−q`.
 - **Gazebo y el robot real graban también las articulaciones de los ojos** (`eyes_*`), que
   MuJoCo no modela.
 
