@@ -278,8 +278,6 @@ and *Episode Control*, *Visualize & Curate* and the upload work unchanged.
   subprocess with an input/output bridge, like `_bridge_play` in `icub_rg.py`.
 - **Launch long-lived auxiliary processes** (drivers, servers) with `procman.py`, so their
   output shows up in the Hub log.
-- **Use the same variable names, frames and cameras** as the iCub backends if you want
-  datasets that are interchangeable with theirs (see [Recorded data](#recorded-data)).
 - **For Docker,** install any new packages in `icubenv`, regenerate the lockfiles with
   `docker/freeze_env.sh` and rebuild the image.
 
@@ -298,8 +296,6 @@ are interchangeable.
 - **Cameras.** `left` and `right` are the iCub's eyes and `front` is an external camera,
   all recorded at 320×240. The real robot has no front camera.
 - **Only the arm chosen** in *Control arms* is recorded.
-- **Quaternions have a fixed sign** (hand with `quat_y ≤ 0`, objects with `quat_w ≥ 0`)
-  in both simulators, which avoids jumps between `q` and `−q`.
 - **Gazebo and the real robot also record the eye joints** (`eyes_*`), which MuJoCo does
   not model.
 
