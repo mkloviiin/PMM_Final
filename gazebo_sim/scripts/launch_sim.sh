@@ -3,7 +3,7 @@ set -e
 
 usage() {
     cat <<EOF
-Usage: ./gazebo/scripts/launch_sim.sh [OPTIONS]
+Usage: ./gazebo_sim/scripts/launch_sim.sh [OPTIONS]
 
 Launch the iCub humanoid simulation in Gazebo Sim + YARP.
 
@@ -21,13 +21,13 @@ Options:
   -h, --help            Show this help message and exit
 
 Examples:
-  ./gazebo/scripts/launch_sim.sh
-  ./gazebo/scripts/launch_sim.sh --world manip
-  ./gazebo/scripts/launch_sim.sh --world empty --model iCubGazeboV2_5_fixed
-  ./gazebo/scripts/launch_sim.sh --world empty --model iCubGazeboV2_7_fixed
-  ./gazebo/scripts/launch_sim.sh --world empty --model iCubGazeboV2_5
-  ./gazebo/scripts/launch_sim.sh --world empty --model iCubGazeboV2_7
-  ./gazebo/scripts/launch_sim.sh --stop
+  ./gazebo_sim/scripts/launch_sim.sh
+  ./gazebo_sim/scripts/launch_sim.sh --world manip
+  ./gazebo_sim/scripts/launch_sim.sh --world empty --model iCubGazeboV2_5_fixed
+  ./gazebo_sim/scripts/launch_sim.sh --world empty --model iCubGazeboV2_7_fixed
+  ./gazebo_sim/scripts/launch_sim.sh --world empty --model iCubGazeboV2_5
+  ./gazebo_sim/scripts/launch_sim.sh --world empty --model iCubGazeboV2_7
+  ./gazebo_sim/scripts/launch_sim.sh --stop
 EOF
 }
 
@@ -109,33 +109,33 @@ else
 fi
 
 if [ "${SELECTED_WORLD}" = "manip" ]; then
-    WORLD_FILE="${PROJECT_ROOT}/gazebo/worlds/icub_world.sdf"
+    WORLD_FILE="${PROJECT_ROOT}/gazebo_sim/worlds/icub_world.sdf"
     MODEL_NAME="iCubGazeboV2_5_visuomanip (Manipulation Arena with Table, Objects & Cameras)"
     BASE_TYPE="FIXED BASE (z = 0.73 m at table)"
 else
     case "${SELECTED_MODEL}" in
         iCubGazeboV2_5_fixed)
-            WORLD_FILE="${PROJECT_ROOT}/gazebo/worlds/icub_fixed.sdf"
+            WORLD_FILE="${PROJECT_ROOT}/gazebo_sim/worlds/icub_fixed.sdf"
             MODEL_NAME="iCubGazeboV2_5_fixed (Standard V2.5)"
             BASE_TYPE="FIXED BASE (Root link welded in air)"
             ;;
         iCubGazeboV2_5_visuomanip)
-            WORLD_FILE="${PROJECT_ROOT}/gazebo/worlds/icub_visuomanip_fixed.sdf"
+            WORLD_FILE="${PROJECT_ROOT}/gazebo_sim/worlds/icub_visuomanip_fixed.sdf"
             MODEL_NAME="iCubGazeboV2_5_visuomanip (with Fingers & Eyes)"
             BASE_TYPE="FIXED BASE (Root link welded in air)"
             ;;
         iCubGazeboV2_7_fixed)
-            WORLD_FILE="${PROJECT_ROOT}/gazebo/worlds/icub_v2_7_fixed.sdf"
+            WORLD_FILE="${PROJECT_ROOT}/gazebo_sim/worlds/icub_v2_7_fixed.sdf"
             MODEL_NAME="iCubGazeboV2_7_fixed (Standard V2.7)"
             BASE_TYPE="FIXED BASE (Root link welded in air)"
             ;;
         iCubGazeboV2_5)
-            WORLD_FILE="${PROJECT_ROOT}/gazebo/worlds/icub_v2_5_floating.sdf"
+            WORLD_FILE="${PROJECT_ROOT}/gazebo_sim/worlds/icub_v2_5_floating.sdf"
             MODEL_NAME="iCubGazeboV2_5 (Full-Body V2.5)"
             BASE_TYPE="FLOATING BASE (Standing on ground plane)"
             ;;
         iCubGazeboV2_7)
-            WORLD_FILE="${PROJECT_ROOT}/gazebo/worlds/icub_v2_7_floating.sdf"
+            WORLD_FILE="${PROJECT_ROOT}/gazebo_sim/worlds/icub_v2_7_floating.sdf"
             MODEL_NAME="iCubGazeboV2_7 (Full-Body V2.7)"
             BASE_TYPE="FLOATING BASE (Standing on ground plane)"
             ;;
@@ -157,8 +157,8 @@ export LD_LIBRARY_PATH="${PIXI_ENV}/lib:${LD_LIBRARY_PATH:-}"
 # Configure YARP data directories
 export YARP_DATA_DIRS="${PIXI_ENV}/share/iCub:${PIXI_ENV}/share/yarp:${YARP_DATA_DIRS:-}"
 
-# Configure Gazebo Sim resource and plugin search paths (including gazebo/models and gazebo/worlds)
-export GZ_SIM_RESOURCE_PATH="${PROJECT_ROOT}/gazebo/models:${PROJECT_ROOT}/gazebo/worlds:${PIXI_ENV}/share/iCub/robots:${PIXI_ENV}/share:${PIXI_ENV}/share/iCub:${GZ_SIM_RESOURCE_PATH:-}"
+# Configure Gazebo Sim resource and plugin search paths (including gazebo_sim/models and gazebo_sim/worlds)
+export GZ_SIM_RESOURCE_PATH="${PROJECT_ROOT}/gazebo_sim/models:${PROJECT_ROOT}/gazebo_sim/worlds:${PIXI_ENV}/share/iCub/robots:${PIXI_ENV}/share:${PIXI_ENV}/share/iCub:${GZ_SIM_RESOURCE_PATH:-}"
 export GZ_SIM_SYSTEM_PLUGIN_PATH="${PIXI_ENV}/lib:${GZ_SIM_SYSTEM_PLUGIN_PATH:-}"
 export GZ_CONFIG_PATH="${PIXI_ENV}/share/gz:${GZ_CONFIG_PATH:-}"
 
