@@ -7,10 +7,11 @@ Records datasets for Imitation Learning using the LeRobot library.
 All data comes directly from MuJoCo — no YARP ports.
 
 Captures:
-  1. RGB Images     rendered from a MuJoCo camera (e.g. front_cam)
-  2. Robot State    joint positions for all actuators (38-dim)
-    3. World State    relevant object pose(s) in world frame (currently cube pose)
-    4. Human Actions  mocap target positions/orientations + gaze target
+  1. RGB Images     rendered from a MuJoCo camera (e.g. head_cam)
+  2. Robot State    one value per actuator
+  3. World State    relevant object pose(s) in world frame (currently cube pose)
+  4. Tactile        binary contact of 3 fingertips per hand
+  5. Human Actions  mocap target positions/orientations + gaze target
 
 This module is imported by teleop_mujoco.py.  It can also be used
 standalone for offline replay-based recording.
@@ -96,7 +97,6 @@ class MuJoCoRecorder:
             "cube_qw", "cube_qx", "cube_qy", "cube_qz",
         ]
 
-        # MuJoCo offscreen renderer
         self.renderer = mujoco.Renderer(model, height=img_height, width=img_width)
         
         # Opciones de escena para ocultar los targets (group 2) en la imagen
@@ -108,7 +108,6 @@ class MuJoCoRecorder:
         self.dataset = None
         self.dataset_path = None
 
-        # Counters
         self.episode_count = 0
         self.episode_frames = 0
         self._dataset_initialized = False
@@ -159,6 +158,7 @@ class MuJoCoRecorder:
         Args:
             state:  Robot joint state vector  (float32, shape [N])
             action: Human action vector       (float32, shape [M])
+            world_state: object pose (7,); zeros if None
         """
         if self.dataset is None:
             return

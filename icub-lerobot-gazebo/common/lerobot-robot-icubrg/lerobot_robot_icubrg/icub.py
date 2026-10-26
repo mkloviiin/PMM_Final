@@ -42,7 +42,7 @@ def has_torque(joint: str) -> bool:
 
 
 # Signo de los cuaterniones: q y -q son la misma orientación, pero para una política son
-# valores opuestos, y cada fuente elegía uno distinto (getPose de iKin da w >= 0, el VR no).
+# valores opuestos, y cada fuente elige uno distinto (getPose de iKin da w >= 0, el VR no).
 # Ambos simuladores graban el mismo hemisferio: manos (ee, target y acción, frame root) con
 # quat_y <= 0, es decir q·(0, 0, -1, 0) >= 0, la orientación típica de la mano (todas las
 # poses grabadas quedan a |q_y| >= 0.65 del cambio de signo); objetos con quat_w >= 0
@@ -72,8 +72,8 @@ def canonicalize_quats(values: dict) -> dict:
 def dataset_uses_canonical_quats(stats: dict, state_names: list[str], action_names: list[str]) -> bool:
     """True si el dataset ya viene en el hemisferio de QUAT_HEMISPHERE, según su stats.json
     (manos con max(quat_y) <= 0, objetos con min(quat_w) >= 0). Los eval lo usan para
-    darle a una política la misma convención con que se entrenó: los datasets anteriores al
-    2026-10-21 (sin pasar por tools/canonicalize_quats.py) dan False."""
+    darle a una política la misma convención con que se entrenó: los datasets con el signo
+    crudo (sin pasar por tools/canonicalize_quats.py) dan False."""
     groups = []
     for key, names in (("observation.state", state_names), ("action", action_names)):
         st = stats.get(key) or {}
@@ -234,7 +234,7 @@ class iCub(Robot):
 
         teleop_module_sm publica torso, [left_arm], [right_arm], head según SUS brazos
         (--control), no los de este cliente: con el módulo en 'both' y el robot en 'right'
-        tomar las primeras 25 era leer el brazo izquierdo como el derecho. Se deduce qué
+        tomar las primeras 25 sería leer el brazo izquierdo como el derecho. Se deduce qué
         publica a partir del tamaño (q, o q|dq|tau) y se lee por nombre.
         """
         if self._state_layout and self._state_layout[0] == n:
@@ -268,8 +268,7 @@ class iCub(Robot):
     def _command_grip(self, side: str, value: float, send_rpc) -> None:
         """rh/lh_gripper = fracción de cierre 0..1 -> RPC hand_right/hand_left <fracción>.
 
-        Con gripper_legacy (modelos/datasets anteriores al 2026-10-21): <=0.1 abrir,
-        0.4-0.6 cerrar, el resto mantiene.
+        Con gripper_legacy: <=0.1 abrir, 0.4-0.6 cerrar, el resto mantiene.
         """
         if self.config.gripper_legacy:
             mode = _grip_mode(value)
@@ -316,7 +315,6 @@ class iCub(Robot):
         if self._connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        # Connect to robot ports
         yarp = self.yarp
         yarp.Network.init()
         prefix = "/lerobot_client"
@@ -502,10 +500,9 @@ class iCub(Robot):
             meta["state_seq"] = stamp.getCount()
             meta["state_stamp"] = stamp.getTime()
             meta["state_age_ms"] = (t_state - stamp.getTime()) * 1000.0
-        # Validación de seguridad: Si el puerto se cierra o hay error grave, podría retornar None
+        # read() devuelve None si el puerto se cerró
         if state_bot is None:
              raise ConnectionError("Critical: Failed to read robot state (YARP port might be closed).")
-        # Convertir Bottle a lista
         n = state_bot.size()
         block, index = self._layout_for(n)
         vals = [state_bot.get(i).asFloat64() for i in range(n)]
@@ -529,8 +526,8 @@ class iCub(Robot):
                                           f"in the YAML read by teleop_module_sm); recording 0.")
 
         # Leer Camaras (NO bloqueante): si no llegó un frame nuevo se repite el último.
-        # Con read(True) el loop de teleop (visor + targets) se congelaba cada vez que
-        # las cámaras se atrasaban.
+        # Con read(True) el loop de teleop (visor + targets) se congela cada vez que
+        # las cámaras se atrasan.
         now = time.time()
         for name in self.img_ports:
             meta[f"cam_{name}_new"] = int(self._read_camera(name))
@@ -731,7 +728,6 @@ class iCub(Robot):
                     f"move_right_arm {pos_rh[0]:.6f} {pos_rh[1]:.6f} {pos_rh[2]:.6f} "
                     f"{quat_rh[0]:.6f} {quat_rh[1]:.6f} {quat_rh[2]:.6f} {quat_rh[3]:.6f}"
                 )
-            # Gripper Derecho
             if "rh_gripper" in action:
                 self._command_grip("rh", to_float(action["rh_gripper"]), send_rpc)
 
@@ -761,7 +757,6 @@ class iCub(Robot):
                     f"{quat_lh[0]:.6f} {quat_lh[1]:.6f} {quat_lh[2]:.6f} {quat_lh[3]:.6f}"
                 )
 
-            # Gripper Izquierdo
             if "lh_gripper" in action:
                 self._command_grip("lh", to_float(action["lh_gripper"]), send_rpc)
                     
@@ -820,7 +815,6 @@ class iCub(Robot):
         for name, port in self.img_ports.items():
             port.interrupt()
             port.close()
-        # Limpieza de buffers
         self.img_buffers.clear()
         self.np_arrays.clear()
         yarp.Network.fini()

@@ -25,7 +25,7 @@ def has_torque(joint: str) -> bool:
 
 
 # Signo de los cuaterniones: q y -q son la misma orientación, pero para una política son
-# valores opuestos, y cada fuente elegía uno distinto (getPose de iKin da w >= 0, el VR no).
+# valores opuestos, y cada fuente da uno distinto (getPose de iKin da w >= 0, el VR no).
 # Ambos simuladores graban el mismo hemisferio: manos (ee, target y acción, frame root) con
 # quat_y <= 0, es decir q·(0, 0, -1, 0) >= 0, la orientación típica de la mano (todas las
 # poses grabadas quedan a |q_y| >= 0.65 del cambio de signo); objetos con quat_w >= 0
@@ -55,8 +55,8 @@ def canonicalize_quats(values: dict) -> dict:
 def dataset_uses_canonical_quats(stats: dict, state_names: list[str], action_names: list[str]) -> bool:
     """True si el dataset ya viene en el hemisferio de QUAT_HEMISPHERE, según su stats.json
     (manos con max(quat_y) <= 0, objetos con min(quat_w) >= 0). Los eval lo usan para
-    darle a una política la misma convención con que se entrenó: los datasets anteriores al
-    2026-10-21 (sin pasar por tools/canonicalize_quats.py) dan False."""
+    darle a una política la misma convención con que se entrenó: los datasets con el signo
+    crudo (sin pasar por tools/canonicalize_quats.py) dan False."""
     groups = []
     for key, names in (("observation.state", state_names), ("action", action_names)):
         st = stats.get(key) or {}
@@ -102,7 +102,7 @@ class iCubMuJoCo(Robot):
         self._vr_rec_discard_event = False   # B mantenido 1.5s → descarta episodio
         self._vr_a_held      = False
         self._vr_b_held      = False
-        self._vr_b_hold_start: float | None = None   # timestamp cuando se empezó a p​resar B
+        self._vr_b_hold_start: float | None = None   # timestamp en que se empezó a presionar B
 
     @property
     def _motors_ft(self) -> dict[str, type]:
@@ -156,21 +156,15 @@ class iCubMuJoCo(Robot):
     def observation_features(self) -> dict[str, type]:
         # ── Features are ordered so that the training-relevant dims come FIRST ──
         # This lets SmolVLA use the first N dims via max_state_dim without filtering.
-        #
-        # ORDER (with VR, 118 dims total):
-        #   [0 – 21]   joint positions           (22)  ← from _motors_ft
-        #   [22– 43]   joint velocities           (22)
-        #   [44– 57]   EEF pose  rh + lh          (14)
-        #   [58– 76]   VR targets (if vr_enabled) (19)
-        #   [77– 82]   touch contact rh + lh       (6)
-        #   ── 83 training dims ──────────────────────
-        #   [83– 89]   object pose                 (7)
-        #   [90–102]   joint torques              (13, sin dedos)
-        #   [112–117]  external forces rh + lh     (6)
-        #   ── 118 total (+ cameras as separate keys) ─
-        features = {**self._motors_ft}   # [0-21] joint positions
+        # Order (hand groups only for the arms in control_arms):
+        #   joint positions, joint velocities (actuators_to_use)
+        #   EEF poses, mocap targets, [gaze target], grippers
+        #   touch contact (thumb, index, middle)
+        #   object poses (obj0..objN-1, scenes.yaml order)
+        #   joint torques (sin dedos ni ojos)
+        # Cameras are separate observation.images.* keys.
+        features = {**self._motors_ft}
 
-        # [22-43] joint velocities
         for name in self.actuator_list:
             features[f"{name}_vel"] = float
 
@@ -178,15 +172,15 @@ class iCubMuJoCo(Robot):
         # una tarea de un brazo no graba la otra mano.
         sides = self._arm_sides()
 
-        # [44-57] End-effector poses (x,y,z + quat w,x,y,z)
+        # End-effector poses (x,y,z + quat w,x,y,z)
         for side in sides:
             for ax in ("x", "y", "z"):
                 features[f"{side}_ee_pos_{ax}"] = float
             for ax in ("w", "x", "y", "z"):
                 features[f"{side}_ee_quat_{ax}"] = float
 
-        # [58-76] Mocap target poses (VR moves them during teleoperation; policy moves
-        #         them during eval via send_action)
+        # Mocap target poses (VR moves them during teleoperation; policy moves
+        # them during eval via send_action)
         for side in sides:
             for ax in ("x", "y", "z"):
                 features[f"{side}_target_pos_{ax}"] = float
@@ -198,7 +192,7 @@ class iCubMuJoCo(Robot):
         for side in sides:
             features[f"{side}_gripper"] = float
 
-        # [77-82] Tactile contact (binary per finger)
+        # Tactile contact (binary per finger)
         for side in sides:
             for finger in ("thumb", "index", "middle"):
                 features[f"{side}_touch_{finger}"] = float
@@ -278,7 +272,6 @@ class iCubMuJoCo(Robot):
                 sys.path.insert(0, _deps_root)
             from dependencies.teleop_mujoco import MuJoCoTeleop
         except (ImportError, ModuleNotFoundError):
-            # Fallback: look for icub_examples in the workspace
             env_root = os.getenv("ICUB_WORKSPACE_ROOT", "").strip()
             candidate_roots = []
             if env_root:
@@ -380,8 +373,8 @@ class iCubMuJoCo(Robot):
             self._convert_poses(action, self._ACTION_POSE_GROUPS, to_root=False)
 
         def apply_grip(side: str, grip_value: float) -> None:
-            """rh/lh_gripper = fracción de cierre 0..1. Con gripper_legacy (modelos y datasets
-            anteriores al 2026-10-21): <=0.1 abrir, 0.4-0.6 cerrar, resto = mantener."""
+            """rh/lh_gripper = fracción de cierre 0..1. Con gripper_legacy: <=0.1 abrir,
+            0.4-0.6 cerrar, resto = mantener."""
             if self.config.gripper_legacy:
                 if grip_value <= 0.1:
                     level = 0.0
@@ -482,11 +475,10 @@ class iCubMuJoCo(Robot):
             # B acaba de soltarse
             held_s = _time.monotonic() - (self._vr_b_hold_start or 0.0)
             if held_s >= self._B_HOLD_DISCARD_S:
-                # Mantenido suficiente → descartar episodio
                 self._vr_rec_discard_event = True
                 print(f"[VR] B mantenido {held_s:.1f}s → DESCARTAR episodio")
             else:
-                # Pulsación corta → guardar episodio (comportamiento original)
+                # Pulsación corta → guardar episodio
                 self._vr_rec_stop_event = True
             self._vr_b_hold_start = None
 
@@ -525,8 +517,8 @@ class iCubMuJoCo(Robot):
         else:
             self._set_targets_from_action(action)
 
-        # Advance physics precisely by the expected evaluation Delta Time (e.g. 1/30 fps)
-        # to ensure hands fully close and physics speeds match real-time
+        # Advance the physics by control_dt (e.g. 1/30 s): sim time keeps pace with the
+        # control rate and the hands get time to close
         dt = self.teleop_core.model.opt.timestep
         sim_steps_needed = max(1, int(round(self.config.control_dt / dt)))
         t_phys = time.perf_counter()
@@ -581,7 +573,7 @@ class iCubMuJoCo(Robot):
         # state_sim_t == cam_sim_t por construcción (se registra para comprobarlo).
         self.metrics_meta = {"state_sim_t": float(data.time)}
 
-        # 1. Joint positions
+        # Joint positions
         state_vec = tc._get_robot_state()
         for name in self.actuator_list:
             if name in self._actuator_id_by_name:
@@ -590,7 +582,7 @@ class iCubMuJoCo(Robot):
             else:
                 obs[name] = torch.tensor(0.0, dtype=torch.float32)
 
-        # 2. Joint velocity  — data.qvel indexed like qpos via jnt_dofadr 
+        # Joint velocity — data.qvel[jnt_dofadr] (tendon actuators: ten_velocity)
         for name in self.actuator_list:
             if name in self._actuator_id_by_name:
                 aid = self._actuator_id_by_name[name]
@@ -607,7 +599,7 @@ class iCubMuJoCo(Robot):
                 vel = 0.0
             obs[f"{name}_vel"] = torch.tensor(vel, dtype=torch.float32)
 
-        # 3. Joint torque  — data.actuator_force (computed after mj_step)
+        # Joint torque — data.actuator_force (computed after mj_step)
         for name in filter(has_torque, self.actuator_list):
             if name in self._actuator_id_by_name:
                 aid = self._actuator_id_by_name[name]
@@ -616,8 +608,8 @@ class iCubMuJoCo(Robot):
                 torque = 0.0
             obs[f"{name}_torque"] = torch.tensor(torque, dtype=torch.float32)
 
-        # 4. End-effector poses  — site_xpos + mju_mat2Quat(site_xmat)
-        #    Uses the same site IDs as _snap_targets_to_ee() in teleop_core
+        # End-effector poses — site_xpos + mju_mat2Quat(site_xmat), same site IDs
+        # as _snap_targets_to_ee() in teleop_core
         ee_sites = {
             "rh": getattr(tc, "rh_site_id", None),
             "lh": getattr(tc, "lh_site_id", None),
@@ -638,9 +630,8 @@ class iCubMuJoCo(Robot):
             obs[f"{side}_ee_quat_y"] = torch.tensor(float(quat[2]), dtype=torch.float32)
             obs[f"{side}_ee_quat_z"] = torch.tensor(float(quat[3]), dtype=torch.float32)
 
-        # 5. Estimated external force on EEF bodies  — data.cfrc_ext
-        #    cfrc_ext shape: (nbody, 6)  → [torque(3), force(3)]  in world frame
-        #    We expose only the 3D force component (indices 3:6).
+        # External force on the EEF bodies — data.cfrc_ext (nbody, 6) = [torque(3), force(3)],
+        # world frame; only the force (3:6). Not in observation_features: the final filter drops it.
         ee_body_names = {"rh": "r_hand", "lh": "l_hand"}
         for side, body_name in ee_body_names.items():
             try:
@@ -652,12 +643,13 @@ class iCubMuJoCo(Robot):
             obs[f"{side}_ext_force_y"] = torch.tensor(float(force[1]), dtype=torch.float32)
             obs[f"{side}_ext_force_z"] = torch.tensor(float(force[2]), dtype=torch.float32)
 
-        # 6. Object poses — indexed by order in scenes.yaml
+        # Object poses — indexed by order in scenes.yaml
         scene_objects = getattr(self.config, "scene_objects", []) or []
         if not scene_objects:
             # Legacy fallback: try blue-cube as obj0
             scene_objects = [{"body": "blue-cube"}]
 
+        absent_objects = []
         for i, obj_def in enumerate(scene_objects):
             body_name = obj_def.get("body", "")
             prefix = f"obj{i}"
@@ -680,13 +672,12 @@ class iCubMuJoCo(Robot):
                 obs[f"{prefix}_quat_z"] = torch.tensor(float(quat[3]), dtype=torch.float32)
             except Exception:
                 # Body not in this scene — fill with zeros
+                absent_objects.append(prefix)
                 for suffix in ("pos_x", "pos_y", "pos_z", "quat_w", "quat_x", "quat_y", "quat_z"):
                     obs[f"{prefix}_{suffix}"] = torch.tensor(0.0, dtype=torch.float32)
 
-        # 7. Mocap target positions — always read from data.mocap_pos regardless
-        #    of vr_enabled. During VR teleoperation the VR device moves these;
-        #    during eval the policy moves them via _set_targets_from_action.
-        #    Either way the current values are the ground truth for the observation.
+        # Mocap targets — read from data.mocap_pos regardless of vr_enabled: the VR
+        # moves them during teleoperation, the policy (_set_targets_from_action) during eval.
         rh_id = tc.rh_mocap_id
         obs["rh_target_pos_x"]  = torch.tensor(float(data.mocap_pos[rh_id][0]),  dtype=torch.float32)
         obs["rh_target_pos_y"]  = torch.tensor(float(data.mocap_pos[rh_id][1]),  dtype=torch.float32)
@@ -714,7 +705,7 @@ class iCubMuJoCo(Robot):
         obs["rh_gripper"] = torch.tensor(float(getattr(tc, "rh_grip_state", 0.0)), dtype=torch.float32)
         obs["lh_gripper"] = torch.tensor(float(getattr(tc, "lh_grip_state", 0.0)), dtype=torch.float32)
 
-        # 8. Camera images  (mocap target geoms hidden via group 2 filter)
+        # Camera images (mocap target geoms hidden via group 2 filter)
         t_render = time.perf_counter()
         self.metrics_meta["cam_sim_t"] = float(data.time)
         for requested_name, renderer in self.renderers.items():
@@ -724,10 +715,8 @@ class iCubMuJoCo(Robot):
             obs[requested_name] = img.copy()  # HWC uint8, igual que Gazebo
         self.metrics_meta["render_ms"] = (time.perf_counter() - t_render) * 1000.0
 
-        # 9. Tactile contact — per-finger binary contact detection via data.contact.
-        #    Only the fingertip (last phalanx _3) is used for touch detection.
-        #      r_hand_{thumb,index,middle,ring,little}_3
-        #      l_hand_{thumb,index,middle,ring,little}_3
+        # Tactile contact — binary per finger from data.contact, fingertip only
+        # (last phalanx: {r,l}_hand_{thumb,index,middle}_3)
 
         FINGERS = ("thumb", "index", "middle")
         HAND_PREFIX = {"rh": "r_hand", "lh": "l_hand"}
@@ -749,13 +738,11 @@ class iCubMuJoCo(Robot):
                     tip_name = f"{prefix}_{finger}_3"  # e.g. r_hand_thumb_3
                     self._finger_geom_ids[key] = _geoms_of_fingertip(model, tip_name)
 
-        # Collect all active contact geom IDs
         active_geoms: set[int] = set()
         for i in range(data.ncon):
             active_geoms.add(data.contact[i].geom1)
             active_geoms.add(data.contact[i].geom2)
 
-        # Check each finger
         for side in ("rh", "lh"):
             for finger in FINGERS:
                 key = f"{side}_{finger}"
@@ -763,12 +750,17 @@ class iCubMuJoCo(Robot):
                 self._last_touch_state[key] = touching
                 obs[f"{side}_touch_{finger}"] = torch.tensor(touching, dtype=torch.float32)
 
-        # 10. Poses al frame root (como Gazebo y el robot real) y solo lo declarado en
-        #     observation_features (brazos de control_arms, sin fuerza externa).
+        # Poses al frame root (como Gazebo y el robot real) y solo lo declarado en
+        # observation_features (brazos de control_arms, sin fuerza externa).
         if self.config.pose_frame == "root":
             self._convert_poses(obs, self._POSE_GROUPS, to_root=True)
             if self.config.canonical_quats:
                 canonicalize_quats(obs)
+            # Objeto ausente (p. ej. la puerta, sin cubo): ceros también en el frame root, como
+            # Gazebo; sin esto la conversión al frame root dejaría obj_pos_z = -0.73 (la cintura).
+            for prefix in absent_objects:
+                for suffix in ("pos_x", "pos_y", "pos_z", "quat_w", "quat_x", "quat_y", "quat_z"):
+                    obs[f"{prefix}_{suffix}"] = torch.tensor(0.0, dtype=torch.float32)
         if getattr(self, "_obs_keys", None) is None:
             self._obs_keys = set(self.observation_features)
         return {k: v for k, v in obs.items() if k in self._obs_keys}

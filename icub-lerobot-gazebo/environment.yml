@@ -21,6 +21,6 @@ dependencies:
   # --- Dependencias de Python (Pip) ---
   - pip
   - pip:
-    - lerobot            # Instala el framework base
-    - -e ./common/lerobot-robot-icubrg              # Instala tu robot (cliente YARP real/Gazebo)
-    - -e ./common/lerobot-teleoperator-icubrgteleop # Instala tu teleoperador
+    - lerobot
+    - -e ./common/lerobot-robot-icubrg              # cliente YARP (robot real/Gazebo)
+    - -e ./common/lerobot-teleoperator-icubrgteleop

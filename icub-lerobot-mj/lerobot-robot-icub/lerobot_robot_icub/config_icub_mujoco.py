@@ -28,15 +28,7 @@ def _default_model_path() -> str:
     if env_path:
         return str(Path(env_path).expanduser())
 
-    candidates = [
-        Path.cwd() / "icub-lerobot" / "model" / "xml" / "scene.xml",
-        Path.cwd() / "model" / "xml" / "scene.xml",
-        Path(__file__).resolve().parents[2] / "model" / "xml" / "scene.xml",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-    return str(candidates[0])
+    return str(Path(__file__).resolve().parents[2] / "dependencies" / "assets" / "scenes" / "scene_icub_lift.xml")
 
 
 def _default_vr_enabled() -> bool:
@@ -89,22 +81,24 @@ class iCubMuJoCoConfig(RobotConfig):
     # del iCub (head_cam / head_cam_right, en la pose de los ojos de iKin), front = cámara
     # frontal externa (frontview, espejo de camera-stand de Gazebo). camera_sources dice qué
     # cámara del XML se renderiza para cada nombre; un nombre sin entrada es la cámara del
-    # XML con ese mismo nombre (p. ej. head_cam_track_hand, head_cam_v1).
+    # XML con ese mismo nombre (p. ej. head_cam_track_hand, head_cam_v1). top = cámara
+    # cenital (topview); una tarea elige las suyas con `cameras` en scenes.yaml (la puerta
+    # graba left/right/top en vez de front).
     camera_names: list[str] = field(default_factory=lambda: ["left", "right", "front"])
     camera_sources: dict[str, str] = field(default_factory=lambda: {
-        "left": "head_cam", "right": "head_cam_right", "front": "frontview"})
+        "left": "head_cam", "right": "head_cam_right", "front": "frontview", "top": "topview"})
     camera_width: int = 320
     camera_height: int = 240
     # Marco de las poses (manos, targets, mirada, objetos) en observaciones y acciones:
     # "root" = frame root del iCub (x atrás, z arriba, origen en la cintura), el de Gazebo y
-    # el robot real; "world" = mundo MuJoCo (datasets grabados antes del 2026-10-20).
+    # el robot real; "world" = mundo MuJoCo (datasets --legacy).
     pose_frame: str = "root"
-    # rh/lh_gripper: False = fracción de cierre 0..1 (desde el 2026-10-21, gatillo gradual);
-    # True = convención anterior 0 abrir / 0.5 cerrar / 1 mantener (modelos --legacy).
+    # rh/lh_gripper: False = fracción de cierre 0..1 (gatillo gradual); True = 0 abrir /
+    # 0.5 cerrar / 1 mantener (modelos --legacy).
     gripper_legacy: bool = False
-    # Signo de los cuaterniones (QUAT_HEMISPHERE en icub_mujoco.py): True desde el 2026-10-21.
-    # Los eval de políticas entrenadas con datasets anteriores lo apagan (no marcados en
-    # info.json). Solo se aplica con pose_frame "root".
+    # Signo de los cuaterniones (QUAT_HEMISPHERE en icub_mujoco.py). Los eval lo apagan para
+    # políticas entrenadas con el signo crudo (info.json no lo marca). Solo se aplica con
+    # pose_frame "root".
     canonical_quats: bool = True
 
     sim_dt: float = 0.005

@@ -43,7 +43,7 @@ from .base import RobotBackend
 
 # ── Rutas del proyecto gazebo ────────────────────────────────────────────────
 _SCENES_DIR = GAZEBO_ROOT / "mujoco" / "assets" / "scenes"
-_SCENES_MANIFEST = _SCENES_DIR / "scenes.yaml"
+_SCENES_MANIFEST = GAZEBO_ROOT / "gazebo" / "scenes.yaml"
 # En gazebo/real el visualizador MuJoCo es solo un espejo: siempre mesa vacía,
 # porque los objetos se colocan en el mundo real (o en Gazebo), no en MuJoCo.
 _EMPTY_TABLE = _SCENES_DIR / "scene_icub_empty_table.xml"
@@ -127,8 +127,9 @@ def _connect_real_robot() -> tuple[bool, str]:
                    f"(`yarp detect` rc={rc}). Is the robot on and the network cable connected?")
 
 
-def _load_scenes() -> dict[str, tuple[str, str]]:
-    """Lee scenes.yaml del proyecto gazebo: {label: (archivo_xml, tarea_default)}.
+def _load_scenes() -> dict[str, tuple[str, str, list | None]]:
+    """Lee scenes.yaml del proyecto gazebo: {label: (archivo_xml, tarea_default, cameras)}.
+    cameras = None: las cámaras por defecto del robot.
 
     En Gazebo/real el objeto no tiene pose observable, así que `objects`/`joints`
     del manifiesto no se usan aquí (play_gazebo no los recibe): solo importan la
@@ -138,16 +139,7 @@ def _load_scenes() -> dict[str, tuple[str, str]]:
         print(f"[icub_rg] Warning: {_SCENES_MANIFEST} not found; no tasks.")
         return {}
     entries = yaml.safe_load(_SCENES_MANIFEST.read_text(encoding="utf-8")) or []
-    scenes = {e["label"]: (e["file"], e["task"]) for e in entries}
-
-    declared = {e["file"] for e in entries}
-    all_xml = {p.name for p in _SCENES_DIR.glob("*.xml")}
-    orphans = all_xml - declared
-    if orphans:
-        print(f"[icub_rg] Warning: {len(orphans)} XML(s) in {_SCENES_DIR} are not "
-              f"declared in scenes.yaml and will not appear in the dropdown: "
-              f"{', '.join(sorted(orphans))}")
-    return scenes
+    return {e["label"]: (e.get("file"), e["task"], e.get("cameras")) for e in entries}
 
 
 SCENES = _load_scenes()
@@ -283,7 +275,7 @@ def build_config_form() -> dict[str, gr.components.Component]:
             scene_dd = gr.Dropdown(
                 choices=scene_choices, value=scene_choices[0],
                 label="Tasks",
-                info="Instruction to record."
+                info="Instruction to record. The MuJoCo mirror always shows the empty "
                      "table; objects are placed in the real world / Gazebo.",
             )
             repo_id_tb = gr.Textbox(
@@ -314,8 +306,7 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 info="'auto' detects the arms available in YARP",
             )
             # Cable e IP solo con "Enable VR" marcado: los muestra/oculta el CSS .vr-extra de
-            # app.py según la casilla (visible= de Gradio no era confiable y a veces quedaban
-            # a la vista sin VR).
+            # app.py según la casilla (con visible= de Gradio a veces quedan a la vista sin VR).
             vr_cb = gr.Checkbox(value=False, label="Enable VR", elem_classes=["vr-cb"])
             vr_cable_cb = gr.Checkbox(
                 value=False,
@@ -413,8 +404,8 @@ def build_config_form() -> dict[str, gr.components.Component]:
             if busy:
                 return busy
         # Brazos: los del formulario; 'auto' = los que tengan cartesianController en YARP
-        # (si no se detecta ninguno, el control_arms del YAML). Antes no se pasaba y el módulo
-        # usaba siempre el del YAML, así que "Control arms" no cambiaba nada.
+        # (si no se detecta ninguno, el control_arms del YAML). Hay que pasarlo con --control:
+        # sin él, el módulo usa siempre el del YAML y "Control arms" no tiene efecto.
         if arms in ("right", "left", "both"):
             resolved, how = arms, "selected"
         else:
@@ -474,7 +465,7 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
                 f"(■ Stop YARP module → ▶ Start YARP module) to control '{control_arms}'.")
     # Solo importa la instrucción; el XML de la escena se ignora a propósito:
     # en gazebo/real MuJoCo es un espejo y siempre carga la mesa vacía.
-    _xml_file, default_task = SCENES[scene_name]
+    _xml_file, default_task, scene_cameras = SCENES[scene_name]
     model_path = _EMPTY_TABLE
 
     if not model_path.exists():
@@ -516,6 +507,8 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
         "--control-arms", control_arms or "auto",
         "--robot-name", robot_name,
     ]
+    if scene_cameras:
+        argv += ["--cameras", ",".join(scene_cameras)]
     if resolved_vr:
         argv.append("--vr")
     if resolved_vr_ip:

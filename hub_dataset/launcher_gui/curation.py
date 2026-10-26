@@ -194,22 +194,6 @@ def _trim_episode_video(video_key: str, ep_row: dict) -> str | None:
     return str(dst) if dst.exists() else None
 
 
-    def _line_chart(values_list: list[np.ndarray], names: list[str], title: str) -> go.Figure:
-        fig = go.Figure()
-        for i, (values, name) in enumerate(zip(values_list, names)):
-            fig.add_trace(go.Scatter(x=timestamps, y=values, mode="lines", name=name))
-        fig.update_layout(
-            title=title,
-            xaxis_title="Time (s)",
-            yaxis_title="Value",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-            margin=dict(l=40, r=10, t=60, b=40),
-            height=420,
-        )
-        return fig
-
-    return None
-
 def build_custom_plotly_chart(ep_idx: int, variables: list[str], title: str = "") -> go.Figure | None:
     if state.viz_dataset_path is None or not variables or not state.viz_ep_rows:
         return None
@@ -330,8 +314,8 @@ def ep_next(shown):
 
 
 def toggle_delete_episode(shown):
-    """Marca / desmarca el episodio que se está mostrando (no el número escrito en el campo:
-    antes, escribir 77 sin Enter y borrar marcaba un episodio inexistente)."""
+    """Marca / desmarca el episodio que se está mostrando, no el número escrito en el campo
+    (escrito sin Enter puede ser un episodio inexistente, p. ej. 77)."""
     if not state.viz_ep_rows:
         return gr.update(), _marked_summary()
     ep_idx = min(max(int(shown), 0), len(state.viz_ep_rows) - 1)
@@ -348,7 +332,6 @@ def load_viz_dataset(dataset_path: str):
     """Carga un dataset y resetea todo el estado de curacion (episodios marcados,
     edicion de tarea pendiente, packaging anterior y estado de subida) asociado
     a la carga anterior. El token de HF se preserva intencionalmente."""
-    # Resetear estado de packaging/upload de la carga anterior
     state.curation_last_output = None
     state.curation_status = "idle"
     state.push_status = "idle"
@@ -449,8 +432,6 @@ def load_viz_dataset(dataset_path: str):
         return (gr.update(), f"Invalid dataset — error while loading: {e}") + _empty_nav + _empty_curation
 
 
-# ── Search filters for signal lists ──────────────────────────────────────────
-
 # ── Select all/none helpers ───────────────────────────────────────────────────
 
 def select_all_whole():
@@ -473,7 +454,6 @@ def select_none_list():
 
 def task_start_edit(current_text):
     """Activa el modo edicion del textbox de instruccion.
-    Habilita el textbox y el boton guardar, deshabilita el boton editar.
     Ambos botones permanecen siempre en el DOM (se controla con interactive,
     no con visible) para evitar problemas de layout en Gradio.
     """
@@ -556,9 +536,9 @@ def run_packaging(dataset_path, whole_kept, action_kept, state_kept,
 def _load_package_dataset():
     """package_dataset de icub-lerobot-mj/dependencies/dataset_curation.py, cargado por ruta.
 
-    Es código genérico (solo usa lerobot), pero `import dependencies...` dependía de que el
-    backend de MuJoCo hubiera puesto su carpeta en sys.path al lanzar una sesión: sin haber
-    lanzado MuJoCo, empaquetar fallaba con ModuleNotFoundError."""
+    Es código genérico (solo usa lerobot). Se carga por ruta porque `import dependencies...`
+    solo funciona después de que el backend de MuJoCo ponga su carpeta en sys.path al lanzar
+    una sesión: sin eso, empaquetar falla con ModuleNotFoundError."""
     import importlib.util
 
     from .paths import MJ_ROOT

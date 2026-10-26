@@ -34,18 +34,7 @@ def _default_model_path() -> str:
     if env_path:
         return str(Path(env_path).expanduser())
 
-    candidates = [
-        Path.cwd() / "icub-lerobot" / "dependencies" / "assets" / "scenes" / "icub_table_scene.xml",
-        Path.cwd() / "dependencies" / "assets" / "scenes" / "icub_table_scene.xml",
-        Path.cwd() / "icub-lerobot" / "model" / "xml" / "scene.xml",
-        Path.cwd() / "model" / "xml" / "scene.xml",
-        Path(__file__).resolve().parents[2] / "model" / "xml" / "scene.xml",
-        Path(__file__).resolve().parents[2] / "dependencies" / "assets" / "scenes" / "icub_table_scene.xml",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-    return str(candidates[0])
+    return str(Path(__file__).resolve().parents[2] / "dependencies" / "assets" / "scenes" / "scene_icub_lift.xml")
 
 
 def _default_vr_enabled() -> bool:

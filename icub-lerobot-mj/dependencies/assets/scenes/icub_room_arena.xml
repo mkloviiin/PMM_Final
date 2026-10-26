@@ -3,7 +3,7 @@
   <!-- Cuarto del HUB (3ra sala), medidas del plano "Espacio para el HUB" (08-09-2026).
        Largo 7.13 m, ancho 1.65 -> 1.20 m (muro inclinado en 3 tramos), alto 2.5 m.
        Marco: el robot esta en el origen mirando +x; +y es su izquierda. Giros con quat (el robot compila en radianes).
-       Muro de abajo con 3 puertas de 913.57 mm. Muros solo visuales (sin colision), como la arena anterior. -->
+       Muro de abajo con 3 puertas de 913.57 mm. Muros solo visuales (sin colision). -->
   <asset>
     <!-- Mural AC3E (icub-lerobot-gazebo/gazebo/wall.png) en la pared derecha del iCub, como en Gazebo.
          emission 0.74: esa cara recibe ~0.26 de luz en frontview/head_cam; suma ~1 = colores de la imagen. -->
@@ -41,8 +41,8 @@
     <geom pos="-2.389 -0.634 1.25" size="2.0484 0.01 1.25" quat="0.0425 0 0 0.9991" type="box" conaffinity="0" contype="0" group="1" name="wall_slant3_visual" material="wall_orange" />
     <geom pos="-3.33 0.49 1.25" size="0.25 0.25 1.25" type="box" conaffinity="0" contype="0" group="1" name="column_visual" material="wall_white" />
     <geom type="mesh" mesh="wall_right_mural" material="wall_mural" conaffinity="0" contype="0" group="1" name="wall_right_mural_visual" />
-    <!-- Puertas en los 3 vanos de 913.57 mm del muro de abajo, como la puerta de la arena anterior
-         (door_gray, 2.0 m de alto, manilla de laton); encima, dintel naranja hasta el alto del muro.
+    <!-- Puertas en los 3 vanos de 913.57 mm del muro de abajo (door_gray, 2.0 m de alto,
+         manilla de laton); encima, dintel naranja hasta el alto del muro.
          Mismas puertas que gazebo/models/room (alli espejadas: (x, y) -> (-x, -y)). -->
     <geom pos="1.6102 0.74 1.0" size="0.4568 0.015 1.0" type="box" conaffinity="0" contype="0" group="1" name="door1_visual" material="door_gray" />
     <geom pos="1.6102 0.74 2.25" size="0.4568 0.01 0.25" type="box" conaffinity="0" contype="0" group="1" name="door1_lintel_visual" material="wall_orange" />
@@ -53,10 +53,27 @@
     <geom pos="-0.8032 0.74 1.0" size="0.4568 0.015 1.0" type="box" conaffinity="0" contype="0" group="1" name="door3_visual" material="door_gray" />
     <geom pos="-0.8032 0.74 2.25" size="0.4568 0.01 0.25" type="box" conaffinity="0" contype="0" group="1" name="door3_lintel_visual" material="wall_orange" />
     <geom pos="-1.1600 0.705 1.0" size="0.02 0.02 0.08" type="box" conaffinity="0" contype="0" group="1" name="door3_handle_visual" material="door_handle_metal" />
-    <light pos="1.0 1.0 1.5" dir="-0.2 -0.2 -1" specular="0.3 0.3 0.3" directional="true" castshadow="false" />
-    <camera mode="fixed" name="frontview" pos="1.6 0 1.0" quat="0.56 0.43 0.43 0.56" />
+    <!-- Misma luz que Gazebo (sol de icub_world.sdf, dirección espejada en x/y), sin sombras.
+         Intensidades calibradas contra imágenes de Gazebo (mesa, piso, cubo, paredes): con los
+         mismos valores nominales MuJoCo sale más claro, porque no aplica el tono de Ogre2. -->
+    <light name="sun" pos="1.0 1.0 1.5" dir="-0.5 0.1 -0.9" diffuse="0.6 0.6 0.6" specular="0.2 0.2 0.2" directional="true" castshadow="false" />
+    <!-- Frontal: frente al robot, 0.23 m sobre la mesa y 8° hacia abajo: la imagen parte en la
+         superficie de la mesa (los objetos) y hacia arriba el robot, sin patas ni piso.
+         Gazebo: camara_externa en icub_world.sdf. -->
+    <camera mode="fixed" name="frontview" pos="1.2 0 0.95" xyaxes="0 1 0 -0.1392 0 0.9903" fovy="45" />
     <camera mode="fixed" name="birdview" pos="1.2 0 4.0" quat="0.7071 0 0 0.7071" />
     <camera mode="fixed" name="agentview" pos="0.5 0 1.35" quat="0.653 0.271 0.271 0.653" />
+    <!-- Cenital: recta hacia abajo (fácil de montar igual en el robot real), 0.83 m sobre la
+         mesa y centrada en la zona de trabajo; mesa y manos completas, robot arriba en la imagen
+         y su izquierda a la derecha. La graba la tarea de la puerta como cámara "top" (cameras
+         en scenes.yaml). -->
+    <camera mode="fixed" name="topview" pos="0.36 0 1.55" xyaxes="0 1 0 -1 0 0" fovy="58" />
     <camera mode="fixed" name="sideview" pos="-0.05651774593317116 0.70 1.4879572214102434" quat="0.009905065491771751 0.006877963156909582 0.5912228352893879 0.806418094001364" />
   </worldbody>
+
+  <visual>
+    <!-- Sin luz pegada a la cámara (Gazebo no la tiene): solo su componente ambiente, que hace
+         de luz ambiente de la escena (la de Gazebo es la de <scene>). -->
+    <headlight ambient="0.3 0.3 0.3" diffuse="0 0 0" specular="0 0 0" />
+  </visual>
 </mujoco>

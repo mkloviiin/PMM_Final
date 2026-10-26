@@ -27,8 +27,8 @@ def build_config_tab():
         for robot in available:
             # Todas "visibles" para Gradio y ocultas con la clase CSS .robot-hidden; el botón del
             # robot en la bienvenida (app.py) cambia la clase. Con visible=False/True Gradio 6 no
-            # dibujaba la columna que se mostraba por primera vez después de elegir otro robot
-            # (p. ej. MuJoCo -> Back -> Gazebo dejaba Configuration en blanco).
+            # dibuja la columna que se muestra por primera vez después de elegir otro robot
+            # (p. ej. MuJoCo -> Back -> Gazebo deja Configuration en blanco).
             with gr.Column(elem_classes=ROBOT_HIDDEN) as col:
                 forms[robot.id] = robot.build_config_form()
             columns[robot.id] = col

@@ -22,7 +22,7 @@
           </box>
         </geometry>
         <!-- Igual que las yemas del iCub (mu=5): sin esto el cubo usa el default (1)
-             y DART toma el mínimo de ambas superficies, así que resbalaba al agarrar. -->
+             y DART toma el mínimo de ambas superficies, así que resbala al agarrar. -->
         <surface>
           <friction>
             <ode>

@@ -1,0 +1,106 @@
+# Tareas de Gazebo y del robot real (copia propia de icub-lerobot-mj/dependencies/assets/
+# scenes/scenes.yaml: Gazebo no depende de la carpeta de MuJoCo). Un cambio de tareas o
+# rangos va en las dos.
+#
+# - label: texto del menú "Tasks" del Hub (también la escena activa de reset_objects.sh)
+# - task: instrucción por defecto de la tarea
+# - file: escena de MuJoCo equivalente (Gazebo no la usa; solo para comparar con la de MuJoCo)
+#
+# Los objetos (`objects`) los crea gazebo/scripts/reset_objects.sh: rangos en el marco de
+# MuJoCo (x adelante, y a la izquierda del robot), que el script convierte a (-x, -y). Las
+# piezas fijas de cada escena (la puerta, la caja, la tabla con agujero) están en
+# scene_fixtures.yaml.
+
+# ── Enabled scenes ────────────────────────────────────────────────────────────
+#
+# Optional `objects` list: declares resettable bodies and their spawn ranges.
+# On reset (N in the MuJoCo viewer), each object is randomised within its range.
+# Optional `joints` list: hinge/slide joints set to `qpos` on reset (e.g. the door).
+# If both are absent, reset does nothing (correct for fixed scenes).
+#
+# Optional `cameras` list: cameras recorded for that task (default: left, right, front =
+# eyes + external front camera). Names as in lerobot_robot_icub camera_sources (MuJoCo) and
+# lerobot_robot_icubrg (Gazebo/real); "top" is the overhead camera.
+#
+# Spawn rules:
+#   x/y/z:  [min, max] → uniform random  |  scalar → fixed  |  absent → unchanged
+#   quat:   [w, x, y, z] reset orientation (default [1, 0, 0, 0]). [0, 0, 0, 1] (180 deg in z)
+#           = identity in the iCub root frame, like Gazebo's objects (same recorded obj quat)
+
+- file: scene_icub_lift.xml
+  label: "Block Lifting"
+  # Marco MuJoCo: x adelante, y a la izquierda del robot; reset_objects.sh lo convierte a
+  # (-x, -y) para Gazebo.
+  task: "lift the blue block"
+  objects:
+    - body: "blue-cube"
+      spawn:
+        x: [0.35, 0.45]
+        y: [-0.15, -0.05]
+        z: 0.745                 # apoyado sobre la mesa (tapa 0.72 + semialtura 0.025)
+        # Girado 180 deg en z: en el frame root del robot queda con cuaternión identidad,
+        # igual que el cubo de Gazebo (su mundo ya está girado 180 deg respecto de MuJoCo).
+        quat: [0, 0, 0, 1]
+
+- file: scene_icub_stack.xml
+  label: "Block Stacking"
+  task: "stack the blue cube on top of the red cube"
+  objects:
+    - body: "blue-cube"
+      spawn:
+        x: [0.25, 0.40]
+        y: [-0.20, -0.05]
+        z: 0.745                 # tapa 0.72 + semialtura 0.025 (como Z_GAZEBO de reset_objects.sh);
+                                 # más bajo, los cubos quedan hundidos en la mesa
+        quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
+    - body: "red-cube"
+      spawn:
+        x: [0.3025, 0.40]
+        y: [0.05, 0.20]
+        z: 0.745
+        quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
+
+- file: scene_icub_pickplace.xml
+  label: "Pick-and-Place"
+  task: "grasp the object and place it at the target position"
+  objects:
+    - body: "pick-cube"
+      spawn:
+        x: [0.25, 0.40]
+        y: [-0.20, -0.05]
+        z: 0.725
+        quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
+
+- file: scene_icub_door.xml
+  label: "Door Opening"
+  task: "open the door"
+  # Manilla a la izquierda, mano derecha (escenario final). Se graba la cenital, no la frontal.
+  cameras: [left, right, top]
+  joints:
+    - name: "door_hinge"
+      qpos: 0.0
+    - name: "handle_hinge"
+      qpos: 0.0
+
+- file: scene_icub_peginhole.xml
+  label: "Peg-In-Hole"          # con la mano derecha
+  task: "insert the peg into the hole"
+  objects:
+    - body: "peg"
+      spawn:
+        x: [0.30, 0.34]          # de pie a la derecha; en y > -0.20 la mano
+        y: [-0.26, -0.22]        # derecha en home la bota
+        z: 0.785                 # tapa de la mesa 0.72 + media altura 0.065
+        quat: [0, 0, 0, 1]
+
+- file: scene_icub_twoarmlift.xml
+  label: "Two-Arm Lifting"
+  task: "lift the object using both arms"
+  objects:
+    - body: "lift-pot"
+      spawn:
+        x: [0.32, 0.34]          # en x=0.40 queda fuera del alcance cómodo del brazo izquierdo
+        y: [-0.01, 0.01]
+        z: 0.795
+        quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
+

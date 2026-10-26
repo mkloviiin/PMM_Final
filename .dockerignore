@@ -22,3 +22,7 @@ icub-lerobot-gazebo/_unused/
 *.ipynb
 notas
 comandos entrenamiento.txt
+
+# Videos (grabaciones de pantalla, demos): no se usan en el contenedor
+*.mp4
+videos/

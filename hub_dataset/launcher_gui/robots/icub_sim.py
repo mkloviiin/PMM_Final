@@ -24,9 +24,8 @@ from ..ui.dir_picker import dir_textbox
 from .base import RobotBackend
 
 # Raíz del proyecto MuJoCo. Este backend corre in-process, así que necesita el
-# proyecto y sus plugins en sys.path — pero solo cuando de verdad va a lanzar
-# (imports perezosos). Antes esto lo hacía hub_experimentacion.py al arrancar,
-# lo que acoplaba todo el Hub a MuJoCo; ahora es responsabilidad de este backend.
+# proyecto y sus plugins en sys.path, pero solo al lanzar (imports perezosos):
+# así el resto del Hub no queda acoplado a MuJoCo.
 PROJECT_ROOT = MJ_ROOT
 
 _SCENES_DIR = PROJECT_ROOT / "dependencies" / "assets" / "scenes"
@@ -46,8 +45,9 @@ def _ensure_mj_on_path() -> None:
             sys.path.insert(0, _s)
 
 
-def _load_scenes() -> dict[str, tuple[str, str, list]]:
-    """Lee scenes.yaml: {label: (archivo_xml, tarea_default, objects_list)}.
+def _load_scenes() -> dict[str, tuple[str, str, list, list, list | None]]:
+    """Lee scenes.yaml: {label: (archivo_xml, tarea_default, objects, joints, cameras)}.
+    cameras = None: las cámaras por defecto del robot (left, right, front).
 
     Las escenas se declaran a mano en el manifiesto (no se auto-detectan todos
     los *.xml de la carpeta) porque esa carpeta tambien tiene XMLs que no son
@@ -57,7 +57,7 @@ def _load_scenes() -> dict[str, tuple[str, str, list]]:
     """
     entries = yaml.safe_load(_SCENES_MANIFEST.read_text(encoding="utf-8")) or []
     scenes = {
-        e["label"]: (e["file"], e["task"], e.get("objects", []), e.get("joints", []))
+        e["label"]: (e["file"], e["task"], e.get("objects", []), e.get("joints", []), e.get("cameras"))
         for e in entries
     }
 
@@ -114,8 +114,7 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 info="Arms driven by the teleoperation (and recorded in the dataset)",
             )
             # Cable e IP solo con "Enable VR" marcado: los muestra/oculta el CSS .vr-extra de
-            # app.py según la casilla (visible= de Gradio no era confiable y a veces quedaban
-            # a la vista sin VR).
+            # app.py según la casilla (con visible= de Gradio a veces quedan a la vista sin VR).
             vr_cb = gr.Checkbox(value=False, label="Enable VR", elem_classes=["vr-cb"])
             vr_cable_cb = gr.Checkbox(
                 value=False,
@@ -187,9 +186,9 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, cont
 
     _ensure_mj_on_path()
 
-    xml_file, default_task, scene_objects, scene_joints = SCENES.get(
-        scene_name, ("icub_table_scene.xml", "tarea libre", [], [])
-    )
+    if scene_name not in SCENES:
+        return f"Invalid task: {scene_name}. Check {_SCENES_MANIFEST}."
+    xml_file, default_task, scene_objects, scene_joints, scene_cameras = SCENES[scene_name]
     model_path = _SCENES_DIR / xml_file
     cfg_path = PROJECT_ROOT / "utils" / "control_config.yaml"
 
@@ -228,6 +227,7 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, cont
         push_to_hub=False,
         scene_objects=scene_objects,
         scene_joints=scene_joints,
+        cameras=scene_cameras,
         control_arms=control_arms or None,
     )
 

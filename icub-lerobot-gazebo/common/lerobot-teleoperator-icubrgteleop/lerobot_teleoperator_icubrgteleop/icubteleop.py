@@ -37,7 +37,7 @@ VR_HAND_LEFT_PORT = 8121
 class iCubTeleop(Teleoperator):
     config_class = iCubTeleopConfig
     name = "icubrg_teleop"
-    frame_skip = 1  # Default to 1 if not set by config
+    frame_skip = 1  # connect() recomputes it as control_dt / sim_dt
 
     # Duración mínima (s) que hay que mantener B para descartar el episodio.
     _B_HOLD_DISCARD_S: float = 1.5
@@ -50,7 +50,6 @@ class iCubTeleop(Teleoperator):
         self._reset_request = False  # Flag to signal external reset
         self._pending_visual_reset = False # Flag for internal thread-safe reset
         
-        # Estado interno de botones (Gripper)
         # Fracción de cierre de cada mano (0 = abierta, 1 = cerrada), como rh/lh_gripper.
         # _grip_pending: valor pedido aquí (teclado/VR) que el robot aún no confirma; mientras
         # exista, la retroalimentación del robot no lo pisa.
@@ -58,7 +57,6 @@ class iCubTeleop(Teleoperator):
         self.lh_grip_state = 0.0
         self._grip_pending = {"rh": None, "lh": None}
         
-        # Mujoco variables
         self.model = None
         self.data = None
         self.viewer = None
@@ -124,7 +122,6 @@ class iCubTeleop(Teleoperator):
     def action_features(self) -> dict[str, type]:
 
         features = {}        
-        # Brazo Derecho
         if self.config.control_arms in ["right", "both"]:
             features["rh_pos_x"] = float
             features["rh_pos_y"] = float
@@ -134,7 +131,6 @@ class iCubTeleop(Teleoperator):
             features["rh_quat_y"] = float
             features["rh_quat_z"] = float
             features["rh_gripper"] = float
-        # Brazo Izquierdo
         if self.config.control_arms in ["left", "both"]:
             features["lh_pos_x"] = float
             features["lh_pos_y"] = float
@@ -144,7 +140,6 @@ class iCubTeleop(Teleoperator):
             features["lh_quat_y"] = float
             features["lh_quat_z"] = float
             features["lh_gripper"] = float    
-        # Gaze controller
         if getattr(self.config, "use_gaze", False):
             features["gaze_x"] = float
             features["gaze_y"] = float
@@ -158,7 +153,7 @@ class iCubTeleop(Teleoperator):
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
-        # Definimos dimensiones esperadas (H, W, C)
+        # Dimensiones esperadas (C, H, W)
         return {
             name: (3, 240, 320) for name in ["left","right"]
         }
@@ -188,7 +183,6 @@ class iCubTeleop(Teleoperator):
             sim_dt = yarp_cfg.get("sim_dt", 0.005)      # 200 Hz Physics
             control_dt = yarp_cfg.get("control_dt", 0.02) # 50 Hz Control
             
-            # Forzar timestep en MuJoCo
             self.model.opt.timestep = sim_dt
             
             # Calcular frame_skip para que el bucle de control coincida
@@ -220,10 +214,10 @@ class iCubTeleop(Teleoperator):
         self._waist_quat_inv = np.zeros(4)
         mujoco.mju_negQuat(self._waist_quat_inv, waist_quat)
 
-        # --- Crear Mapa de qpos robusto (joint names o actuator names) ---
+        # --- Índice qpos de cada actuador (por nombre de joint o de actuador) ---
         self.qpos_map = [self._resolve_qpos_index(name) for name in self.actuator_list]
 
-        # Cachear IDs para evitar búsquedas por string en cada ciclo (Optimización)
+        # Cachear IDs para evitar búsquedas por string en cada ciclo
         if self.config.control_arms in ["right", "both"]:
             self.mocap_ids['right'] = self.model.body('r_hand_target').mocapid[0]
             self.site_ids['right'] = self.model.site('r_hand_dh_frame_site').id
@@ -239,7 +233,6 @@ class iCubTeleop(Teleoperator):
         self._reset_mocaps_to_xml_pose()
 
 
-        # Iniciar Viewer Pasivo
         print("Launching MuJoCo Viewer... (keys: 8/9 open/close right hand, 6/7 left hand, N reset)")
         print("Mouse: Ctrl + Right-click drag to move mocap targets")
         self.viewer = mujoco.viewer.launch_passive(
@@ -256,11 +249,10 @@ class iCubTeleop(Teleoperator):
         self.viewer.cam.elevation = -65
         self.viewer.cam.azimuth = 0
 
-        # Show sites, hide contact forces
+        # Show site frames
         self.viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE        
         self._connected = True
 
-        # --- Initialize VR if enabled ---
         if getattr(self.config, "vr_enabled", False):
             self._init_vr()
 
@@ -368,7 +360,7 @@ class iCubTeleop(Teleoperator):
             self._process_vr_button_commands()
             self._update_vr_record_events()
 
-        # IMPORTANTE: Sincronizar viewer para recibir inputs del usuario (movimiento de mocap con mouse)
+        # sync() trae los inputs del visor (mocaps movidos con el mouse)
         if self.viewer.is_running():
             self.viewer.sync()
             mujoco.mj_forward(self.model, self.data)
@@ -393,7 +385,6 @@ class iCubTeleop(Teleoperator):
             pos, quat = self._world_to_root(
                 self.data.mocap_pos[mid], self.data.mocap_quat[mid])
 
-            # Asignación plana (Flat Dictionary)
             actions["rh_pos_x"] = torch.tensor(pos[0], dtype=torch.float32)
             actions["rh_pos_y"] = torch.tensor(pos[1], dtype=torch.float32)
             actions["rh_pos_z"] = torch.tensor(pos[2], dtype=torch.float32)
@@ -486,19 +477,14 @@ class iCubTeleop(Teleoperator):
         # maneja este teleoperador, y esas observaciones (use_targets del robot) son el
         # último comando en frame root; copiarlas al mocap lo devolvería al frame anterior.
 
-        # Iteramos sobre los datos que llegan del robot
         for i, name in enumerate(self.actuator_list):
             if name in feedback:
-                # Obtenemos el índice pre-calculado
                 q_idx = self.qpos_map[i]
                 
-                # Si el mapeo fue exitoso (no es -1)
-                if q_idx != -1:
+                if q_idx != -1:  # -1 = sin joint en el modelo MuJoCo
                     val_tensor = feedback[name]
-                    # Conversión: Tensor -> Float (Radianes)
                     val_rad = val_tensor.item()
                     
-                    # Actualización directa en memoria
                     self.data.qpos[q_idx] = val_rad
                     update_visuals = True
 
@@ -641,7 +627,9 @@ class iCubTeleop(Teleoperator):
 
     def _vr_hand_to_target(self, hand_data, calib_origin, home_pos,
                            roll_offset=0, side="right"):
-        """Convert VR controller data to robot-frame target with Smoothing."""
+        """VR controller data -> low-pass filtered mocap target (MuJoCo world frame).
+
+        Returns (pos, quat_wxyz, calib_origin); pos/quat are None without valid data."""
         if hand_data is None or PyQuaternion is None:
             return None, None, calib_origin
         vr_pos = hand_data["pos"]
@@ -686,7 +674,6 @@ class iCubTeleop(Teleoperator):
         ROBOT_HOME_RH = self._vr_home["right"]
         ROBOT_HOME_LH = self._vr_home["left"]
 
-        # Right hand
         if not self.freeze_rh and self.latest_rh_data is not None and "right" in self.mocap_ids:
             pos, quat, self.calibrated_origin_rh = self._vr_hand_to_target(
                 self.latest_rh_data, self.calibrated_origin_rh,
@@ -699,7 +686,6 @@ class iCubTeleop(Teleoperator):
                 self.data.mocap_pos[mid] = pos
                 self.data.mocap_quat[mid] = quat
 
-        # Left hand
         if not self.freeze_lh and self.latest_lh_data is not None and "left" in self.mocap_ids:
             pos, quat, self.calibrated_origin_lh = self._vr_hand_to_target(
                 self.latest_lh_data, self.calibrated_origin_lh,
@@ -899,7 +885,7 @@ class iCubTeleop(Teleoperator):
             if spawn and has_cube:
                 objects = [{"body": "blue-cube", "spawn": spawn}]
             else:
-                return  # Nothing to reset
+                return
 
         def _sample(val, default=0.0):
             """Uniform random if [min, max], fixed if scalar."""
@@ -929,11 +915,9 @@ class iCubTeleop(Teleoperator):
                     z = _sample(spawn.get("z"), self.data.qpos[qpos_adr + 2])
                     self.data.qpos[qpos_adr:qpos_adr + 3] = [x, y, z]
 
-                # Orientation
                 quat = spawn.get("quat", [1, 0, 0, 0])
                 self.data.qpos[qpos_adr + 3:qpos_adr + 7] = quat
 
-                # Zero velocities
                 ndof = self.model.jnt_type[self.model.body_jntadr[bid]]
                 # freejoint = 6 DOF, hinge = 1 DOF
                 num_dof = 6 if ndof == 0 else 1  # mjtJoint.mjJNT_FREE = 0

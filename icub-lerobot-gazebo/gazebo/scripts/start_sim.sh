@@ -31,7 +31,7 @@ tmux send-keys -t $SESSION_NAME:gazebo "export GZ_SIM_SYSTEM_PLUGIN_PATH=$PLUGIN
 # LANZAR SERVIDOR (Headless - Maneja física y sensores)
 # tmux send-keys -t $SESSION_NAME:gazebo "gz sim -r $WORLD" C-m
 tmux send-keys -t $SESSION_NAME:gazebo "$GZ_RENDER_ENV gz sim -s -r $WORLD -v 4" C-m
-# '>' (no '>>'): el log se reinicia en cada arranque; antes crecía sin límite (llegó a 1.3 GB).
+# '>' (no '>>'): el log se reinicia en cada arranque; con '>>' crece sin límite (llegó a 1.3 GB).
 tmux pipe-pane -o -t $SESSION_NAME:1.0 'cat > /tmp/tmux_output_pipe_gz_server'
 
 # 2.1 Crear una sub-ventana (pane) para la GUI

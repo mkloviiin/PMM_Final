@@ -86,17 +86,25 @@ def _camera_ports_from_robot_name(robot_name: str) -> dict[str, str]:
         }
     # Robot real: el relay local de teleop_module_sm (que ya recibe camcalib), no
     # una segunda conexión a las cámaras del robot. Duplicar las imágenes crudas
-    # (~110 Mbit/s por cámara y cliente) saturaba la red del robot: se perdían los
-    # stateExt por UDP y el iKinCartesianSolver se suspendía (el brazo no se movía).
+    # (~110 Mbit/s por cámara y cliente) satura la red del robot: se pierden los
+    # stateExt por UDP y el iKinCartesianSolver se suspende (el brazo no se mueve).
     return {
         "left": "/teleop/cam/left:o",
         "right": "/teleop/cam/right:o",
     }
 
 
+def _extra_camera_ports(robot_name: str) -> dict[str, str]:
+    """Cámaras que solo se graban si la tarea las pide (`cameras` en scenes.yaml), p. ej. la
+    cenital de la puerta (models/top-camera-stand). Solo existen en Gazebo."""
+    if robot_name.strip().lower() == "icubsim":
+        return {"top": f"/{robot_name}/cam/top/rgbImage:o"}
+    return {}
+
+
 # Resolución (alto, ancho) por cámara; la que no aparezca usa _DEFAULT_CAMERA_SHAPE.
 _DEFAULT_CAMERA_SHAPE = (240, 320)
-_CAMERA_SHAPES = {"front": (480, 640)}
+_CAMERA_SHAPES = {"front": (480, 640), "top": (480, 640)}
 
 def _scene_object_bodies() -> list[str]:
     """Cuerpos de la escena activa en el orden de scenes.yaml (obj0, obj1, ...).
@@ -105,7 +113,7 @@ def _scene_object_bodies() -> list[str]:
     gazebo/scripts/reset_objects.sh). Sin escena: blue-cube, como el fallback de MuJoCo.
     """
     scene_file = Path(os.environ.get("ICUB_SCENE_FILE", "/tmp/icub_lerobot_scene"))
-    scenes_yaml = _project_root() / "mujoco" / "assets" / "scenes" / "scenes.yaml"
+    scenes_yaml = _project_root() / "gazebo" / "scenes.yaml"
     try:
         label = scene_file.read_text(encoding="utf-8").strip()
         scenes = yaml.safe_load(scenes_yaml.read_text(encoding="utf-8")) or []
@@ -159,11 +167,11 @@ class iCubConfig(RobotConfig):
     object_bodies: list[str] = field(default_factory=list)
     # root_link del iCub en el mundo Gazebo (<pose> del iCub en gazebo/worlds/icub_world.sdf).
     gazebo_root_xyz: tuple[float, float, float] = (0.0, 0.0, 0.73)
-    # rh/lh_gripper: False = fracción de cierre 0..1 (desde el 2026-10-21, gatillo gradual);
-    # True = convención anterior 0 abrir / 0.5 cerrar / 1 mantener (modelos legacy).
+    # rh/lh_gripper: False = fracción de cierre 0..1 (gatillo gradual); True = 0 abrir /
+    # 0.5 cerrar / 1 mantener (modelos legacy).
     gripper_legacy: bool = False
-    # Signo de los cuaterniones (QUAT_HEMISPHERE en icub.py): True desde el 2026-10-21. Los
-    # eval de políticas entrenadas con datasets anteriores lo apagan (no marcados en info.json).
+    # Signo de los cuaterniones (QUAT_HEMISPHERE en icub.py). Los eval lo apagan para
+    # políticas entrenadas con el signo crudo (info.json no lo marca).
     canonical_quats: bool = True
 
 
@@ -174,6 +182,20 @@ class iCubConfig(RobotConfig):
     actuators_to_use: dict[str, list[str]] = field(default_factory=dict)
     camera_ports: dict[str, str] = field(default_factory=_default_camera_ports)
     camera_shapes: dict[str, tuple[int, int]] = field(default_factory=dict)
+    # Disponibles pero no grabadas por defecto (ver select_cameras)
+    camera_extra_ports: dict[str, str] = field(default_factory=dict)
+    camera_shape_overrides: dict[str, tuple[int, int]] = field(default_factory=dict)
+
+    def select_cameras(self, names: list[str]) -> list[str]:
+        """Graba solo las cámaras `names` de la tarea (`cameras` en scenes.yaml), en ese orden,
+        sumando las extra (top). Devuelve las que este robot no tiene (p. ej. top en el real)."""
+        available = {**self.camera_extra_ports, **self.camera_ports}
+        self.camera_ports = {n: available[n] for n in names if n in available}
+        self.camera_shapes = {
+            n: self.camera_shape_overrides.get(n, _CAMERA_SHAPES.get(n, _DEFAULT_CAMERA_SHAPE))
+            for n in self.camera_ports
+        }
+        return [n for n in names if n not in available]
 
     def __post_init__(self) -> None:
         cfg = load_yarp_config(self.config_path)
@@ -192,7 +214,9 @@ class iCubConfig(RobotConfig):
         # Derivados de robot_name; el YAML solo los sobreescribe si lo pide explícitamente
         # (camera_ports: {name: port}, camera_shapes: {name: [alto, ancho]}).
         self.camera_ports = cfg.get("camera_ports") or _camera_ports_from_robot_name(robot_name)
+        self.camera_extra_ports = _extra_camera_ports(robot_name)
         yaml_shapes = cfg.get("camera_shapes") or {}
+        self.camera_shape_overrides = {k: tuple(v) for k, v in yaml_shapes.items()}
         self.camera_shapes = {
             name: tuple(yaml_shapes.get(name, _CAMERA_SHAPES.get(name, _DEFAULT_CAMERA_SHAPE)))
             for name in self.camera_ports

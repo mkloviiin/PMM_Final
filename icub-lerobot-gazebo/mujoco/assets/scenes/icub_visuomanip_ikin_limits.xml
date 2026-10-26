@@ -508,9 +508,9 @@
                                     <!-- head_cam = ojo izquierdo del iCub real: pose del frame del ojo de iKin
                                          (iCubEye left_v2.5, ojos en 0) en este cuerpo, y fovy de su cámara
                                          (fx = 343.12 a 320x240, igual que left_camera_rgb en Gazebo).
-                                         Antes estaba ~12 cm desplazada y 21 deg más inclinada hacia abajo:
-                                         esa pose sigue como head_cam_v1 / head_cam_track_hand_v1 para los
-                                         modelos entrenados con ella (p. ej. mujocotrainPMM). -->
+                                         head_cam_v1 / head_cam_track_hand_v1: pose ~12 cm desplazada y 21 deg
+                                         más inclinada hacia abajo, para los modelos entrenados con ella
+                                         (p. ej. mujocotrainPMM). -->
                                     <body name="head_camera" pos="0.03368 0.10401 0.04627" quat="0 0 1 0">
                                         <camera name="head_cam" fovy="38.5526"/>
                                     </body>

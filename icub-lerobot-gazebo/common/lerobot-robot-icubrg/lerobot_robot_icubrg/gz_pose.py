@@ -157,3 +157,53 @@ class GzContactReader:
             except subprocess.TimeoutExpired:
                 proc.kill()
         self._procs.clear()
+
+
+class GzJointReader:
+    """Ángulos de las articulaciones de un modelo de la escena (p. ej. door_hinge de la puerta),
+    publicados por su JointStatePublisher en /world/<world>/model/<model>/joint_state. Mismo
+    esquema que GzPoseReader: `gz topic -e --json-output` en un hilo; vale el último mensaje."""
+
+    def __init__(self, model: str, world: str = "default"):
+        self.topic = f"/world/{world}/model/{model}/joint_state"
+        self._latest: dict[str, float] = {}
+        self._lock = threading.Lock()
+        self._proc: subprocess.Popen | None = None
+
+    def start(self) -> None:
+        gz = _find_gz()
+        if gz is None:
+            print("[WARN] 'gz' not found (PATH / ICUBENV_PREFIX): joint states unavailable.")
+            return
+        self._proc = subprocess.Popen(
+            [gz, "topic", "-e", "-t", self.topic, "--json-output"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
+            preexec_fn=_die_with_parent,
+        )
+        threading.Thread(target=self._reader, daemon=True).start()
+
+    def _reader(self) -> None:
+        for line in self._proc.stdout:
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            # protobuf→JSON omite los campos en cero (position 0 = sin "position")
+            pos = {j["name"]: float(j["axis1"].get("position", 0.0)) for j in msg.get("joint", [])
+                   if "axis1" in j}
+            with self._lock:
+                self._latest = pos
+
+    def get(self, joint: str) -> float | None:
+        """Ángulo [rad] del último mensaje, o None si aún no llegó."""
+        with self._lock:
+            return self._latest.get(joint)
+
+    def stop(self) -> None:
+        if self._proc is not None:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+            self._proc = None

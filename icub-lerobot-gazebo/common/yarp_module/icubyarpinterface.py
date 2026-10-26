@@ -5,7 +5,7 @@ from pyquaternion import Quaternion
 
 # Tiempo máximo que se espera a que un puerto del robot aparezca. Gazebo levanta
 # yarprobotinterface / iKinCartesianSolver / iKinGazeCtrl 5-15 s después de
-# arrancar: sin esta espera el módulo moría si se lanzaba antes de tiempo.
+# arrancar: sin esta espera el módulo muere si se lanza antes de tiempo.
 PORT_WAIT_TIMEOUT_S = 60.0
 
 
@@ -158,7 +158,6 @@ class iCubYARPInterface:
         self.actuators_to_control = [joint for part_joints in actuators_dict.values() 
                                                 for joint in part_joints]
 
-        # Guardar home pose como variable global de la clase
         self.home_pos_deg = home_pose_deg if home_pose_deg is not None else {}
 
         self.drivers = {}
@@ -174,8 +173,8 @@ class iCubYARPInterface:
         self._arm_mode: dict[str, str] = {}
         # Si es False (por defecto) el módulo NO toca los modos del brazo en modo
         # cartesiano: el cartesianController elige el suyo (POSITION_DIRECT o VELOCITY
-        # según su config). Forzar POSITION_DIRECT + stop() dejaba quieto el brazo del
-        # robot real. True = comportamiento antiguo (cart_force_position_direct en el YAML).
+        # según su config). Forzar POSITION_DIRECT + stop() deja quieto el brazo del
+        # robot real. True = forzarlo (cart_force_position_direct en el YAML).
         self.cart_force_position_direct = False
         # Diagnóstico: segundos gastados por llamada al robot en el ciclo actual
         # (cycle_times, lo resetea el módulo en cada ciclo) y por ventana de reporte
@@ -244,7 +243,7 @@ class iCubYARPInterface:
             if not self.init_gaze_controller(bind_eyes=bind_eyes):
                 raise RuntimeError(f"Failed to connect to Gaze Controller")
 
-    # --- Gestión Unificada de Home Pose ---
+    # --- Home pose ---
     def go_to_home_pose(self, wait=False):
         """
         Mueve el robot a la posición 'home' almacenada en self.home_pos_deg.
@@ -263,37 +262,32 @@ class iCubYARPInterface:
             num_j = self.num_joints_part[part]
             part_pos_vec = yarp.Vector(num_j)
             
-            # 1. Cambiar modo a POSITION
             modes = yarp.VectorInt(num_j, yarp.VOCAB_CM_POSITION)
             self.control_modes[part].setControlModes(modes.data())
             self._arm_mode.pop(part, None)
 
-            # 2. Preparar vector con valores home o actuales (si no está en home dict)
-            # Primero leemos encoders actuales para llenar huecos
+            # Las articulaciones que no están en home_pos_deg mantienen su posición actual
             current_encs = yarp.Vector(num_j)
             self.encoders[part].getEncoders(current_encs.data())
             
             for j in range(num_j):
-                part_pos_vec[j] = current_encs[j] # Default al actual
+                part_pos_vec[j] = current_encs[j]
                 joint_name = self.axis_info[part].getAxisName(j)
                 if joint_name in self.home_pos_deg:
-                    part_pos_vec[j] = self.home_pos_deg[joint_name] # Sobrescribir con home
+                    part_pos_vec[j] = self.home_pos_deg[joint_name]
 
             if self.igaze is not None and part == "head":
                 continue
 
             ipos = self.drivers[part].viewIPositionControl()
-
-            # 3. Enviar comando
             ipos.positionMove(part_pos_vec.data())
         
-        # Si se pide bloquear, esperamos aquí
         if wait:
             print("Waiting for home motion to complete...")
             while not self.check_motion_done():
                 time.sleep(0.1)
             print("Home pose reached.")
-            self.set_all_parts_to_position_direct() # Restaurar control directo al terminar
+            self.set_all_parts_to_position_direct()
 
     def check_motion_done(self):
         """
@@ -309,7 +303,7 @@ class iCubYARPInterface:
         return all_done
     
     def set_all_parts_to_position_direct(self):
-        """Restaura el modo POSITION_DIRECT para control rápido."""
+        """Pese al nombre, deja todas las partes en POSITION (la cabeza no, si la maneja el gaze)."""
         print("Restoring control modes to POSITION_DIRECT...")
         for part in self.parts:
 
@@ -353,7 +347,7 @@ class iCubYARPInterface:
         num_axes = self.encoders[part_name].getAxes()
         self.num_joints_part[part_name] = num_axes
         
-        # CRITICO: Leer encoders ANTES de cualquier cambio de modo
+        # Encoders leídos antes de cualquier cambio de modo (la cabeza los reescribe abajo)
         current_encs = yarp.Vector(num_axes)
         self.encoders[part_name].getEncoders(current_encs.data())
         if part_name == "head":
@@ -537,8 +531,7 @@ class iCubYARPInterface:
         self.cart_drivers[arm_part] = driver
         self.cart_interfaces[arm_part] = driver.viewICartesianControl()
         self.cart_interfaces[arm_part].setTrajTime(2.0)
-        # NOTA: NO llamar set_head_to_position_direct() aquí
-        # Eso se hace una sola vez después de toda la inicialización
+        # set_head_to_position_direct() no va aquí: se llama una vez, terminada la inicialización
 
     def look_at_sync(self, x, y, z):
         if self.igaze is None: return
@@ -554,9 +547,9 @@ class iCubYARPInterface:
         ax = yarp.Vector(4)
         if not self.cart_interfaces[arm].getPose(pos, ax): return None, None
         
-        curr_pos = np.array([pos[i] for i in range(3)]) # [mts]
-        axis = np.array([ax[0], ax[1], ax[2]]) # [mts]
-        angle = np.array(ax[3])   # [rads]
+        curr_pos = np.array([pos[i] for i in range(3)]) # [m]
+        axis = np.array([ax[0], ax[1], ax[2]]) # eje unitario
+        angle = np.array(ax[3])   # [rad]
         q = Quaternion(axis=axis, radians=angle)
         return curr_pos, np.array([q.w, q.x, q.y, q.z])
 
@@ -597,7 +590,8 @@ class iCubYARPInterface:
         t_pos = np.asarray(pos, dtype=float)
 
         c_pos, c_quat = self._timed("getPose", self._get_current_pose, arm)
-        # CHANGED: Threshold increased from 0.01 to 0.025 to reduce micro-corrections
+        # Hand already within 1 cm of the target: skip goToPose (avoids micro-corrections).
+        # Orientation is not compared.
         if self._check_pose_threshold(c_pos, c_quat, t_pos, quat_wxyz, 0.01, 5.0):
             return True
 
@@ -627,13 +621,13 @@ class iCubYARPInterface:
     def _set_arm_control_mode(self, arm, mode):
         if arm not in self.control_modes: return
         # Solo al cambiar de modo: se llama en cada target (~30 Hz) y tanto stop()
-        # como setControlModes son RPC al robot. Repetirlos frenaba el loop en el
-        # robot real y el stop() cortaba el open/close de la mano a medio camino.
+        # como setControlModes son RPC al robot. Repetirlos frena el loop en el
+        # robot real y el stop() corta el open/close de la mano a medio camino.
         if self._arm_mode.get(arm) == mode: return
         self._arm_mode[arm] = mode
         if mode == 'cartesian' and not self.cart_force_position_direct:
             return
-        # Simplificado: Si es cartesian o direct, usamos POSITION_DIRECT
+        # cartesian y position_direct usan POSITION_DIRECT en j0-6
         y_mode = yarp.VOCAB_CM_POSITION_DIRECT if mode in ['cartesian', 'position_direct'] else yarp.VOCAB_CM_POSITION
         
         if mode == 'cartesian' and arm in self.drivers:
@@ -735,7 +729,6 @@ class iCubYARPInterface:
                 
                 # Check if buffer needs resizing
                 if shape := self.np_arrays[eye].shape[:2] != (h, w):
-                    # Reallocate buffer
                     self.np_arrays[eye] = np.zeros((h, w, 3), dtype=np.uint8)
                     self.img_buffers[eye].resize(w, h)
                     self.img_buffers[eye].setExternal(
@@ -805,7 +798,6 @@ class iCubYARPInterface:
         buf.setExternal(arr.data, arr.shape[1], arr.shape[0])
 
     # --- Inicializar Gaze Controller ---
-    # En icubyarpinterface.py
 
     def init_gaze_controller(self, remote_port="/iKinGazeCtrl", bind_eyes=True):
         print("  [GAZE] Iniciando conexión al Gaze Controller...")
@@ -819,7 +811,6 @@ class iCubYARPInterface:
             cmd = yarp.Bottle()
             reply = yarp.Bottle()
             
-            # Detener
             cmd.addString("stop")
             rpc_port.write(cmd, reply)
             
@@ -828,7 +819,7 @@ class iCubYARPInterface:
             cmd.addString("restoreContext")
             rpc_port.write(cmd, reply)
             
-            # C) Borrar cola de movimientos
+            # Borrar cola de movimientos
             print("  [GAZE] >> clear")
             cmd.clear()
             cmd.addString("clear")
@@ -914,16 +905,13 @@ class iCubYARPInterface:
         if self.gaze_driver and self.igaze:
             print("  [GAZE] Deteniendo controlador de mirada...")
             
-            # Intentar usar RPC para stop/clear si es posible, o simplemente stop control
-            # Usamos el path temporal que sabemos que funciona
+            # stop + clear por RPC antes de cerrar el cliente
             try:
                 rpc_port = yarp.RpcClient()
                 rpc_port.open("/py/gaze_rpc_stop")
                 
-                # Necesitamos saber el puerto remoto. Asumimos el default o guardamos
-                # En init era /iKinGazeCtrl por default.
+                # TODO: asume el remote_port por defecto de init_gaze_controller; guardarlo en init.
                 remote_port = "/iKinGazeCtrl" 
-                # (Mejor sería guardar remote_port en __init__, pero asumo default por ahora)
                 
                 if yarp.Network.connect("/py/gaze_rpc_stop", f"{remote_port}/rpc"):
                     cmd = yarp.Bottle()
@@ -941,7 +929,7 @@ class iCubYARPInterface:
             except Exception as e:
                 print(f"  Warning: Error enviando stop RPC: {e}")
 
-            # Importante: Liberar la referencia para que go_to_home_pose no salte la cabeza
+            # Con igaze = None, go_to_home_pose vuelve a mover la cabeza
             if self.gaze_driver:
                 self.gaze_driver.close()
                 self.gaze_driver = None
@@ -961,7 +949,6 @@ class iCubYARPInterface:
             self.control_modes["head"].setControlModes(modes.data())
             
             # 3. Escribir la posición actual inmediatamente para evitar salto
-            # Esto asegura que el controlador mantenga la posición actual
             ipos_direct = self.pos_direct["head"]
             for i in range(num_j):
                 ipos_direct.setPosition(i, current_encs[i])

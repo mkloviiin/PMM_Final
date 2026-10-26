@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 """Evaluate a trained LeRobot policy (e.g. SmolVLA) on iCub in MuJoCo.
 
-This script loads a pretrained checkpoint, connects to the iCub MuJoCo simulation,
-gets observations from the robot, feeds them through the policy to get actions,
-and sends the actions back to the robot — closing the loop for autonomous execution.
-
-It uses the same observation→preprocess→policy→postprocess→action pipeline that
-lerobot-record uses internally, ensuring full compatibility with training.
+Closed loop: robot observation → preprocess → policy → postprocess → action, the same
+pipeline lerobot-record uses internally. Saves per-episode CSVs, camera videos and an
+evaluation_summary.json under ../outputs/tests/<experiment>_<timestamp>/.
 
 Usage examples
 --------------
 # Basic (uses default checkpoint path and scene):
 python eval_policy_mujoco.py
 
-EXECUTE: python eval_policy_mujoco.py --task "Pick up the blue cube"
-
 # Custom checkpoint and scene:
 python eval_policy_mujoco.py \\
-    --checkpoint /home/icub/mujoco_ws/REPO_ICUB/outputs/train/my_smolvla/checkpoints/020000/pretrained_model \\
+    --checkpoint ../outputs/train/my_smolvla/checkpoints/020000/pretrained_model \\
     --scene 1 \\
     --num-episodes 5 \\
     --episode-len 600
@@ -168,7 +163,7 @@ def parse_args() -> argparse.Namespace:
         / "020000"
         / "pretrained_model"
     )
-    default_model = str(script_dir / "dependencies" / "assets" / "scenes" / "icub_table_scene.xml")
+    default_model = str(script_dir / "dependencies" / "assets" / "scenes" / "scene_icub_lift.xml")
     default_config = str(script_dir / "utils" / "control_config.yaml")
 
     parser = argparse.ArgumentParser(
@@ -326,8 +321,8 @@ def main() -> None:
         vr_enabled=False,
     )
     if args.legacy:
-        # Modelos anteriores al 2026-10-20: poses en el mundo MuJoCo y cámaras de cabeza
-        # antiguas con sus nombres viejos
+        # Modelos --legacy: poses en el mundo MuJoCo y cámaras de cabeza antiguas con sus
+        # nombres viejos
         robot_cfg.pose_frame = "world"
         robot_cfg.gripper_legacy = True
         robot_cfg.camera_names = ["head_cam", "head_cam_track_hand", "frontview"]
@@ -350,17 +345,14 @@ def main() -> None:
             bid = model.body(bname).id
         except Exception:
             continue
-        # Hide all geoms of this body
         for gid in range(model.ngeom):
             if model.geom_bodyid[gid] == bid:
                 model.geom_rgba[gid, 3] = 0.0
-        # Hide all sites of this body
         for sid in range(model.nsite):
             if model.site_bodyid[sid] == bid:
                 model.site_rgba[sid, 3] = 0.0
     print("[eval] Mocap targets hidden (com_target, l_hand_target, r_hand_target)")
 
-    # Open a MuJoCo viewer for visual feedback
     mj_viewer = mujoco.viewer.launch_passive(tc.model, tc.data)
     # camera_name = "frontview"  # Make sure this camera is defined in your scene XML
     # camera_id = mujoco.mj_name2id(tc.model, mujoco.mjtObj.mjOBJ_CAMERA, camera_name)
@@ -490,7 +482,6 @@ def main() -> None:
             for step in range(args.episode_len):
                 t0 = time.perf_counter()
 
-                # 1) Get raw observation from robot (dict of torch tensors)
                 obs = robot.get_observation()
 
                 # Fill in any observation keys that the dataset expects but the
@@ -539,9 +530,8 @@ def main() -> None:
                     current_ep_success = True
                     current_ep_first_success_step = step
 
-                # 2) Build dataset-format observation frame (numpy arrays
-                #    with "observation.state", "observation.images.*" keys).
-                #    This is the same transform used during recording.
+                # Dataset-format observation frame ("observation.state",
+                # "observation.images.*"), same transform as during recording.
                 observation_frame = build_dataset_frame(ds_features, obs, prefix=OBS_STR)
 
                 # Ensure all values are numpy arrays (images come as torch
@@ -555,7 +545,7 @@ def main() -> None:
                         else:
                             observation_frame[_k] = _v.cpu().numpy()
 
-                # 3) Run the full lerobot inference pipeline:
+                # Full lerobot inference pipeline:
                 #    prepare_observation → preprocessor → policy.select_action → postprocessor
                 action_tensor = predict_action(
                     observation=observation_frame,
@@ -568,10 +558,9 @@ def main() -> None:
                     robot_type=robot.name,
                 )
 
-                # 4) Convert flat action tensor → named dict for robot.send_action()
                 action_dict = make_robot_action(action_tensor, ds_features)
 
-                # 5) Log observation & action data
+                # Log observation & action data
                 obs_row = {"step": step}
                 for _name in obs_state_names:
                     val = obs.get(_name)
@@ -582,7 +571,8 @@ def main() -> None:
                     else:
                         obs_row[_name] = 0.0
                 obs_row["cube_height_z"] = float(cube_height_m) if cube_height_m is not None else np.nan
-                obs_row["cube_above_0p65m"] = int(bool(cube_height_m is not None and cube_height_m > success_height_threshold_m))
+                obs_row[f"cube_above_{success_height_threshold_m:.2f}m".replace(".", "p")] = int(
+                    bool(cube_height_m is not None and cube_height_m > success_height_threshold_m))
                 obs_row["touch_any"] = int(touch_any)
                 obs_row["take_contact"] = int(take_contact)
                 obs_rows.append(obs_row)
@@ -598,7 +588,7 @@ def main() -> None:
                         act_row[_name] = 0.0
                 action_rows.append(act_row)
 
-                # 6) Display + record camera views
+                # Display + record camera views
                 cam_imgs = []
                 for _cam in record_cams:
                     if _cam in obs:
@@ -622,17 +612,14 @@ def main() -> None:
                     except cv2.error:
                         pass  # Headless environment — skip display, videos saved to disk
 
-                # 7) Send action to robot (sets mocap targets + steps physics)
+                # Sets mocap targets + steps physics
                 robot.send_action(action_dict)
 
-                # 8) Update viewer
                 mj_viewer.sync()
 
-                # 9) Maintain target FPS
                 elapsed = time.perf_counter() - t0
                 precise_sleep(max(1.0 / args.fps - elapsed, 0.0))
 
-                # Print progress every 5 seconds
                 if step > 0 and step % (args.fps * 5) == 0:
                     secs = step / args.fps
                     print(f"  [{secs:.0f}s] step {step}/{args.episode_len}")

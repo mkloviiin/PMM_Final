@@ -11,7 +11,7 @@ primary_arm: "right_arm"
 gaze_ctrl: true
 # Marco de las poses grabadas (manos, targets, mirada, objetos) y de las acciones:
 # "root" = frame root del iCub, igual que Gazebo y el robot real (sim-to-sim directo).
-# "world" = mundo MuJoCo, solo para datasets/modelos grabados antes del 2026-10-20.
+# "world" = mundo MuJoCo, solo para datasets/modelos --legacy.
 pose_frame: "root"
 # Límites del torso [deg] del IK de brazos: los del robot real (cart_torso_limits de
 # icub-lerobot-gazebo/config/control_config.yaml); el roll queda fijo en 0.
@@ -119,8 +119,7 @@ hand_open_values:
   - [0, 75, 0, 0, 0, 0, 0, 0, 0]
 hand_close_values:
   - [0, 40, 40, 50, 75, 75, 75, 75, 0]
-# Fracción del cierre de la mano que se aplica (1.0 = cierre completo, HAND_CLOSE en
-# dependencies/teleop_mujoco.py). 0.5 = pinza (~4.6 cm entre pulgar e índice; cubo de 5 cm):
+# Fracción del cierre de la mano que se aplica (1.0 = cierre completo, hand_close_values). 0.5 = pinza (~4.6 cm entre pulgar e índice; cubo de 5 cm):
 # agarra sin forzar los dedos dentro del cubo. 0.6 aprieta más (~3.3 cm), 0.4 casi no toca (~5.8 cm).
 hand_close_ratio: 0.5
 # Duración de un cierre completo [s]: los dedos siguen la fracción pedida a velocidad

@@ -93,7 +93,7 @@ class ZMQCompressedImageTransmitter(BasePublisher):
     Usage::
 
         pub = ZMQCompressedImageTransmitter(host="*", port=10505)
-        pub.send_image(rgb_array)   # numpy (H, W, 3) uint8
+        pub.send_image(bgr_array)   # numpy (H, W, 3) uint8
 
     Compatible with beavr-bot's original ``ZMQCompressedImageTransmitter`` API.
     """
@@ -103,11 +103,7 @@ class ZMQCompressedImageTransmitter(BasePublisher):
         self._quality = quality
 
     def send_image(self, rgb_image: np.ndarray) -> None:
-        """Compress *rgb_image* as JPEG and publish it via ZMQ.
-
-        Args:
-            rgb_image: RGB image array with shape (H, W, 3), dtype uint8.
-        """
+        """Compress the image ((H, W, 3) uint8, BGR as cv2 expects) as JPEG and publish it."""
         _, buffer = cv2.imencode(
             ".jpg", rgb_image, [int(cv2.IMWRITE_JPEG_QUALITY), self._quality]
         )

@@ -3,7 +3,7 @@
 MuJoCo-Only Teleoperation for iCub
 ====================================
 
-Instead the arm IK is computed via iKinIpOptMin (mujoco_ik.py) and
+The arm IK is computed via iKinIpOptMin (mujoco_ik.py) and
 gaze IK via MuJoCo Jacobians; physics are stepped by MuJoCo position actuators.
 
 Supports:
@@ -13,15 +13,15 @@ Supports:
 
 Usage:
     python3 teleop_mujoco.py                          # Mouse only
-    python3 teleop_mujoco.py --quest-ip 192.168.1.50       # Same as above (--vr implied)
+    python3 teleop_mujoco.py --quest-ip 192.168.1.50       # VR (--vr implied)
     python3 teleop_mujoco.py --record --repo-id demo  # With recording
 
 Keyboard Shortcuts:
     F       Toggle teleop on/off
-    1 / 2   Open / Close right hand
-    4 / 5   Open / Close left hand
+    8 / 9   Open / Close right hand
+    6 / 7   Open / Close left hand
     0       Go home (minimum-jerk trajectory)
-    R       Reset scenario (random cube position)
+    N       Reset scenario (objects/joints from scenes.yaml)
     SPACE   Start / Stop recording an episode
     C       Recalibrate VR controllers
     ESC     Quit
@@ -104,7 +104,7 @@ LEFT_ARM_JOINTS_NO_TORSO = [
 
 NECK_JOINTS = ["neck_pitch", "neck_roll", "neck_yaw"]
 
-# Hand actuator names (order matches the actuator block in icub_fixed.xml)
+# Hand actuator names (order matches the actuator block in icub_visuomanip_ikin_limits.xml)
 RIGHT_HAND_ACTUATORS = [
     "r_hand_finger", "r_thumb_oppose", "r_thumb_proximal", "r_thumb_distal",
     "r_index_proximal", "r_index_distal",
@@ -122,7 +122,7 @@ LEFT_HAND_ACTUATORS = [
 HAND_OPEN  = np.array([0.000, 1.309, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000, 0.000])
 HAND_CLOSE = np.array([0.000, 1.047, 0.785, 1.571, 1.396, 1.745, 1.396, 1.745, 0.000])
 
-# VR ZMQ ports (same as vr_controller_sm.py)
+# VR ZMQ ports (same as dependencies/vr_usb.py)
 VR_HEAD_PORT       = 8115
 VR_HAND_RIGHT_PORT = 8117
 VR_BUTTONS_PORT    = 8119
@@ -243,8 +243,7 @@ class MuJoCoTeleop:
 
         # ----- Arm configuration -----
         # CLI args override config.yaml values
-        # Explícito (Hub / --arms) manda; si no, control_arms del YAML. Antes "both" se trataba
-        # como "no especificado" y el YAML ganaba aunque se pidiera "both".
+        # Explícito (Hub / --arms) manda; si no, control_arms del YAML.
         self.control_arms = control_arms or cfg.get("control_arms", "both")
         self.primary_arm = primary_arm if primary_arm != "right" else cfg.get("primary_arm", primary_arm)
         if self.primary_arm in ("right_arm", "r", "rh"):
@@ -256,9 +255,8 @@ class MuJoCoTeleop:
         ik_damping = cfg.get("ik_damping", 1e-4)
         ik_dt = cfg.get("ik_integration_dt", 0.1)
         ik_maxv = cfg.get("ik_max_angvel", 2.0)
-        # Number of control steps per IK recomputation (like total_num_steps
-        # in cartesian_controller.py).  IK is solved once, then min-jerk
-        # interpolation drives ctrl toward the goal over this many steps.
+        # Number of control steps per IK recomputation.  IK is solved once, then
+        # min-jerk interpolation drives ctrl toward the goal over this many steps.
         self._ik_recompute_steps = cfg.get("ik_recompute_steps", 60)
 
         # Waist (root body) pose — needed for world ↔ iKin frame transform
@@ -339,7 +337,7 @@ class MuJoCoTeleop:
         self.cli_controls_enabled = sys.stdin.isatty()
         self._cli_thread = None
 
-        # IK interpolation state  (cartesian_controller.py pattern)
+        # IK interpolation state
         self._ik_step = 0          # current step in interpolation window
         self._rh_ctrl_start = None  # start of interpolation (right arm)
         self._rh_ctrl_goal  = None  # goal of interpolation (right arm)
@@ -427,9 +425,7 @@ class MuJoCoTeleop:
         self._rh_qpos_idxs = []
         if self._rh_solver:
             self._rh_act_ids = np.array([self.model.actuator(n).id for n in self._rh_solver.joints_to_control])
-            # For qpos, we need joint address.
-            # NOTE: qpos address != joint ID for ball joints, but here we only use hinge/slide so it's likely 1:1 map
-            # Safer to use jnt_qposadr
+            # jnt_qposadr: the qpos address differs from the joint id once free/ball joints exist
             self._rh_qpos_idxs = [self.model.jnt_qposadr[self.model.joint(n).id] for n in self._rh_solver.joints_to_control]
 
         self._lh_act_ids = []
@@ -566,7 +562,6 @@ class MuJoCoTeleop:
             sock.setsockopt(zmq.LINGER, 0)
             self._vr_sockets[name] = (ctx, sock)
 
-        # Start receiver thread
         self._vr_thread = threading.Thread(target=self._vr_receive_loop,
                                            daemon=True)
         self._vr_thread.start()
@@ -669,7 +664,7 @@ class MuJoCoTeleop:
         delta_vr = vr_pos - calib_origin
         # VR → robot frame mapping (inverted X)
         # Robot X (Fwd) = VR Z (Back/Fwd)
-        # Robot Y (Left) = -VR X (Right)  <-- FIX: Inverted sign based on user feedback
+        # Robot Y (Left) = -VR X (Right)
         # Robot Z (Up)   = VR Y (Up)
         delta_robot = np.array([delta_vr[2], -delta_vr[0], delta_vr[1]])
         raw_target_pos = home_pos + delta_robot
@@ -687,10 +682,10 @@ class MuJoCoTeleop:
 
         if "quat" in hand_data:
             q_vr = hand_data["quat"]
-            # Standard mapping: -Z_vr -> X_rob (Fwd), -X_vr -> Y_rob (Right), Y_vr -> Z_rob (Up)
+            # -Z_vr -> X_rob (Fwd), -X_vr -> Y_rob (Left), Y_vr -> Z_rob (Up)
             q_remapped = PyQuaternion(w=q_vr.w, x=-q_vr.z, y=-q_vr.x, z=q_vr.y)
             
-            # Rotate 180 degrees around X axis as requested
+            # Rotate 180 degrees around X axis
             q_fix_x = PyQuaternion(axis=[1, 0, 0], degrees=180)
             q_final = q_fix_x * q_remapped
 
@@ -736,106 +731,6 @@ class MuJoCoTeleop:
                 self.data.mocap_pos[self.lh_mocap_id] = pos
                 self.data.mocap_quat[self.lh_mocap_id] = quat
 
-    def _solve_ik(self):
-        """Solve IK and SMOOTHLY update joint controls."""
-        
-        # 1. Update Gaze (Differential IK)
-        # Check if self.config exists and has use_gaze attribute
-        if hasattr(self, 'config') and hasattr(self.config, 'use_gaze') and self.config.use_gaze:
-            gaze_target = self.data.mocap_pos[self.gaze_mocap_id]
-            gaze_ctrl_delta = self.gaze_solver.solve(
-                self.head_body_name, gaze_target, self.neck_joint_names)
-            for jname, val in gaze_ctrl_delta.items():
-                act_id = self.model.actuator(jname).id
-                self.data.ctrl[act_id] = val
-
-        # Always lock neck_roll to 0 to prevent head from tilting sideways
-        try:
-            neck_roll_act_id = self.model.actuator("neck_roll").id
-            self.data.ctrl[neck_roll_act_id] = 0.0
-        except Exception:
-            pass
-
-        # 2. Update Arms (iKin)
-        q_current = self.data.qpos.copy() # Current simulation state
-
-        # Base interpolation factor
-        base_alpha = 0.2
-        deadband_m = 0.05  # 5mm deadband for settling
-
-        # Helper to get current torso values for the localized solver
-        # (Needed if the solver does NOT control the torso, so it knows where the shoulder is)
-        current_torso_values = {}
-        for t_name in ["torso_pitch", "torso_roll", "torso_yaw"]:
-            # Find qpos address for this joint
-            # We can cache this, but lookup is fast enough for 3 joints
-            try:
-                adr = self.model.jnt_qposadr[self.model.joint(t_name).id]
-                current_torso_values[t_name] = q_current[adr]
-            except KeyError:
-                pass
-
-        if self._rh_solver:
-            rh_target_pos = self.data.mocap_pos[self.rh_mocap_id]
-            rh_target_quat = self.data.mocap_quat[self.rh_mocap_id]
-            
-            q_arm = [q_current[i] for i in self._rh_qpos_idxs]
-            
-            # If right arm is secondary, it needs torso hint from left
-            # But usually right is primary. We pass it anyway if the solver accepts it.
-            # In mujoco_ik.py, solve() takes torso_values.
-            
-            sol_r, solved_r = self._rh_solver.solve(
-                rh_target_pos, rh_target_quat, 
-                np.array(q_arm),
-                torso_values=current_torso_values 
-            )
-            
-            # --- Deadband & Smooth Interpolation ---
-            curr_ee_pos = self.data.site_xpos[self.rh_site_id]
-            dist_error = np.linalg.norm(rh_target_pos - curr_ee_pos)
-            
-            if dist_error < deadband_m:
-                 interp_alpha = 0.01 
-            else:
-                 interp_alpha = base_alpha
-
-            curr_ctrl = self.data.ctrl[self._rh_act_ids]
-            goal_ctrl = sol_r
-            next_ctrl = curr_ctrl + interp_alpha * (goal_ctrl - curr_ctrl)
-            
-            if not np.any(np.isnan(next_ctrl)):
-                self.data.ctrl[self._rh_act_ids] = next_ctrl
-
-        if self._lh_solver:
-            lh_target_pos = self.data.mocap_pos[self.lh_mocap_id]
-            lh_target_quat = self.data.mocap_quat[self.lh_mocap_id]
-            
-            q_arm = [q_current[i] for i in self._lh_qpos_idxs]
-            
-            # CRITICAL FIX: Pass current torso state to Left Arm IK
-            # Since Right Arm (Primary) moves the torso, Left Arm needs to know!
-            sol_l, solved_l = self._lh_solver.solve(
-                lh_target_pos, lh_target_quat,
-                np.array(q_arm),
-                torso_values=current_torso_values
-            )
-            
-            curr_ee_pos = self.data.site_xpos[self.lh_site_id]
-            dist_error = np.linalg.norm(lh_target_pos - curr_ee_pos)
-            
-            if dist_error < deadband_m:
-                 interp_alpha = 0.01
-            else:
-                 interp_alpha = base_alpha
-            
-            curr_ctrl = self.data.ctrl[self._lh_act_ids]
-            goal_ctrl = sol_l
-            next_ctrl = curr_ctrl + interp_alpha * (goal_ctrl - curr_ctrl)
-
-            if not np.any(np.isnan(next_ctrl)):
-                self.data.ctrl[self._lh_act_ids] = next_ctrl
-
     def _process_vr_head(self):
         """Process VR head rotation → gaze mocap target."""
         if self.freeze_head:
@@ -876,9 +771,9 @@ class MuJoCoTeleop:
             return
 
         if q_vr is not None:
-            # Yaw offset correction: when looking straight ahead in real life,
-            # gaze was deviating ~20° to the right in the robot frame.
-            # Rotating the VR quaternion by +20° around Y (VR up) compensates.
+            # Yaw offset correction: looking straight ahead with the headset, the gaze
+            # deviates ~20° to the right in the robot frame; rotating the VR quaternion
+            # 20° around Y (VR up) compensates.
             q_fix_yaw = PyQuaternion(axis=[0, 1, 0], degrees=-20)
             q_vr = q_fix_yaw * q_vr
 
@@ -886,8 +781,8 @@ class MuJoCoTeleop:
             
             # Gaze forward vector mapping
             # Robot X (Fwd)  = -VR Z (Fwd)
-            # Robot Y (Left) =  VR X (Right) (flipped sign to fix mirror)
-            # Robot Z (Up)   = -VR Y (Down?) 
+            # Robot Y (Left) =  VR X (Right)
+            # Robot Z (Up)   = -VR Y
             v_fwd_robot = np.array([-v_fwd_vr[2], v_fwd_vr[0], -v_fwd_vr[1]])
             norm = np.linalg.norm(v_fwd_robot)
             if norm > 0:
@@ -1153,7 +1048,7 @@ class MuJoCoTeleop:
             head_bid = self.model.body(self.head_body_name).id
             head_pos = self.data.xpos[head_bid].copy()
             head_rot = self.data.xmat[head_bid].reshape(3, 3)
-            gaze_dir = head_rot[:, 2].copy()  # iCub forward axis (+X) in this model frame
+            gaze_dir = head_rot[:, 2].copy()  # head z-axis = iCub forward
             norm = np.linalg.norm(gaze_dir)
             if norm < 1e-8:
                 gaze_dir = np.array([1.0, 0.0, 0.0])
@@ -1181,7 +1076,7 @@ class MuJoCoTeleop:
     # ========================= IK ==========================================
 
     def _solve_ik(self):
-        """Arm IK + min-jerk interpolation (same pattern as cartesian_controller.py).
+        """Arm IK + min-jerk interpolation.
 
         Every ``_ik_recompute_steps`` control cycles the IK is re-solved for
         the current target.  Between solves, ``data.ctrl`` is driven toward
@@ -1232,7 +1127,7 @@ class MuJoCoTeleop:
 
             self._ik_step = 0
 
-        # --- Min-jerk interpolation (exactly like go_to in cartesian_controller.py) ---
+        # --- Min-jerk interpolation over the first 80% of the window ---
         if self._ik_step > N * 80 // 100:
             tau = 1.0
         else:
@@ -1428,7 +1323,6 @@ class MuJoCoTeleop:
                 self._head_cam_pub.send_image(draw_status_corner(head_img, self.vr_status_lines))
 
                 # viewer scene → port 15001
-                # viewer scene → port 15001
                 camera_arg = viewer_cam
                 if camera_arg is None:
                      # Use a fixed 3rd person camera if no specific camera provided
@@ -1448,7 +1342,7 @@ class MuJoCoTeleop:
                     self._stream_first_ok = True
                     print(f"  [Stream] primer cuadro enviado al VR (head_cam {head_img.shape[1]}x{head_img.shape[0]})", flush=True)
             except Exception as e:
-                # Antes se ignoraba en silencio y el VR quedaba sin imagen sin dejar rastro.
+                # No ignorar en silencio: el VR quedaría sin imagen sin dejar rastro.
                 # Se informa una vez por tipo de error para no inundar el log a ~15 fps.
                 key = f"{type(e).__name__}: {e}"[:300]
                 if key not in self._stream_errors:
@@ -1493,10 +1387,10 @@ class MuJoCoTeleop:
             print("  MuJoCo iCub Teleoperation")
             print("  " + "-" * 51)
             print("  F       Toggle teleop on / off")
-            print("  1 / 2   Open / Close right hand")
-            print("  4 / 5   Open / Close left hand")
+            print("  8 / 9   Open / Close right hand")
+            print("  6 / 7   Open / Close left hand")
             print("  0       Go home")
-            print("  R       Reset scenario (random cube)")
+            print("  N       Reset scenario (scenes.yaml)")
             print("  SPACE   Start / Stop recording")
             print("  C       Recalibrate VR controllers")
             print("  CLI     1=REC, 2=STOP, 3=EXIT")
@@ -1584,8 +1478,8 @@ class MuJoCoTeleop:
 
         Lo llama el final de run() y también lerobot_robot_icub.iCubMuJoCo.disconnect():
         el Hub corre MuJoCo dentro de su propio proceso, y si los puertos (8115-8121 del VR,
-        10505/15001 del streaming) quedaban abiertos, la sesión siguiente (otra de MuJoCo o
-        la de Gazebo, que usa los mismos puertos del VR) no podía abrirlos.
+        10505/15001 del streaming) quedan abiertos, la sesión siguiente (otra de MuJoCo o
+        la de Gazebo, que usa los mismos puertos del VR) no puede abrirlos.
         """
         if getattr(self, "_closed", False):
             return
@@ -1626,16 +1520,16 @@ class MuJoCoTeleop:
 
 def main():
     _script_dir = Path(__file__).resolve().parent
-    default_config = str(_script_dir / "config.yaml")
+    default_config = str(_script_dir.parent / "utils" / "control_config.yaml")
     parser = argparse.ArgumentParser(
         description="MuJoCo-only iCub Teleoperation")
     parser.add_argument(
         "--config", type=str,
         default=default_config if Path(default_config).exists() else None,
-        help="Path to config.yaml (auto-detected in mu_teleop/)")
+        help="Path to control_config.yaml (default: utils/control_config.yaml)")
     parser.add_argument(
         "--model", type=str,
-        default=str(_script_dir / "scenes" / "icub_table_scene.xml"),
+        default=str(_script_dir / "assets" / "scenes" / "scene_icub_lift.xml"),
         help="Path to MuJoCo scene XML")
     parser.add_argument("--vr", action="store_true",
                         help="Enable VR controller input via ZMQ (optional; --quest-ip also enables VR)")

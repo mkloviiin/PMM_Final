@@ -4,8 +4,8 @@ eval_mujoco.py – Run a trained SmolVLA policy on the iCub MuJoCo simulation.
 
 The robot acts autonomously based on visual + state observations fed to SmolVLA.
 
-Usage (lerobotenv, from /home/icub/mujoco_ws/REPO_ICUB/icub-lerobot/):
-    conda activate lerobotenv
+Usage (smolvla, from icub-lerobot-mj/):
+    conda activate smolvla
     python eval_mujoco.py --policy-repo mklovin/my_smolvla
 
 Optional flags:
@@ -13,7 +13,7 @@ Optional flags:
     --n-episodes 5                   Number of evaluation episodes
     --episode-steps 300              Max steps per episode (at --fps Hz)
     --fps 30
-    --scene 1                        1=lift, 2=stack
+    --scene 1                        1=lift, 2=stack, 3=door (con pestillo)
 """
 
 from __future__ import annotations
@@ -49,6 +49,8 @@ _icubenv_sp = os.environ.get("ICUBENV_SITE_PACKAGES", os.path.expanduser(
 if _icubenv_sp not in sys.path:
     sys.path.append(_icubenv_sp)
 
+from dependencies.door_scene import handle_side, place_door, set_handle_side  # noqa: E402
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -63,8 +65,9 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--task",
-        default="Pick up the blue cube",
-        help="Task instruction fed to the language-conditioned policy",
+        default=None,
+        help="Task instruction fed to the language-conditioned policy (default: the scene's "
+             "task in scenes.yaml, e.g. 'open the door' for --scene 3)",
     )
     p.add_argument("--n-episodes", type=int, default=5, help="Evaluation episodes")
     p.add_argument(
@@ -78,8 +81,8 @@ def parse_args() -> argparse.Namespace:
         "--scene",
         type=int,
         default=1,
-        choices=[1, 2],
-        help="1=lift cube, 2=stack cubes",
+        choices=[1, 2, 3],
+        help="1=lift cube, 2=stack cubes, 3=open the door (latch; success = door_hinge > 0.3 rad)",
     )
     p.add_argument(
         "--control-arms",
@@ -96,6 +99,22 @@ def parse_args() -> argparse.Namespace:
         metavar=("X", "Y", "Z"),
         help="Fixed blue-cube spawn position (default: random within cube_spawn of "
              "control_config.yaml, as during recording)",
+    )
+    p.add_argument(
+        "--door-xy",
+        type=float,
+        nargs=2,
+        default=None,
+        metavar=("X", "Y"),
+        help="--scene 3: moves the door so the center of its panel is at (X, Y) in the MuJoCo "
+             "world (table center = 0.5 0). Default: XML position, panel at (0.47, -0.13)",
+    )
+    p.add_argument(
+        "--door-side",
+        choices=["right", "left", "alternate"],
+        default=None,
+        help="--scene 3: side of the handle (default: XML, left). alternate = right in odd "
+             "episodes, left in even ones (dataset local_door_both_sides)",
     )
     p.add_argument(
         "--config",
@@ -209,13 +228,14 @@ def log_to(path: Path) -> None:
 
 # ── Observation → policy batch ───────────────────────────────────────────────
 
-# Cámaras de los modelos anteriores al 2026-10-20 (--legacy): nombres viejos, y las de cabeza
-# en su pose antigua (ver dependencies/assets/scenes/icub_visuomanip_ikin_limits.xml)
+# Cámaras de los modelos --legacy: nombres viejos, y las de cabeza en su pose antigua (ver dependencies/assets/scenes/icub_visuomanip_ikin_limits.xml)
 LEGACY_CAMERA_NAMES = ["head_cam", "head_cam_track_hand", "frontview"]
 LEGACY_CAMERA_SOURCES = {"head_cam": "head_cam_v1", "head_cam_track_hand": "head_cam_track_hand_v1"}
 
 SCENES_DIR = repo_root / "dependencies" / "assets" / "scenes"
-SCENE_FILES = {1: "scene_icub_lift.xml", 2: "scene_icub_stack.xml"}
+SCENE_FILES = {1: "scene_icub_lift.xml", 2: "scene_icub_stack.xml", 3: "scene_icub_door.xml"}
+# Puerta: éxito como robosuite (Door._check_success), bisagra sobre 0.3 rad en algún paso
+DOOR_SUCCESS_RAD = 0.3
 
 FULL_ACTION_ORDER = [
     "rh_pos_x", "rh_pos_y", "rh_pos_z",
@@ -232,9 +252,8 @@ def build_raw_observation_dict(
     obs: dict, device: str, camera_names, state_names: list[str] | None = None
 ) -> dict:
     """
-    Convert the raw iCub-MuJoCo observation dict into exactly the state
-    and image formats expected by the PreTrained Policy inputs, before 
-    any normalizations or tokenization strings are handled by the preprocessor.
+    Raw iCub-MuJoCo observation dict -> policy input batch (images and
+    observation.state), before the preprocessor normalizes and tokenizes.
 
     If `state_names` (from the training dataset) is given, the state vector is
     built in that exact order; otherwise the observation dict order is used.
@@ -372,7 +391,7 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     log_to(run_dir / "eval.log")
 
-    # Pick the right scene XML (same files / objects as the hub uses for recording)
+    # Same scene XML / objects as the hub uses for recording
     model_file = SCENES_DIR / SCENE_FILES[args.scene]
     if not model_file.exists():
         raise FileNotFoundError(f"MuJoCo scene not found: {model_file}")
@@ -440,6 +459,12 @@ def main() -> None:
         robot_cfg.gripper_legacy = True
         robot_cfg.camera_names = list(LEGACY_CAMERA_NAMES)
         robot_cfg.camera_sources = dict(LEGACY_CAMERA_SOURCES)
+    else:
+        # Las cámaras con que se entrenó (p. ej. la puerta: left/right/top, no front)
+        policy_cams = [k.removeprefix("observation.images.") for k in policy.config.input_features
+                       if k.startswith("observation.images.")]
+        if policy_cams:
+            robot_cfg.camera_names = policy_cams
     # Misma convención de signo de cuaterniones que el dataset de entrenamiento
     robot_cfg.canonical_quats = dataset_uses_canonical_quats(
         read_trained_stats(args.policy_repo), state_names or [], action_names or [])
@@ -480,7 +505,7 @@ def main() -> None:
             except KeyError:
                 missing.append(name)
         if missing:
-            # p. ej. rh_ext_force_* de un modelo --legacy: ya no se graban
+            # p. ej. rh_ext_force_* de un modelo --legacy: los datasets actuales no los graban
             print(f"[eval][warn] Robot observation lacks {len(missing)} trained state features "
                   f"{missing[:6]}: fed as 0. Check --scene / --control-arms / --legacy.")
         if extra_torque_ids:
@@ -507,13 +532,30 @@ def main() -> None:
             f"trained={expected_action_dim}, expected_full={len(FULL_ACTION_ORDER)}."
         )
 
-    # Open the MuJoCo passive viewer (same window you see when recording)
+    # Same passive viewer as during recording
     tc = robot.teleop_core
     mj_viewer = mujoco.viewer.launch_passive(tc.model, tc.data)
     mj_viewer.cam.azimuth = 135
     mj_viewer.cam.elevation = -20
     mj_viewer.cam.distance = 2.0
     print("[eval] MuJoCo viewer opened ✓")
+
+    # Escena de la puerta: la métrica es la bisagra (no hay cubo)
+    door_adr = handle_adr = None
+    if "door_hinge" in [tc.model.joint(j).name for j in range(tc.model.njnt)]:
+        door_adr = tc.model.jnt_qposadr[tc.model.joint("door_hinge").id]
+        handle_adr = tc.model.jnt_qposadr[tc.model.joint("handle_hinge").id]
+        print(f"[eval] Door scene: success = door_hinge > {DOOR_SUCCESS_RAD} rad "
+              f"({np.degrees(DOOR_SUCCESS_RAD):.0f} deg) at some step")
+        if args.door_xy is not None:
+            # Se mueve todo el montaje (marco, hoja, manilla); cambiar de lado la manilla
+            # espeja respecto del centro de la hoja, así que basta con ubicarla una vez.
+            panel_xy = tc.data.xpos[tc.model.body("door_panel").id][:2].copy()
+            place_door(tc.model, tc.data, args.door_xy)
+            mujoco.mj_forward(tc.model, tc.data)
+            print(f"[eval] Door moved: panel center {np.round(panel_xy, 3)} -> {args.door_xy}")
+    elif args.door_xy is not None or args.door_side is not None:
+        raise SystemExit("--door-xy / --door-side only apply to the door scene (--scene 3)")
 
     # ── Evaluation loop ───────────────────────────────────────────────────────
     episode_metrics: list[dict] = []
@@ -525,10 +567,23 @@ def main() -> None:
             # Reset scenario: randomize the cube (cube_spawn of control_config.yaml)
             if hasattr(robot, "teleop_core") and robot.teleop_core:
                 tc = robot.teleop_core
+                if door_adr is not None and args.door_side is not None:
+                    side = (args.door_side if args.door_side != "alternate"
+                            else ("right" if ep % 2 == 0 else "left"))
+                    set_handle_side(tc.model, side)
+                if door_adr is not None:
+                    # Las demos parten en home; una mano que quedó en la manilla sostendría
+                    # la puerta durante el reset.
+                    tc.data.qpos[:] = tc.home_qpos
+                    tc.data.ctrl[:] = tc.home_ctrl
+                    tc._apply_home_pose_to_arrays(tc.data.qpos, tc.data.ctrl)
+                    tc.data.qvel[:] = 0
+                    tc._set_hand_level("right", 0.0)
+                    tc._set_hand_level("left", 0.0)
+                    mujoco.mj_forward(tc.model, tc.data)
                 if hasattr(tc, "_reset_scenario"):
                     tc._reset_scenario()
 
-                # Optional fixed position
                 if args.cube_pos is not None and hasattr(tc, "set_cube_pose"):
                     pos = np.array(args.cube_pos)
                     quat = np.array([1.0, 0.0, 0.0, 0.0])
@@ -548,6 +603,7 @@ def main() -> None:
 
             ep_initial_cube_z: float | None = None
             ep_max_cube_z: float | None = None
+            ep_max_door = ep_min_handle = 0.0
             ep_touch_frames = 0
             ep_clamp_steps = 0
             infer_ms: list[float] = []
@@ -557,7 +613,6 @@ def main() -> None:
             for step in range(args.episode_steps):
                 t0 = time.perf_counter()
 
-                # 1. Get observation from the simulator
                 obs = robot.get_observation()
                 for trained_cam, source_cam in camera_sources.items():
                     obs[trained_cam] = obs[source_cam]
@@ -581,6 +636,10 @@ def main() -> None:
                     else:
                         ep_max_cube_z = max(ep_max_cube_z, cube_z)
 
+                if door_adr is not None:
+                    ep_max_door = max(ep_max_door, float(tc.data.qpos[door_adr]))
+                    ep_min_handle = min(ep_min_handle, float(tc.data.qpos[handle_adr]))
+
                 touched = False
                 for touch_key in ("rh_touch_thumb", "rh_touch_index", "rh_touch_middle"):
                     if touch_key in obs and to_float(obs[touch_key]) > 0.5:
@@ -589,7 +648,6 @@ def main() -> None:
                 if touched:
                     ep_touch_frames += 1
 
-                # 2. Build the policy input batch
                 raw_obs = build_raw_observation_dict(obs, args.device, trained_cams, state_names)
 
                 # Preprocessor loaded from checkpoint expects flat batch format
@@ -599,16 +657,14 @@ def main() -> None:
                 # Apply normalization and tokenization
                 batch = preprocessor(policy_input)
 
-                # 3. Run policy inference
                 t_infer = time.perf_counter()
                 with torch.no_grad():
                     action_tensor = policy.select_action(batch)
                 infer_ms.append((time.perf_counter() - t_infer) * 1000.0)
                 
-                # 4. Unnormalize action to get simulator metric coordinates
+                # Unnormalize: back to simulator metric coordinates
                 action_tensor = postprocessor(action_tensor)
 
-                # 5. Convert tensor → dict and send to robot
                 action_dict = actions_tensor_to_dict(action_tensor, action_keys, action_names)
                 if clamp_action_targets(action_dict, min_hand_z, min_gaze_z):
                     ep_clamp_steps += 1
@@ -622,7 +678,6 @@ def main() -> None:
                 t_last_send = time.perf_counter()
                 robot.send_action(action_dict)
 
-                # 5. Sync viewer and rate-limit to --fps
                 mj_viewer.sync()
                 elapsed = time.perf_counter() - t0
                 precise_sleep(max(1.0 / args.fps - elapsed, 0.0))
@@ -638,6 +693,15 @@ def main() -> None:
                 lifted = False
 
             touch_ratio = ep_touch_frames / max(args.episode_steps, 1)
+            door_metrics = {}
+            if door_adr is not None:
+                door_metrics = {
+                    "handle_side": handle_side(tc.model),
+                    "door_max_deg": float(np.degrees(ep_max_door)),
+                    "door_final_deg": float(np.degrees(tc.data.qpos[door_adr])),
+                    "handle_min_deg": float(np.degrees(ep_min_handle)),
+                }
+            success = ep_max_door > DOOR_SUCCESS_RAD if door_adr is not None else lifted
             episode_metrics.append(
                 {
                     "episode": ep + 1,
@@ -647,6 +711,8 @@ def main() -> None:
                     "touch_ratio": touch_ratio,
                     "clamp_ratio": ep_clamp_steps / max(args.episode_steps, 1),
                     "lifted": lifted,
+                    **door_metrics,
+                    "success": success,
                     "infer_ms_max": max(infer_ms) if infer_ms else None,
                     "realtime_extra_s": rt_gap_s,
                 }
@@ -655,10 +721,14 @@ def main() -> None:
             init_str = f"{ep_initial_cube_z:.3f}" if ep_initial_cube_z is not None else "n/a"
             max_str = f"{ep_max_cube_z:.3f}" if ep_max_cube_z is not None else "n/a"
             lift_str = f"{lift_delta:.3f}" if not np.isnan(lift_delta) else "n/a"
+            task_str = (f"door ({door_metrics['handle_side']} handle) max={door_metrics['door_max_deg']:.1f}deg "
+                        f"final={door_metrics['door_final_deg']:.1f}deg "
+                        f"handle min={door_metrics['handle_min_deg']:.1f}deg"
+                        if door_metrics else f"z0={init_str} zmax={max_str} lift={lift_str}m")
             print(
-                f"  [metrics] z0={init_str} zmax={max_str} lift={lift_str}m "
+                f"  [metrics] {task_str} "
                 f"touch={touch_ratio:.1%} clamp={ep_clamp_steps / max(args.episode_steps, 1):.1%} "
-                f"success={'yes' if lifted else 'no'}"
+                f"success={'yes' if success else 'no'}"
             )
             chunk_ms = sorted(infer_ms)[-max(1, len(infer_ms) // policy.config.n_action_steps):]
             print(f"  [timing] inference: chunk {np.mean(chunk_ms):.0f} ms (max {max(infer_ms):.0f}), "
@@ -668,7 +738,7 @@ def main() -> None:
 
         if episode_metrics:
             total = len(episode_metrics)
-            successes = sum(1 for m in episode_metrics if m["lifted"])
+            successes = sum(1 for m in episode_metrics if m["success"])
             valid_lifts = [m["lift_delta"] for m in episode_metrics if not np.isnan(m["lift_delta"])]
             avg_lift = float(np.mean(valid_lifts)) if valid_lifts else float("nan")
             avg_touch = float(np.mean([m["touch_ratio"] for m in episode_metrics]))
@@ -677,13 +747,16 @@ def main() -> None:
 
             print("[eval] Summary")
             print(f"  success_rate: {successes}/{total} ({successes / total:.1%})")
-            print(f"  avg_lift_delta: {avg_lift_str}")
+            if door_adr is not None:
+                print(f"  avg_door_max: {np.mean([m['door_max_deg'] for m in episode_metrics]):.1f}deg")
+            else:
+                print(f"  avg_lift_delta: {avg_lift_str}")
             print(f"  avg_touch_ratio: {avg_touch:.1%}")
             print(f"  avg_clamp_ratio: {avg_clamp:.1%}")
 
         (run_dir / "summary.json").write_text(json.dumps(
             {"args": vars(args), "episodes": episode_metrics,
-             "success_rate": (sum(m["lifted"] for m in episode_metrics) / len(episode_metrics))
+             "success_rate": (sum(m["success"] for m in episode_metrics) / len(episode_metrics))
              if episode_metrics else None},
             indent=2, default=float))
         print(f"[eval] Summary saved to {run_dir / 'summary.json'}")

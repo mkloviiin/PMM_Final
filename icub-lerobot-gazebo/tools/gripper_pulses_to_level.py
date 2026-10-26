@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Copia un dataset de Gazebo pasando la acción de pinza de pulsos a nivel.
 
-Hasta el 2026-10-19 el teleoperador de Gazebo grababa la pinza como pulsos: 1.0 ("nada")
-casi siempre y un solo frame de 0.5 (cerrar) o 0.0 (abrir) al apretar el botón. Una
+Los datasets de Gazebo con la pinza como pulsos tienen 1.0 ("nada") casi siempre y un solo
+frame de 0.5 (cerrar) o 0.0 (abrir) al apretar el botón. Una
 política entrenada con eso aprende a sacar 1.0 y nunca abre ni cierra la mano.
 
-Por defecto la copia usa la convención actual (desde el 2026-10-21, gatillo gradual):
+Por defecto la copia usa la convención actual (gatillo gradual):
 rh/lh_gripper = fracción de cierre, 0.0 abierta (también antes del primer comando) y 1.0
 cerrada. Con --legacy-levels usa la intermedia: 1.0 hasta el primer comando, luego 0.0
 abierta / 0.5 cerrada (con la que se entrenó gazebotrainPMM). Recalcula las estadísticas
@@ -31,7 +31,7 @@ QUANTILES = {"q01": 0.01, "q10": 0.10, "q50": 0.50, "q90": 0.90, "q99": 0.99}
 
 
 def pulses_to_level(values: np.ndarray, legacy: bool = False) -> np.ndarray:
-    """Mismos umbrales que antes (<=0.1 abrir, 0.4-0.6 cerrar, resto = mantener)."""
+    """Umbrales de los pulsos: <=0.1 abrir, 0.4-0.6 cerrar, resto = mantener el nivel."""
     closed = 0.5 if legacy else 1.0
     level, out = (1.0 if legacy else 0.0), np.empty_like(values)
     for i, v in enumerate(values):

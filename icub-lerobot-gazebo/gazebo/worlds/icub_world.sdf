@@ -30,6 +30,9 @@
     <!-- Sin sombras en toda la escena (además el sol no las proyecta, ver light "sun") -->
     <scene>
       <shadows>false</shadows>
+      <!-- Luz ambiente (la de SDF por defecto, explícita): MuJoCo la iguala con el ambiente del
+           headlight en icub_room_arena.xml -->
+      <ambient>0.4 0.4 0.4 1</ambient>
     </scene>
 
     <!-- YARP CLOCK -->
@@ -55,16 +58,26 @@
     </include>
 
     <!-- Cámara frontal: réplica de la "frontview" de MuJoCo (icub_room_arena.xml,
-         pos 1.6 0 1.0, 15° hacia abajo, fovy 45°) espejada en x porque aquí el iCub
+         pos 1.2 0 0.95, 8° hacia abajo, fovy 45°) espejada en x porque aquí el iCub
          mira hacia -x. Publica en YARP /icubSim/cam/front/rgbImage:o (ver models/camera-stand). -->
     <include>
       <uri>model://camera-stand</uri>
       <name>camara_externa</name>
-      <pose>-1.6 0 1.0 0 0.2618 0</pose>
+      <pose>-1.2 0 0.95 0 0.1396 0</pose>
     </include>
 
-    <!-- Sol sin sombras. Mismos parámetros que el modelo Sun de Fuel (que antes se incluía con
-         yaw 3.14 y cast_shadows true); la dirección ya va girada 180° en z. -->
+    <!-- Cámara cenital: réplica de la "topview" de MuJoCo (pos 0.36 0 1.55, recta hacia abajo,
+         fovy 58°) espejada en x; arriba de la imagen queda el robot. Publica en
+         /icubSim/cam/top/rgbImage:o (ver models/top-camera-stand); la graban solo las tareas
+         que la piden (la puerta). -->
+    <include>
+      <uri>model://top-camera-stand</uri>
+      <name>camara_cenital</name>
+      <pose>-0.36 0 1.55 0 1.5708 0</pose>
+    </include>
+
+    <!-- Sol sin sombras. Mismos parámetros que el modelo Sun de Fuel, con la dirección girada
+         180° en z. -->
     <light type="directional" name="sun">
       <cast_shadows>false</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
@@ -94,9 +107,9 @@
       <include>
         <uri>model://iCubGazeboV2_5_visuomanip_camada</uri>
         <!-- z = 0.73, igual que MuJoCo (cintura del iCub sobre su soporte, respecto de la mesa
-             con tapa en 0.72). Antes 0.77: con 0.73 la initialConfiguration original de los
-             brazos dejaba las puntas de los dedos ~0.4 cm dentro de la mesa y DART saturaba;
-             ahora model.urdf arranca con el codo a 1.2 rad (dedo más bajo ~9 cm sobre la mesa). -->
+             con tapa en 0.72). model.urdf arranca con el codo a 1.2 rad (dedo más bajo ~9 cm sobre
+             la mesa): a esta altura, con la initialConfiguration original de los brazos, las
+             puntas de los dedos quedan ~0.4 cm dentro de la mesa y DART satura. -->
         <pose>0.0 0.0 0.73 0.0 0.0 0.0</pose>
       </include>
     </model>

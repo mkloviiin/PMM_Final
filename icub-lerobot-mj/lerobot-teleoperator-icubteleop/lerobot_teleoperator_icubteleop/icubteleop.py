@@ -49,7 +49,6 @@ class iCubTeleop(Teleoperator):
         self._reset_request = False  # Flag to signal external reset
         self._pending_visual_reset = False # Flag for internal thread-safe reset
         
-        # Estado interno de botones (Gripper)
         # Fracción de cierre de cada mano (0 = abierta, 1 = cerrada), como rh/lh_gripper.
         # _grip_pending: valor pedido aquí (teclado/VR) que el robot aún no confirma; mientras
         # exista, la retroalimentación del robot no lo pisa.
@@ -110,7 +109,6 @@ class iCubTeleop(Teleoperator):
     def action_features(self) -> dict[str, type]:
 
         features = {}        
-        # Brazo Derecho
         if self.config.control_arms in ["right", "both"]:
             features["rh_pos_x"] = float
             features["rh_pos_y"] = float
@@ -120,7 +118,6 @@ class iCubTeleop(Teleoperator):
             features["rh_quat_y"] = float
             features["rh_quat_z"] = float
             features["rh_gripper"] = float
-        # Brazo Izquierdo
         if self.config.control_arms in ["left", "both"]:
             features["lh_pos_x"] = float
             features["lh_pos_y"] = float
@@ -130,7 +127,6 @@ class iCubTeleop(Teleoperator):
             features["lh_quat_y"] = float
             features["lh_quat_z"] = float
             features["lh_gripper"] = float    
-        # Gaze controller
         if getattr(self.config, "use_gaze", False):
             features["gaze_x"] = float
             features["gaze_y"] = float
@@ -144,7 +140,7 @@ class iCubTeleop(Teleoperator):
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
-        # Definimos dimensiones esperadas (H, W, C)
+        # (C, H, W)
         return {
             name: (3, 240, 320) for name in ["left","right"]
         }
@@ -174,7 +170,6 @@ class iCubTeleop(Teleoperator):
             sim_dt = yarp_cfg.get("sim_dt", 0.005)      # 200 Hz Physics
             control_dt = yarp_cfg.get("control_dt", 0.02) # 50 Hz Control
             
-            # Forzar timestep en MuJoCo
             self.model.opt.timestep = sim_dt
             
             # Calcular frame_skip para que el bucle de control coincida
@@ -208,7 +203,7 @@ class iCubTeleop(Teleoperator):
         # --- Crear Mapa de qpos robusto (joint names o actuator names) ---
         self.qpos_map = [self._resolve_qpos_index(name) for name in self.actuator_list]
 
-        # Cachear IDs para evitar búsquedas por string en cada ciclo (Optimización)
+        # Cachear IDs para evitar búsquedas por string en cada ciclo
         if self.config.control_arms in ["right", "both"]:
             self.mocap_ids['right'] = self.model.body('r_hand_target').mocapid[0]
             self.site_ids['right'] = self.model.site('r_hand_dh_frame_site').id
@@ -224,7 +219,6 @@ class iCubTeleop(Teleoperator):
         self._reset_mocaps_to_xml_pose()
 
 
-        # Iniciar Viewer Pasivo
         print("Launching MuJoCo Viewer... (keys: 8/9 open/close right hand, 6/7 left hand, N reset)")
         print("Mouse: Ctrl + Right-click drag to move mocap targets")
         self.viewer = mujoco.viewer.launch_passive(
@@ -241,11 +235,10 @@ class iCubTeleop(Teleoperator):
         self.viewer.cam.elevation = -65
         self.viewer.cam.azimuth = 0
 
-        # Show sites, hide contact forces
+        # Show site frames
         self.viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE        
         self._connected = True
 
-        # --- Initialize VR if enabled ---
         if getattr(self.config, "vr_enabled", False):
             self._init_vr()
 
@@ -313,7 +306,7 @@ class iCubTeleop(Teleoperator):
                 self._process_vr_button_commands()
                 self.latest_buttons = None
 
-        # IMPORTANTE: Sincronizar viewer para recibir inputs del usuario (movimiento de mocap con mouse)
+        # viewer.sync() trae los inputs del usuario (mocap movidas con el mouse)
         if self.viewer.is_running():
             self.viewer.sync()
             mujoco.mj_forward(self.model, self.data)
@@ -334,7 +327,6 @@ class iCubTeleop(Teleoperator):
             pos = self.data.mocap_pos[mid]   # [x, y, z]
             quat = self.data.mocap_quat[mid] # [w, x, y, z]
             
-            # Asignación plana (Flat Dictionary)
             actions["rh_pos_x"] = torch.tensor(pos[0], dtype=torch.float32)
             actions["rh_pos_y"] = torch.tensor(pos[1], dtype=torch.float32)
             actions["rh_pos_z"] = torch.tensor(pos[2], dtype=torch.float32)
@@ -394,7 +386,7 @@ class iCubTeleop(Teleoperator):
                 values.update({k: torch.tensor(float(v), dtype=torch.float32) for k, v in zip(quat_keys, new_quat)})
 
     def send_feedback(self, feedback: dict[str, Any]) -> None:
-        #Recibe las observaciones del robot y actualiza el modelo visual en Mujoco.        
+        # Recibe las observaciones del robot y actualiza el modelo visual en Mujoco.
         if not self.is_connected: return
         if self.config.pose_frame == "root":
             # Las poses del robot llegan en el frame root; las mocap y objetos de este
@@ -451,7 +443,7 @@ class iCubTeleop(Teleoperator):
                         pass
 
         # --- VR Mocap Sync ---
-        # If the robot is sending VR target positions, update our local mocaps to match
+        # The robot sends its mocap targets (moved by the VR or by a policy): local mocaps follow them
         if self.is_connected:
             # Right Hand
             if "rh_target_pos_x" in feedback and "right" in self.mocap_ids:
@@ -485,19 +477,15 @@ class iCubTeleop(Teleoperator):
                 self.data.mocap_pos[gid][2] = feedback["gaze_target_pos_z"].item()
                 update_visuals = True
         
-        # Iteramos sobre los datos que llegan del robot
+        # Joints del robot → qpos del visor
         for i, name in enumerate(self.actuator_list):
             if name in feedback:
-                # Obtenemos el índice pre-calculado
                 q_idx = self.qpos_map[i]
                 
-                # Si el mapeo fue exitoso (no es -1)
                 if q_idx != -1:
                     val_tensor = feedback[name]
-                    # Conversión: Tensor -> Float (Radianes)
                     val_rad = val_tensor.item()
                     
-                    # Actualización directa en memoria
                     self.data.qpos[q_idx] = val_rad
                     update_visuals = True
 

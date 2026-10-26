@@ -1,4 +1,3 @@
-# File: teleop_module_sm.py
 # Adapted from yarprfmodule.py with state machine pattern from superquadrics_module.py
 
 import sys
@@ -14,12 +13,10 @@ import faulthandler
 import threading
 from collections import deque
 
-# --- Append paths ---
 _HERE = Path(__file__).resolve().parent
 _PROJECT_ROOT = _HERE.parent.parent   # common/yarp_module -> icub-lerobot-gazebo
 sys.path.append(str(_HERE))
 
-# --- Import custom modules ---
 from icubyarpinterface import iCubYARPInterface, cartesian_solver_suspended
 
 # Tamaño (alto, ancho) del relay de cámaras si el YAML no trae camera_shapes; es el
@@ -28,8 +25,8 @@ CAMERA_RELAY_DEFAULT_HW = (240, 320)
 
 CONFIG_FILE = os.getenv("ICUB_LEROBOT_CONFIG", str(_PROJECT_ROOT / "config" / "control_config.yaml"))
 
-# Import ZMQ Transmitter for VR. beavr-bot ya no se distribuye junto al proyecto:
-# si no está, se usa la copia local (la misma que usa icub-lerobot-mj).
+# Transmisor ZMQ para el VR: el de beavr-bot si está junto al proyecto; si no, la
+# copia local (la misma que usa icub-lerobot-mj).
 try:
     sys.path.insert(0, str(_PROJECT_ROOT.parent / "beavr-bot" / "src"))
     from beavr.teleop.common.network.publisher import ZMQCompressedImageTransmitter
@@ -96,7 +93,10 @@ class TeleopModuleSM(yarp.RFModule):
         - idle: Default state, waiting for commands
         - going_home: Moving robot to home pose
         - teleop_active: Processing continuous teleop targets
+        - moving_right_arm / moving_left_arm: one move_*_arm target, then back to the
+          previous state (idle or teleop_active)
         - looking_at: Moving gaze to target
+        - quit: close() and exit
 
     Las manos (open/close) NO son estados: se encolan y se ejecutan en cada ciclo,
     sin importar el estado, para que un comando de mano nunca saque al módulo de
@@ -108,10 +108,13 @@ class TeleopModuleSM(yarp.RFModule):
         - stop_teleop: Stop continuous processing, return to idle
         - open_right / open_left: Open specified hand
         - close_right / close_left: Close specified hand
+        - hand_right / hand_left <0..1>: Closing fraction of the hand
+        - move_right_arm / move_left_arm x y z qw qx qy qz: Cartesian target (root frame)
         - look_at x y z: Look at 3D point
         - start_gaze: Enable gaze controller
         - stop_gaze: Disable gaze controller
-        - reset_scenario: Reset objects in scene
+        - reset_scenario: Reset objects in scene (Gazebo only)
+        - vr_status <text>: Recording status for the VR screens ("|" separates lines)
         - quit: Close module
     """
 
@@ -229,7 +232,7 @@ class TeleopModuleSM(yarp.RFModule):
             if not self.cmd_port.open("/teleop/rpc:i"):
                 print("✗ ERROR: Failed to open /teleop/rpc:i")
                 return False
-            self.attach(self.cmd_port)  # Key: attach for respond() to work
+            self.attach(self.cmd_port)  # respond() handles the RPCs of this port
             print("✓ /teleop/rpc:i created and attached")
 
             # === YARP DATA PORTS (for teleop_active state) ===
@@ -314,9 +317,9 @@ class TeleopModuleSM(yarp.RFModule):
             print("  ✓ /teleop/view:o created")
 
             # Relay local de las cámaras para play_gazebo (mismo PC): el robot manda
-            # cada imagen una sola vez, a este módulo. Si play se conectaba también a
-            # la cámara del robot, el tráfico se duplicaba (~440 Mbit/s), se perdían
-            # paquetes UDP en la red del robot y el iKinCartesianSolver se suspendía.
+            # cada imagen una sola vez, a este módulo. Si play se conecta también a
+            # la cámara del robot, el tráfico se duplica (~440 Mbit/s), se pierden
+            # paquetes UDP en la red del robot y el iKinCartesianSolver se suspende.
             # Se publica ya reducido al tamaño que graba play (camera_shapes del YAML).
             shapes = self.cfg.get("camera_shapes") or {}
             self.cam_relay_hw = {}
@@ -441,12 +444,7 @@ class TeleopModuleSM(yarp.RFModule):
             return False
 
     def respond(self, command, reply):
-        """
-        RPC Command Handler - State Machine Control.
-        
-        This method is called when a command is received on the RPC port.
-        It parses the command and sets the appropriate state.
-        """
+        """RPC handler of /teleop/rpc:i: sets the state or queues the hand command."""
         cmd = command.get(0).asString()
         # look_at llega en cada frame de teleop: no se loguea para no inundar la terminal.
         if cmd != "look_at":
@@ -544,7 +542,7 @@ class TeleopModuleSM(yarp.RFModule):
                 y = command.get(2).asFloat64()
                 z = command.get(3).asFloat64()
                 # En teleop se ejecuta directo SIN tocar el estado: llega en cada
-                # frame y pisar un estado transitorio (moving_*) dejaba el módulo
+                # frame y pisar un estado transitorio (moving_*) dejaría el módulo
                 # en idle, ignorando los targets de los brazos.
                 if self._resume_state() == 'teleop_active':
                     if self.use_gaze and self.yarp_interface.igaze:
@@ -616,11 +614,8 @@ class TeleopModuleSM(yarp.RFModule):
                 self._report_slow_cycle(dt, state)
 
     def _update_state_machine(self):
-        """
-        Main Update Loop - State Machine Execution.
-        
-        Executes actions based on current state and transitions to idle when done.
-        """
+        """Runs the current state; one-shot states then go to next_state_after_action.
+        Hand commands, cameras and robot_state are handled every cycle."""
         self._t_cycle_start = time.perf_counter()
 
         # === STATE: QUIT ===
@@ -703,7 +698,7 @@ class TeleopModuleSM(yarp.RFModule):
         
         # === STATE: IDLE (Default) ===
         elif self.state == 'idle':
-            pass  # Do nothing, wait for commands
+            pass
         
         # === COMMON OPERATIONS (Every cycle) ===
         t_ctrl = time.perf_counter()
@@ -909,8 +904,7 @@ class TeleopModuleSM(yarp.RFModule):
             img_view = self.l_img.copy()
 
         if img_view is not None:
-            # Optimization: No scaling/cropping to reduce latency and motion blur
-            # The VR headset will handle the scaling
+            # No scaling/cropping here (lower latency): the VR headset scales the image
             pass
 
             # Con cámara frontal (Gazebo) la pantalla chica la muestra a ella, así que el

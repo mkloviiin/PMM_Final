@@ -7,7 +7,6 @@ import mujoco
 import mujoco.viewer
 import torch
 
-# We need to import the local plugins dynamically like play_mujoco does!
 import sys
 from pathlib import Path
 
@@ -56,7 +55,7 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default=str(script_dir / "dependencies" / "assets" / "scenes" / "icub_table_scene_lift.xml"),
+        default=str(script_dir / "dependencies" / "assets" / "scenes" / "scene_icub_lift.xml"),
         help="Path to MuJoCo scene XML",
     )
     parser.add_argument(
@@ -78,8 +77,6 @@ def main():
     dataset_action_names = dataset.features.get("action", {}).get("names", [])
     dataset_action_idx = {name: idx for idx, name in enumerate(dataset_action_names)}
     
-    # Try to find the structure of observation.state
-    # dataset.features is typically where the feature dictionaries are stored in LeRobotDataset
     state_names = dataset.features.get("observation.state", {}).get("names", [])
     
     # Find the indices of the cube position and quaternion
@@ -146,7 +143,7 @@ def main():
                 tc.set_cube_pose(pos, quat)
                 print(f"[Reset] Restored exact recorded blue-cube → pos:{pos}")
             
-            # Let's run a few warmup steps so the environment settles
+            # Warm-up steps so the scene settles
             for _ in range(5):
                 mujoco.mj_step(tc.model, tc.data)
                 
@@ -157,7 +154,7 @@ def main():
                 frame_data = dataset[start_i + f]
                 action_tensor = frame_data["action"]
                 
-                # action_tensor is actually (action_dim,) if we fetched one frame
+                # A single frame gives (action_dim,)
                 if action_tensor.dim() >= 1:
                     action_tensor = action_tensor.squeeze()
 
@@ -166,15 +163,10 @@ def main():
                     idx = dataset_action_idx.get(key)
                     action_dict[key] = action_tensor[idx].item() if idx is not None else 0.0
                 
-                # IMPORTANT: In LeRobot dataset replay, we often just want to send the action
-                # directly to the PD controller and step.
+                # send_action sets the targets and steps the physics for one control_dt
                 robot.send_action(action_dict)
                 
-                # Wait: icub_mujoco robot.send_action only *sets* the target positions. 
-                # The robot teleop background thread automatically steps MuJoCo and tracks it.
-                
                 mj_viewer.sync()
-                # Use elapsed time for precise fps sleep
                 elapsed = time.perf_counter() - t0
                 precise_sleep(max(1.0 / args.fps - elapsed, 0.0))
 

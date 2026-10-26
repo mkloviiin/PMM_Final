@@ -6,15 +6,17 @@ corriendo, igual que para play_gazebo.py, con las observaciones extra activadas 
 config/control_config.yaml (use_joint_vel, use_eef_pose, ...) y los modelos de objetos con
 PosePublisher (gazebo/models/<body>/model.sdf).
 
-Si la política viene de MuJoCo (robot_type icub_mujoco en el dataset de entrenamiento):
+Si la política viene de MuJoCo (robot_type icub_mujoco en el dataset de entrenamiento) y es
+--legacy (poses en el mundo MuJoCo y cámaras viejas; los datasets actuales de MuJoCo usan el
+frame root y las cámaras left/right/front, como Gazebo):
   * Poses (manos, targets, mirada, objetos) y acciones se convierten entre el mundo MuJoCo y
-    el frame root de Gazebo (girado 180 deg en z). Por defecto (--anchor robot) el root de
-    Gazebo es la cintura de MuJoCo (0.73 m): mano, cubo, articulaciones y cámara de la cabeza
-    quedan consistentes respecto del cuerpo. Con --anchor table se usa la altura real del
-    root sobre la mesa (gazebo_root_xyz, 0.77 m): como el robot de Gazebo está 4 cm más
-    alto, la política se detiene ~4 cm sobre el cubo.
+    el frame root de Gazebo (girado 180 deg en z). Con --anchor table (por defecto) el root
+    de Gazebo se ubica en su posición real sobre la mesa (gazebo_root_xyz); con --anchor
+    robot, en la cintura de MuJoCo (0.73 m). Si el root de Gazebo queda más alto que esa
+    cintura, con --anchor table la política se detiene esa diferencia por encima del cubo.
   * Cámaras por --camera-map (por defecto head_cam=left, head_cam_track_hand=right,
     frontview=front), redimensionadas a la resolución de entrenamiento.
+En todos los casos:
   * Lo que Gazebo no entrega (p. ej. rh_ext_force_*) se rellena con la media del dataset.
   * El cubo se coloca dentro del rango de cube_spawn de MuJoCo (--cube-x/--cube-y).
 
@@ -81,6 +83,13 @@ LOG_STATE_KEYS = [f"{p}_{ax}" for p in ("rh_ee_pos", "rh_target_pos", "obj0_pos"
 SUCCESS_HEIGHT_M = 0.80
 SUCCESS_HOLD_S = 1.0
 
+# Escenas (copia propia de Gazebo) y archivo con la escena activa que lee
+# gazebo/scripts/reset_objects.sh (el Hub escribe ahí la etiqueta)
+SCENES_YAML = repo_root / "gazebo" / "scenes.yaml"
+SCENE_FILE = Path(os.environ.get("ICUB_SCENE_FILE", "/tmp/icub_lerobot_scene"))
+# Puerta: éxito como en MuJoCo (eval_mujoco.py --scene 3, robosuite Door._check_success)
+DOOR_SUCCESS_RAD = 0.3
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Evaluate a trained policy on the Gazebo iCub")
@@ -101,14 +110,18 @@ def parse_args() -> argparse.Namespace:
                    help="Cube spawn y range, MuJoCo frame")
     p.add_argument("--scene-spawn", action="store_true",
                    help="Keep reset_objects.sh's position (scenes.yaml ranges) instead")
+    p.add_argument("--scene", default="auto",
+                   help="Task label of scenes.yaml (e.g. 'Door Opening'); auto = the scene whose "
+                        "task is the dataset's. A scene without objects (the door) is reset with "
+                        "reset_objects.sh every episode and scored by its joints")
     p.add_argument("--home-wait", type=float, default=4.0, help="Seconds to wait after go_home")
     p.add_argument("--fill-mean", nargs="*", default=[], metavar="PATTERN",
                    help="State names (globs, e.g. '*_torque' '*_vel') replaced by the dataset "
                         "mean, to test which Gazebo inputs throw the policy off")
     p.add_argument("--anchor", choices=["robot", "table"], default="table",
-                   help="Reference for MuJoCo <-> Gazebo poses: 'robot' (the waist; hand, cube, joints "
-                        "and head camera stay consistent) or 'table' (heights relative to the table; "
-                        "the Gazebo robot sits 4 cm higher, so the policy stops 4 cm above the cube)")
+                   help="Reference for MuJoCo <-> Gazebo poses (only with --legacy): 'robot' (the "
+                        "MuJoCo waist, 0.73 m) or 'table' (gazebo_root_xyz of the YAML). Both are 0.73 m "
+                        "today; they differ only if gazebo_root_xyz changes")
     p.add_argument("--legacy", "--legacy-head-cams", dest="legacy", action="store_true",
                    help="MuJoCo policy trained before 2026-10-20 (e.g. mujocotrainPMM): world-frame "
                         "poses, old camera names and head cameras. Converts poses, maps cameras "
@@ -172,7 +185,7 @@ def quat_mul(a, b) -> list[float]:
 
 
 def mujoco_from_root(pos, quat, root_xyz):
-    """Frame root de Gazebo -> mundo MuJoCo (anclado a la mesa)."""
+    """Frame root de Gazebo -> mundo MuJoCo, con el root en root_xyz (ver --anchor)."""
     tx, ty, tz = root_xyz
     pos_w = [-(pos[0] + tx), -(pos[1] + ty), pos[2] + tz]
     return pos_w, (quat_mul(Q_Z180, quat) if quat is not None else None)
@@ -400,8 +413,8 @@ def start_episode(robot, args, cube_body: str) -> None:
     time.sleep(0.1)
     robot.send_rpc_command("start_teleop")
     if not args.scene_spawn:
-        # Solo set_pose: con reset_scenario además, el cubo aparecía dos veces y, si el
-        # script terminaba tarde, quedaba en la posición de la escena y no en esta.
+        # Solo set_pose: con reset_scenario además, el cubo aparece dos veces y, si el
+        # script termina tarde, queda en la posición de la escena y no en esta.
         x, y = random.uniform(*args.cube_x), random.uniform(*args.cube_y)
         ok = place_cube(cube_body, x, y)
         print(f"[Reset] {cube_body} -> MuJoCo frame ({x:.3f}, {y:.3f})" + ("" if ok else "  (set_pose FAILED)"))
@@ -440,10 +453,22 @@ def main() -> None:
     source = args.source_sim
     if source == "auto":
         source = "mujoco" if robot_type == "icub_mujoco" else "gazebo"
-    # Desde el 2026-10-20 MuJoCo graba en el frame root y con cámaras left/right/front, igual
-    # que Gazebo: solo los modelos --legacy necesitan conversión.
+    # MuJoCo graba en el frame root y con cámaras left/right/front, igual que Gazebo: solo
+    # los modelos --legacy necesitan conversión.
     convert = source == "mujoco" and args.legacy
     task = args.task or (tasks[0] if tasks else "")
+    import yaml
+    scenes = yaml.safe_load(SCENES_YAML.read_text(encoding="utf-8")) or []
+    label = args.scene if args.scene != "auto" else next(
+        (s["label"] for s in scenes if s.get("task") == (tasks[0] if tasks else task)), None)
+    scene = next((s for s in scenes if s.get("label") == label), None)
+    door_scene = scene is not None and "door_hinge" in [j.get("name") for j in scene.get("joints", [])]
+    if scene is not None:
+        # reset_objects.sh (RPC reset_scenario del módulo YARP) lee la escena de aquí
+        SCENE_FILE.write_text(label, encoding="utf-8")
+        print(f"[eval] Scene: {label!r} (written to {SCENE_FILE})")
+    if door_scene:
+        args.scene_spawn = True   # la puerta se recrea cerrada en cada episodio
     state_names: list[str] = ds_features["observation.state"]["names"]
     image_keys = [k for k in ds_features if k.startswith("observation.images.")]
 
@@ -476,6 +501,11 @@ def main() -> None:
     # Root de Gazebo en el mundo MuJoCo para convertir poses: la cintura de MuJoCo (anclado al
     # robot) o la posición real del root sobre la mesa (anclado a la mesa).
     conv_xyz = MUJOCO_WAIST_XYZ if args.anchor == "robot" else root_xyz
+    if not convert:
+        # Las cámaras con que se entrenó (p. ej. la puerta: left/right/top, no front)
+        missing = robot_cfg.select_cameras([k.removeprefix("observation.images.") for k in image_keys])
+        if missing:
+            raise SystemExit(f"Cameras {missing} of the policy are not available on this robot")
     robot = iCub(robot_cfg)
     robot_state = [k for k, v in robot.observation_features.items() if v is float]
 
@@ -522,6 +552,13 @@ def main() -> None:
 
     robot.connect()
     cube_body = robot_cfg.object_bodies[0] if robot_cfg.object_bodies else "blue-cube"
+    door_reader = None
+    if door_scene:
+        from lerobot_robot_icubrg.gz_pose import GzJointReader
+        door_reader = GzJointReader("door")
+        door_reader.start()
+        print(f"[eval] Door scene: success = door_hinge > {DOOR_SUCCESS_RAD} rad at some step "
+              f"({door_reader.topic})")
     hold_steps = max(1, int(np.ceil(SUCCESS_HOLD_S * args.fps)))
     episodes = []
 
@@ -529,7 +566,7 @@ def main() -> None:
         for ep in range(args.n_episodes):
             print(f"\n── Episode {ep + 1}/{args.n_episodes} ──")
             start_episode(robot, args, cube_body)
-            if robot_cfg.use_object_pose and not wait_object_pose(robot, cube_body):
+            if robot_cfg.use_object_pose and not door_scene and not wait_object_pose(robot, cube_body):
                 raise SystemExit(
                     f"No pose for '{cube_body}' from Gazebo (/model/{cube_body}/pose): the policy "
                     f"would see a stale or zero pose. Check `gz topic -l | grep pose` "
@@ -546,6 +583,7 @@ def main() -> None:
             log_rows: list[dict] = []
             above = 0
             held = False
+            door_max = handle_min = 0.0
             t_ep = t_prev = time.perf_counter()
 
             for step in range(args.episode_steps):
@@ -571,8 +609,11 @@ def main() -> None:
                         hi = state_mean[i] + args.clip_z * state_std[i]
                         values[n] = min(max(values[n], lo), hi)
 
+                if door_reader is not None:
+                    door_max = max(door_max, door_reader.get("door_hinge") or 0.0)
+                    handle_min = min(handle_min, door_reader.get("handle_hinge") or 0.0)
                 # Altura del cubo en el mundo (misma en ambos simuladores)
-                if "obj0_pos_z" in obs:
+                elif "obj0_pos_z" in obs:
                     z = float(obs["obj0_pos_z"]) + root_xyz[2]
                     z0 = z if z0 is None else z0
                     z_max = z if z_max is None else max(z_max, z)
@@ -621,7 +662,10 @@ def main() -> None:
                     convert_poses(action, action_groups, root_from_mujoco, conv_xyz)
                 robot.send_action(action)
 
-                if step % args.fps == 0:
+                if step % args.fps == 0 and door_reader is not None:
+                    print(f"  step {step:4d}/{args.episode_steps}  door="
+                          f"{np.degrees(door_reader.get('door_hinge') or 0.0):.1f} deg")
+                elif step % args.fps == 0:
                     z_str = f"{z:.3f}" if z0 is not None else "n/a"
                     print(f"  step {step:4d}/{args.episode_steps}  cube_z={z_str}")
                 precise_sleep(max(1.0 / args.fps - (time.perf_counter() - t0), 0.0))
@@ -635,8 +679,16 @@ def main() -> None:
             result = {"episode": ep + 1, "z0": z0, "z_max": z_max, "lift_delta": lift,
                       "lifted": bool(lift >= args.lift_threshold) if z0 is not None else False,
                       "held_above_0p80_1s": held}
+            if door_reader is not None:
+                result = {"episode": ep + 1, "door_max_deg": float(np.degrees(door_max)),
+                          "door_final_deg": float(np.degrees(door_reader.get("door_hinge") or 0.0)),
+                          "handle_min_deg": float(np.degrees(handle_min)),
+                          "success": bool(door_max > DOOR_SUCCESS_RAD)}
+                print(f"  [metrics] door max={result['door_max_deg']:.1f} deg  handle min="
+                      f"{result['handle_min_deg']:.1f} deg  success={result['success']}")
+            else:
+                print(f"  [metrics] lift={lift:.3f} m  lifted={result['lifted']}  held={held}")
             episodes.append(result)
-            print(f"  [metrics] lift={lift:.3f} m  lifted={result['lifted']}  held={held}")
             if log_rows:
                 inf = np.array([r["infer_ms"] for r in log_rows])
                 per = np.array([r["period_ms"] for r in log_rows[1:]])
@@ -651,13 +703,22 @@ def main() -> None:
             "anchor": args.anchor, "conv_xyz": list(conv_xyz),
             "grasp_offset": args.grasp_offset,
             "episodes": episodes,
-            "success_rate_lift": float(np.mean([e["lifted"] for e in episodes])) if episodes else None,
-            "success_rate_held": float(np.mean([e["held_above_0p80_1s"] for e in episodes])) if episodes else None,
+            "scene": label,
         }
+        if door_reader is not None:
+            summary["success_rate"] = float(np.mean([e["success"] for e in episodes])) if episodes else None
+        else:
+            summary["success_rate_lift"] = float(np.mean([e["lifted"] for e in episodes])) if episodes else None
+            summary["success_rate_held"] = (float(np.mean([e["held_above_0p80_1s"] for e in episodes]))
+                                            if episodes else None)
         (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
         print(f"\n[eval] Summary saved to {run_dir / 'summary.json'}")
-        if episodes:
+        if episodes and door_reader is not None:
+            print(f"  door success: {summary['success_rate']:.0%}")
+        elif episodes:
             print(f"  lift success: {summary['success_rate_lift']:.0%}   held success: {summary['success_rate_held']:.0%}")
+        if door_reader is not None:
+            door_reader.stop()
         if robot.is_connected:
             robot.disconnect()
 

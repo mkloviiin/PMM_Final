@@ -233,7 +233,7 @@ def build_ui() -> gr.Blocks:
             btn = welcome_buttons[robot.id]
             if robot.id in config_columns:
                 # La columna del robot se muestra/oculta con la clase .robot-hidden, no con
-                # visible= (ver ui/tab_config.py: con visible Gradio dejaba Configuration en blanco).
+                # visible= (ver ui/tab_config.py: con visible Gradio deja Configuration en blanco).
                 # Al elegir robot se abre siempre la pestaña Configuration (aunque antes se haya
                 # salido desde Visualize & Curate o Episode Control). Si es otra plataforma que la
                 # anterior, Episode Control queda como nuevo (no muestra la sesión de la otra);
@@ -363,9 +363,9 @@ def build_ui() -> gr.Blocks:
         c["state_none_btn"].click(fn=curation.select_none_list, outputs=[c["dims_state_cbg"]])
 
         # Buscadores de features/dimensiones: filtran en el navegador (ocultan las casillas que
-        # no calzan) sin tocar las opciones, así la selección se conserva. Antes se filtraban
-        # las opciones en Python dejando siempre las marcadas, y como al cargar un dataset
-        # están todas marcadas, el buscador no ocultaba nada.
+        # no calzan) sin tocar las opciones, así la selección se conserva. Filtrar las opciones
+        # en Python obliga a dejar siempre las marcadas, y como al cargar un dataset están
+        # todas marcadas, el buscador no ocultaría nada.
         for tb_key, cbg_id in (("whole_search_tb", "cbg-whole"), ("action_search_tb", "cbg-action"),
                                ("state_search_tb", "cbg-state")):
             c[tb_key].change(fn=None, inputs=[c[tb_key]], js=_checkbox_filter_js(cbg_id))

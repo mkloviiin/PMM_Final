@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""One-command launcher for lerobot-record using local iCub plugins.
+"""Records a LeRobot dataset in MuJoCo with the local iCub robot/teleop plugins.
 
-This script sets local defaults for iCub config/model and forwards arguments
-into LeRobot's official `lerobot-record` entrypoint.
+Runs its own record loop (_manual_vr_record, not the `lerobot-record` entrypoint):
+episodes start/stop with A/B on the VR or 1/2/3 on the console. The Hub calls
+_manual_vr_record in the same process, with cmd_source/on_status from the GUI.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ _metrics_path = str(repo_root.parent / "metrics")
 if _metrics_path not in sys.path:
     sys.path.insert(0, _metrics_path)
 
-# Add icubenv site-packages to sys.path to generic python
+# icubenv site-packages, for when this runs from another env's Python
 sys.path.append(os.environ.get("ICUBENV_SITE_PACKAGES", os.path.expanduser("~/miniconda3/envs/icubenv/lib/python3.12/site-packages")))
 
 
@@ -97,7 +98,7 @@ def _apply_control_arms(robot_cfg, teleop_cfg, arms, cfg_path) -> None:
 def parse_args() -> argparse.Namespace:
     repo_root = Path(__file__).resolve().parent
     default_cfg = repo_root / "utils" / "control_config.yaml"
-    default_model = repo_root / "dependencies" / "assets" / "scenes" / "icub_table_scene.xml"
+    default_model = repo_root / "dependencies" / "assets" / "scenes" / "scene_icub_lift.xml"
 
     parser = argparse.ArgumentParser(
         description="Record dataset with lerobot-record and iCub plugins"
@@ -241,6 +242,9 @@ def _manual_vr_record(
     teleop_cfg.vr_enabled = False
     teleop_cfg.vr_ip = None
     _apply_control_arms(robot_cfg, teleop_cfg, getattr(args, "control_arms", None), cfg_path)
+    # Cámaras de la tarea (cameras en scenes.yaml), p. ej. la puerta: ojos + cenital
+    if getattr(args, "cameras", None):
+        robot_cfg.camera_names = list(args.cameras)
 
     robot = make_robot_from_config(robot_cfg)
     teleop = make_teleoperator_from_config(teleop_cfg)
@@ -534,11 +538,11 @@ def main() -> None:
     args = parse_args()
 
     if args.scene == 1:
-        args.model = str(repo_root / "dependencies" / "assets" / "scenes" / "icub_table_scene_lift.xml")
-        args.single_task = "levantar el cubo"
+        args.model = str(repo_root / "dependencies" / "assets" / "scenes" / "scene_icub_lift.xml")
+        args.single_task = "lift the blue block"
     elif args.scene == 2:
-        args.model = str(repo_root / "dependencies" / "assets" / "scenes" / "icub_table_scene_stack.xml")
-        args.single_task = "apilar el cubo"
+        args.model = str(repo_root / "dependencies" / "assets" / "scenes" / "scene_icub_stack.xml")
+        args.single_task = "stack the blue cube on top of the red cube"
 
     cfg_path = Path(args.config).expanduser().resolve()
     model_path = Path(args.model).expanduser().resolve()

@@ -3,13 +3,12 @@ IK Solver for MuJoCo iCub Teleoperation.
 ==========================================
 
 Arm IK:
-    Uses iKinIpOptMin (from utils/ikin_ik.py) — the same constrained
-    optimisation solver used by cartesian_controller.py.  Shoulder coupling
-    constraints and real-robot joint limits are handled natively by iKin.
+    Uses iKinIpOptMin (icub Python bindings), a constrained optimisation
+    solver.  Shoulder coupling constraints and real-robot joint limits are
+    handled natively by iKin.
 
-    The solver produces a **goal joint configuration**.  A minimum-jerk
-    interpolation smoothly drives ``data.ctrl`` toward that goal, which
-    is why movements feel much more natural than raw differential IK.
+    The solver produces a **goal joint configuration**; the caller drives
+    ``data.ctrl`` toward it with a minimum-jerk interpolation.
 
 Gaze (head) IK:
     Uses a lightweight differential IK (MuJoCo Jacobian pseudoinverse)
@@ -97,7 +96,6 @@ class IKinArmSolver:
         elif limit_torso_pitch and 'torso_pitch' in self.joints_to_control:
             self.chain.access(0).setMax(0.5)
 
-        # Create solver
         self.solver = icub.iKinIpOptMin(
             self.chain, 0, 1e-2, 1e-2, 5000, verbose=0)
 
@@ -122,12 +120,8 @@ class IKinArmSolver:
             if name not in self.joints_to_control:
                 self._blocked_torso.append((link_idx, name))
 
-        # Default rest pose (comfortable angles: shoulder down, elbow bent)
-        # Order: torso (3) + shoulder (3) + elbow (1) + wrist (3)
-        # Normalized to 0 for most, but elbow slightly bent often helps avoiding singularities
-        # Let's use a zero vector as a base "comfy" pose, but we can tune it.
-        # Actually, simply pulling towards 0.0 for all joints is often "good enough" for iCub arms
-        # except maybe elbow which prefers ~0.5-1.0 rad.
+        # Rest pose for the posture task: 0 except shoulder forward and elbow bent.
+        # Order: torso (if controlled) + shoulder (3) + elbow (1) + wrist (3)
         self._rest_pose = yarp.Vector(self.n_ik_joints)
         for i in range(self.n_ik_joints):
              self._rest_pose.set(i, 0.0)
@@ -177,21 +171,18 @@ class IKinArmSolver:
         deg2rad = np.pi / 180
         idx = 0
         
-        # --- Torso Limits (Restricted to Pitch only) ---
+        # --- Torso limits: pitch and yaw ±10 deg, roll locked ---
         if 'torso_pitch' in self.joints_to_control:
-            # Allow forward lean (0 to ~40 deg) and slight backward (-10 deg)
             self.chain.access(idx).setMin(-10.0 * deg2rad)
             self.chain.access(idx).setMax(10.0 * deg2rad)
             idx += 1
         
         if 'torso_roll' in self.joints_to_control:
-            # Lock Roll
             self.chain.access(idx).setMin(0.0)
             self.chain.access(idx).setMax(0.0)
             idx += 1
             
         if 'torso_yaw' in self.joints_to_control:
-            # Lock Yaw
             self.chain.access(idx).setMin(-10.0 * deg2rad)
             self.chain.access(idx).setMax(10.0 * deg2rad)
             idx += 1
@@ -237,37 +228,13 @@ class IKinArmSolver:
         # Build target vector  [px, py, pz, ax, ay, az, angle]
         target = yarp.Vector(np.concatenate((pos_local, axis_angle)))
 
-        # Current joint values as yarp vector
         current_yarp = yarp.Vector(current_joint_values.astype(np.float64))
 
         n = self.n_ik_joints
-        
-        # Optimization weights
-        # Task 1 (End Effector): Implicitly handled by solver constraints/objective
-        # Task 2 (Optional constraint): Weight 0.0 (unused)
-        # Task 3 (Posture/Regularization): Weight 0.1 - 1.0
-        # We use a lower weight for posture so it doesn't fight the primary task too hard
-        # But high enough to influence null-space motion.
-        
-        # REGULARIZATION STRATEGY:
-        # Instead of staying close to "previous solution" (which drifts),
-        # we try to stay close to "rest pose" (which fixes elbow/shoulder behavior).
-        # We use current_yarp as initialization for speed/solver stability,
-        # but the COST FUNCTION (arg #8/9) targets the REST POSE.
-        
-        # Args:
-        # 1. current_q
-        # 2. target_pose
-        # 3. weight_task2
-        # 4. ref_task2
-        # 5. mask_task2
-        # 6. weight_task3 (posture)
-        # 7. ref_task3 (desired posture)
-        # 8. mask_task3 (weights per joint)
-        
-        # We want to use the previous solution as the *seed* (first arg)
-        # but the rest pose as the *target* for the secondary task (7th arg).
-        
+
+        # solve(q0, xd, weight_task2, ref_task2, mask_task2, weight_task3, ref_task3, mask_task3).
+        # Seed = previous solution; task 2 unused; task 3 pulls weakly toward the rest pose
+        # (regularising toward the previous solution drifts, the rest pose keeps the elbow down).
         seed_q = self.prev_sol if self.prev_sol is not None else current_yarp
 
         solution_yarp = self.solver.solve(
@@ -283,7 +250,6 @@ class IKinArmSolver:
 
         self.prev_sol = solution_yarp
 
-        # Extract solution
         solution = np.array([solution_yarp.get(i)
                              for i in range(solution_yarp.getListSize())])
 

@@ -17,7 +17,7 @@ tmux send-keys -t $SESSION_NAME:robotinterface C-c
 # 3. Cierra Gazebo y fuerza la terminación de sus procesos
 echo "Cerrando Gazebo..."
 tmux send-keys -t $SESSION_NAME:gazebo C-c
-sleep 1 # Pequeña pausa
+sleep 1
 echo "Asegurando el cierre forzoso del servidor y cliente de Gazebo..."
 pkill -9 -f "gz sim"
 

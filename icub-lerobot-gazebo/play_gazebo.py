@@ -172,6 +172,12 @@ def parse_args() -> argparse.Namespace:
         help="Do not subscribe to/record the cameras (eyes + Gazebo front camera); saves bandwidth",
     )
     parser.add_argument(
+        "--cameras",
+        default=None,
+        help="Comma-separated cameras of the task (cameras in scenes.yaml, e.g. left,right,top). "
+             "Default: the robot's cameras (left, right, front in Gazebo)",
+    )
+    parser.add_argument(
         "--no-record",
         action="store_true",
         help="Run the teleop loop without recording a dataset (simple mode)",
@@ -248,6 +254,13 @@ def _build_robot_and_teleop(
     if args.no_camera:
         robot_cfg.camera_ports = {}
         print("[play_gazebo] camera subscriptions disabled (--no-camera)")
+    elif args.cameras:
+        # Cámaras de la tarea (cameras en scenes.yaml): p. ej. la puerta graba los ojos y la
+        # cenital, no la frontal
+        missing = robot_cfg.select_cameras([c.strip() for c in args.cameras.split(",") if c.strip()])
+        if missing:
+            print(f"[play_gazebo][warn] cameras not available on this robot, not recorded: {missing}")
+        print(f"[play_gazebo] cameras (task): {robot_cfg.camera_ports}")
     else:
         print(f"[play_gazebo] cameras: {robot_cfg.camera_ports}")
 
@@ -520,7 +533,7 @@ def _simple_teleop_loop(*, args, robot, teleop) -> None:
 def main() -> None:
     args = parse_args()
 
-    # Only one scenario wired up for now (lift the blue cube) — see SCENE_OBJECTS above.
+    # The MuJoCo mirror keeps an empty table (see SCENE_MODEL above): objects live in Gazebo.
     scene_objects = SCENE_OBJECTS
     scene_joints: list = []
 

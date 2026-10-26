@@ -1,9 +1,8 @@
 # Scene manifest for selectable iCub MuJoCo scenes.
 #
 # This folder also contains XMLs that are NOT selectable scenes (shared
-# includes like icub_visuomanip_ikin_limits.xml, or old versions like
-# scene_icub_lift.xml / scene.xml) -- that is why scenes are declared
-# manually here instead of auto-detecting all *.xml files in the folder.
+# includes like icub_visuomanip_ikin_limits.xml or icub_room_arena.xml),
+# so scenes are declared here instead of auto-detecting all *.xml files.
 #
 # To add a new scene: drop the XML in this folder and add an entry here.
 # launcher_gui will warn (in the log) if it finds a loose *.xml in the
@@ -16,18 +15,23 @@
 # ── Enabled scenes ────────────────────────────────────────────────────────────
 #
 # Optional `objects` list: declares resettable bodies and their spawn ranges.
-# When the user presses R (reset), each object is randomised within its range.
-# If `objects` is absent, pressing R does nothing (correct for fixed scenes).
+# On reset (N in the MuJoCo viewer), each object is randomised within its range.
+# Optional `joints` list: hinge/slide joints set to `qpos` on reset (e.g. the door).
+# If both are absent, reset does nothing (correct for fixed scenes).
+#
+# Optional `cameras` list: cameras recorded for that task (default: left, right, front =
+# eyes + external front camera). Names as in lerobot_robot_icub camera_sources (MuJoCo) and
+# lerobot_robot_icubrg (Gazebo/real); "top" is the overhead camera.
 #
 # Spawn rules:
 #   x/y/z:  [min, max] → uniform random  |  scalar → fixed  |  absent → unchanged
-#   quat:   [w, x, y, z] reset orientation (default [1, 0, 0, 0])
+#   quat:   [w, x, y, z] reset orientation (default [1, 0, 0, 0]). [0, 0, 0, 1] (180 deg in z)
+#           = identity in the iCub root frame, like Gazebo's objects (same recorded obj quat)
 
 - file: scene_icub_lift.xml
   label: "Block Lifting"
-  # Única fuente para MuJoCo y Gazebo (icub-lerobot-gazebo/mujoco/assets/scenes/scenes.yaml
-  # es un enlace a este archivo). Marco MuJoCo: x adelante, y a la izquierda del robot;
-  # Gazebo lo convierte a (-x, -y) en reset_objects.sh. Antes: x [0.25, 0.40], y [-0.20, 0.20].
+  # Marco MuJoCo: x adelante, y a la izquierda del robot. Gazebo tiene su propia copia
+  # (icub-lerobot-gazebo/gazebo/scenes.yaml): un cambio de tareas o rangos va en las dos.
   task: "lift the blue block"
   objects:
     - body: "blue-cube"
@@ -47,12 +51,15 @@
       spawn:
         x: [0.25, 0.40]
         y: [-0.20, -0.05]
-        z: 0.725
+        z: 0.745                 # tapa 0.72 + semialtura 0.025 (como Z_GAZEBO de reset_objects.sh);
+                                 # más bajo, los cubos quedan hundidos en la mesa
+        quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
     - body: "red-cube"
       spawn:
         x: [0.3025, 0.40]
         y: [0.05, 0.20]
-        z: 0.725
+        z: 0.745
+        quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
 
 - file: scene_icub_pickplace.xml
   label: "Pick-and-Place"
@@ -63,10 +70,13 @@
         x: [0.25, 0.40]
         y: [-0.20, -0.05]
         z: 0.725
+        quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
 
 - file: scene_icub_door.xml
   label: "Door Opening"
   task: "open the door"
+  # Manilla a la izquierda, mano derecha (escenario final). Se graba la cenital, no la frontal.
+  cameras: [left, right, top]
   joints:
     - name: "door_hinge"
       qpos: 0.0
@@ -74,15 +84,15 @@
       qpos: 0.0
 
 - file: scene_icub_peginhole.xml
-  label: "Two-Arm Peg-In-Hole"
+  label: "Peg-In-Hole"          # con la mano derecha
   task: "insert the peg into the hole"
   objects:
     - body: "peg"
       spawn:
-        x: 0.40
-        y: -0.12
-        z: 0.74
-        quat: [0.7071, 0, 0.7071, 0]
+        x: [0.30, 0.34]          # de pie a la derecha; en y > -0.20 la mano
+        y: [-0.26, -0.22]        # derecha en home la bota
+        z: 0.785                 # tapa de la mesa 0.72 + media altura 0.065
+        quat: [0, 0, 0, 1]
 
 - file: scene_icub_twoarmlift.xml
   label: "Two-Arm Lifting"
@@ -90,7 +100,8 @@
   objects:
     - body: "lift-pot"
       spawn:
-        x: 0.40
-        y: 0.0
+        x: [0.32, 0.34]          # en x=0.40 queda fuera del alcance cómodo del brazo izquierdo
+        y: [-0.01, 0.01]
         z: 0.795
+        quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
 
