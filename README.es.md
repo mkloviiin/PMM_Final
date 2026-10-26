@@ -53,7 +53,23 @@ mano derecha, `6`/`7` la izquierda y `N` reposiciona los objetos.
 
 ## Instalación y arranque
 
-### Con Docker (recomendado)
+### Con Pixi (Recomendado para desarrollo local)
+
+El proyecto está completamente integrado con [Pixi](https://pixi.sh), lo que permite gestionar dependencias de robótica (MuJoCo, YARP, BLF, LeRobot, PyTorch con CUDA) de forma automática y reproducible:
+
+```bash
+# 1. Instalar dependencias del entorno
+pixi install
+
+# 2. Levantar el Experimentation Hub (Web GUI)
+pixi run hub            # http://localhost:7860
+
+# 3. O ejecutar directamente el launcher unificado por terminal
+pixi run play-mj        # Teleoperación MuJoCo (BLF TSIK)
+pixi run play-gz        # Teleoperación Gazebo Sim
+```
+
+### Con Docker
 
 Una sola imagen trae el Hub, MuJoCo, Gazebo y el cliente YARP del robot real. Requiere
 Linux con X11, una GPU NVIDIA con NVIDIA Container Toolkit y unos 25 GB libres.
@@ -68,17 +84,17 @@ Luego se abre <http://localhost:7860>. Los datasets quedan en `./data` y
 `./data_curated` del host. Detalles (volúmenes, robot real, puertos del VR, cómo
 actualizar el entorno) en [docker/README.md](docker/README.md).
 
-### Sin Docker
+### Sin Docker (Conda legacy)
 
 El entorno es `icubenv`, con Python 3.12, YARP 3.12, gz-sim 10, MuJoCo 3.3, torch 2.7 y
-LeRobot v0.5.0+18. Se reproduce exacto a partir de los lockfiles que usa la imagen:
+LeRobot v0.5.0+18:
 
 ```bash
 conda create -n icubenv --file docker/conda-linux-64.lock
 conda activate icubenv
 pip install --no-deps --ignore-installed -r docker/requirements.lock.txt
 pip install --no-deps "lerobot @ git+https://github.com/huggingface/lerobot.git@017ff73fbfe46bf9a673cd9b402988dcb79151f7"
-python hub_dataset/hub_experimentacion.py                       # http://localhost:7860
+pixi run hub
 ```
 
 El controlboard parchado de Gazebo (`icub-lerobot-gazebo/gazebo/plugins/*.so`) ya viene
@@ -308,18 +324,27 @@ sección *Sim-to-sim* de [icub-lerobot-gazebo/README.md](icub-lerobot-gazebo/REA
 
 ```
 PMM_Final/
-├── hub_dataset/                 # el Hub
-│   ├── hub_experimentacion.py   # punto de entrada (python hub_dataset/hub_experimentacion.py)
-│   ├── launcher_gui/            # código del Hub (ver Arquitectura)
-│   ├── assets/                  # logos e imágenes de la bienvenida
-│   └── logs/                    # log completo de cada ejecución
-├── icub-lerobot-mj/             # backend MuJoCo: simulación, IK, teleoperación VR, plugins LeRobot
-├── icub-lerobot-gazebo/         # backend Gazebo / robot real: mundo Gazebo, módulo YARP, plugins LeRobot
-├── metrics/                     # latencia, jitter y sincronización de las grabaciones
-├── docker/                      # Dockerfile, lockfiles del entorno y su README
-├── docker-compose.yml
-├── data/                        # datasets grabados (no versionado)
-└── data_curated/                # datasets curados (no versionado)
+├── pixi.toml                    # Configuración del entorno de dependencias y tareas Pixi
+├── pixi.lock                    # Lockfile de dependencias reproducible
+├── play.py                      # Launcher unificado de teleoperación y grabación (MuJoCo, Gazebo, Real)
+├── eval_policy.py               # Evaluador unificado de políticas entrenadas
+├── train_policy.py              # Wrapper de entrenamiento LeRobot
+├── replay_mujoco.py             # Reproducción de datasets grabados en MuJoCo
+├── config/
+│   └── control_config.yaml      # Configuración central de control, solvers BLF y parámetros de teleoperación
+├── src/                         # Código fuente unificado
+│   ├── controllers/             # Solvers de optimización cuadrática de cuerpo completo (BLF TSIK y TSID)
+│   ├── interfaces/              # Módulo YARP (teleop_module_sm.py), BLFRobotBridge, teleop MuJoCo y VR
+│   ├── plugins/                 # Plugins de LeRobot (icub_mujoco, icub_remote, icubteleop)
+│   ├── hub_dataset/             # Experimentation Hub (Web GUI Gradio, sesión, curación, subida a HF)
+│   ├── trajectories/            # Rutinas de trayectorias analíticas
+│   └── tools/                   # Curación de cuaterniones (canonicalize_quats.py), offsets, etc.
+├── mujoco_sim/                  # Activos de simulación MuJoCo (escenas XML, mallas OBJ, texturas)
+├── gazebo_sim/                  # Activos de simulación Gazebo (mundos SDF, modelos, plugins, scripts)
+├── metrics/                     # Latencia, jitter y reportes de teleoperación
+├── docker/                      # Dockerfile y docker-compose.yml alternativo
+├── data/                        # Datasets grabados (no versionado)
+└── data_curated/                # Datasets curados (no versionado)
 ```
 
 ---

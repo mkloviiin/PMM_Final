@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Pixi & Conda
+.pixi/
+*.egg-info/
+dist/
+build/
+
+# Datasets and outputs
+data/
+data_curated/
+output/
+logs/
+*.log
+
+# Temporary
+/tmp/
+.DS_Store

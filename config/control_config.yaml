@@ -1,0 +1,185 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Unified Control Configuration for icub-lerobot (MuJoCo, Gazebo Sim & Real iCub)
+# Powered exclusively by BLF TSIK (iCubWholeBodyIK) and TSID (iCubWholeBodyID)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Target robot name for YARP communication ("icubSim" for Gazebo, "icub" for Real iCub)
+robot_name: "icubSim"
+robot_model: "iCubGazeboV2_5_visuomanip"
+
+# Whole-Body Controller selection:
+#   "ik" : BLF Quadratic Programming Inverse Kinematics (TSIK - iCubWholeBodyIK)
+#   "id" : BLF Quadratic Programming Task-Space Inverse Dynamics (TSID - iCubWholeBodyID)
+controller_type: "ik"
+
+# YARP control mode for the 20 upper-body joints when running on Gazebo / Real iCub:
+#   For controller_type == "ik": "position_direct" (default) | "velocity" | "position"
+#   For controller_type == "id": "torque"
+yarp_control_mode: "position_direct"
+
+# Enable compliant Cartesian impedance profile (when controller_type == "id")
+impedance_mode: false
+
+# Control loop period [s] (50 Hz outer loop; MuJoCo physics steps at 0.005 s)
+period: 0.02
+show_cameras: true
+stream_jpeg_quality: 70
+
+# Active arms and head control:
+#   control_arms: "right" | "left" | "both" | "none"
+#   use_head_control: true = SO(3) head orientation task via TSIK/TSID
+control_arms: "right"
+primary_arm: "right_arm"
+use_head_control: true
+
+# Frame for recorded observations and actions:
+#   "root"  : iCub root_link frame (shared across MuJoCo, Gazebo, and Real iCub for Sim2Sim2Real)
+#   "world" : MuJoCo world frame
+pose_frame: "root"
+
+# Torso joint limits [deg] enforced inside the QP whole-body solver
+torso_limits_deg:
+  pitch: [-15.0, 15.0]
+  roll: [-10.0, 10.0]
+  yaw: [-15.0, 15.0]
+
+# Whole-Body IK (TSIK - iCubWholeBodyIK) parameters
+tsik:
+  kp_cartesian: 20.0
+  kp_angular: 15.0
+  weight_hands: 180.0
+  weight_head: 5.0
+  weight_posture_torso: 80.0
+  weight_posture_neck: 0.05
+  weight_posture_arms: 0.05
+  max_joint_velocity: 1.5
+
+# Whole-Body ID (TSID - iCubWholeBodyID) parameters
+tsid:
+  kp_cartesian: 100.0
+  kp_angular: 80.0
+  kp_posture: 25.0
+  weight_hands: 100.0
+  weight_head: 15.0
+  weight_posture_torso: 2.0
+  weight_posture_neck: 0.05
+  weight_posture_arms: 0.1
+  weight_torque_reg: 1.0e-5
+
+strict_xml_init: true
+
+# Tactile sensor settings (YARP skin ports derived from robot_name)
+tactile_enabled: true
+tactile_include_palm: true
+tactile_auto_connect: true
+
+# Dataset observation flags (shared across MuJoCo and Gazebo/Real LeRobot plugins)
+use_joint_vel: true      # {joint}_vel
+use_joint_torque: true   # {joint}_torque
+use_eef_pose: true       # {rh,lh}_ee_pos_{x,y,z}, {rh,lh}_ee_quat_{w,x,y,z}, head_ee_quat_{w,x,y,z}
+use_targets: true        # {rh,lh}_target_pos_*, {rh,lh}_target_quat_*, head_target_quat_*, {rh,lh}_gripper
+use_tactile: true        # {rh,lh}_touch_{thumb,index,middle}
+use_object_pose: true    # obj{i}_pos_*, obj{i}_quat_* (ground truth in MuJoCo & Gazebo)
+
+# Root link world position in Gazebo / MuJoCo [m]
+gazebo_root_xyz: [0.0, 0.0, 0.73]
+
+# Camera output shapes (H, W)
+camera_shapes:
+  left: [240, 320]
+  right: [240, 320]
+  front: [240, 320]
+
+# Joint definitions by part
+# Note: The 20 upper-body joints (torso 3, neck 3, left_arm[0:7], right_arm[0:7]) are
+# controlled by iCubWholeBodyIK / iCubWholeBodyID. The 18 hand joints (9 per arm) and
+# 3 eye joints are controlled via position control.
+actuators:
+  head:
+    - "neck_pitch"
+    - "neck_roll"
+    - "neck_yaw"
+    - "eyes_tilt"
+    - "eyes_version"
+    - "eyes_vergence"
+  torso:
+    - "torso_pitch"
+    - "torso_roll"
+    - "torso_yaw"
+  left_arm:
+    - "l_shoulder_pitch"
+    - "l_shoulder_roll"
+    - "l_shoulder_yaw"
+    - "l_elbow"
+    - "l_wrist_prosup"
+    - "l_wrist_pitch"
+    - "l_wrist_yaw"
+    - "l_hand_finger"
+    - "l_thumb_oppose"
+    - "l_thumb_proximal"
+    - "l_thumb_distal"
+    - "l_index_proximal"
+    - "l_index_distal"
+    - "l_middle_proximal"
+    - "l_middle_distal"
+    - "l_pinky"
+  right_arm:
+    - "r_shoulder_pitch"
+    - "r_shoulder_roll"
+    - "r_shoulder_yaw"
+    - "r_elbow"
+    - "r_wrist_prosup"
+    - "r_wrist_pitch"
+    - "r_wrist_yaw"
+    - "r_hand_finger"
+    - "r_thumb_oppose"
+    - "r_thumb_proximal"
+    - "r_thumb_distal"
+    - "r_index_proximal"
+    - "r_index_distal"
+    - "r_middle_proximal"
+    - "r_middle_distal"
+    - "r_pinky"
+
+# Default working posture [deg]: arms extended over the manipulation table
+home_pose:
+  torso_pitch: 10.0
+  torso_roll: 0.0
+  torso_yaw: 0.0
+  l_shoulder_pitch: -60.0
+  l_shoulder_roll: 20.0
+  l_shoulder_yaw: 0.0
+  l_elbow: 70.0
+  l_wrist_prosup: 0.0
+  l_wrist_pitch: -10.0
+  l_wrist_yaw: 0.0
+  r_shoulder_pitch: -60.0
+  r_shoulder_roll: 20.0
+  r_shoulder_yaw: 0.0
+  r_elbow: 70.0
+  r_wrist_prosup: 0.0
+  r_wrist_pitch: -10.0
+  r_wrist_yaw: 0.0
+  neck_pitch: 15.0
+  neck_roll: 0.0
+  neck_yaw: 0.0
+  eyes_tilt: 0.0
+  eyes_version: 0.0
+  eyes_vergence: 0.0
+
+# Hand finger open/close profiles [deg] (9 joints per hand)
+hand_open_values:
+  - [0, 75, 0, 0, 0, 0, 0, 0, 0]
+hand_close_values:
+  - [0, 40, 40, 50, 75, 75, 75, 75, 0]
+hand_close_ratio: 0.5
+hand_close_time_s: 3.8
+vr_grip_deadband: [0.1, 0.9]
+vr_show_targets: true
+
+# Default fallback spawn range for objects if not specified in scenes.yaml
+cube_spawn:
+  x: [0.35, 0.45]
+  y: [-0.15, -0.05]
+  z: 0.745
+

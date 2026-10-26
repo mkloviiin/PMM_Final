@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lerobot_robot_icubrg"
+version = "0.1.0"
+description = "LeRobot iCub Remote / Gazebo robot plugin communicating via YARP to teleop_module_sm"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pyyaml",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["lerobot_robot_icubrg"]
+

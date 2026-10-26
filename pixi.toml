@@ -1,0 +1,64 @@
+[workspace]
+name = "PMM_Final"
+version = "1.0.0"
+description = "Experimentation Hub and Unified Sim2Sim2Real Platform for iCub with BLF Whole-Body Control and LeRobot"
+authors = ["Mike <mrojasanchez@gmail.com>"]
+channels = ["conda-forge"]
+platforms = [
+    { platform = "linux-64", cuda = "12.4" }
+]
+
+[activation.env]
+YARP_DATA_DIRS = "$CONDA_PREFIX/share/iCub:$CONDA_PREFIX/share/yarp"
+GZ_SIM_RESOURCE_PATH = "$CONDA_PREFIX/share/iCub/robots:$CONDA_PREFIX/share:$CONDA_PREFIX/share/iCub:$PIXI_PROJECT_ROOT/gazebo_sim/models:$PIXI_PROJECT_ROOT/gazebo_sim/worlds"
+GZ_SIM_SYSTEM_PLUGIN_PATH = "$CONDA_PREFIX/lib"
+PYTHONPATH = "$PIXI_PROJECT_ROOT:$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/src/plugins/lerobot-robot-icub:$PIXI_PROJECT_ROOT/src/plugins/lerobot-teleoperator-icubteleop:$PIXI_PROJECT_ROOT/src/plugins/lerobot-robot-icubrg:$PIXI_PROJECT_ROOT/src/plugins/lerobot-teleoperator-icubrgteleop:$PIXI_PROJECT_ROOT/src/hub_dataset"
+
+[tasks]
+hub = "python src/hub_dataset/hub_experimentacion.py"
+teleop-sm = "python src/interfaces/teleop_module_sm.py --controller ik"
+play-mj = "python play.py --backend mujoco --controller ik --no-record"
+play-gz = "python play.py --backend gazebo --controller ik --no-record"
+eval = "python eval_policy.py"
+
+[dependencies]
+# Python base compatible with current lerobot (>= 0.5.0) and conda-forge
+python = "3.12.*"
+
+# Robotics and Simulation Stack (conda-forge)
+icub-models = ">=1.23.4"
+gz-sim8 = "*"                    # Gazebo Sim (Harmonic LTS)
+gz-sim-yarp-plugins = "*"        # Plugins to interface Gazebo Sim with YARP
+yarp = ">=3.8"
+bipedal-locomotion-framework = "*"
+idyntree = ">=12.0"
+manifpy = "*"
+mujoco = "*"
+
+# Utilities for VR, math, data analysis, and configuration
+pyyaml = "*"
+pyzmq = "*"
+pyquaternion = "*"
+scipy = "*"
+pandas = "*"
+matplotlib = "*"
+glfw = "*"
+
+# Constraints to prevent Conda from pinning versions that conflict with LeRobot
+packaging = ">=24.2,<26.0"
+fsspec = "<=2025.3.0"
+numpy = ">=2.0.0,<2.3.0"
+opencv = ">=4.9.0,<4.13.0"
+icub-main = ">=2.11.1,<3"
+
+[pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cu124"]
+index-strategy = "unsafe-best-match"
+
+[pypi-dependencies]
+# ML, VLA, and Imitation Learning Stack with CUDA support (PyPI)
+torch = ">=2.2.0"
+torchvision = "*"
+lerobot = "*"
+datasets = "*"
+gradio = "*"

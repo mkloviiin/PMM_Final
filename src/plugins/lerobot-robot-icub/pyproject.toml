@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lerobot_robot_icub"
+version = "0.1.0"
+description = "LeRobot iCub MuJoCo robot plugin with TSIK (QP IK) and TSID (QP Inverse Dynamics / Impedance)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mujoco",
+    "numpy",
+    "pyyaml",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["lerobot_robot_icub"]
+

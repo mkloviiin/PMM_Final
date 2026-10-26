@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lerobot_teleoperator_icubrgteleop"
+version = "0.1.0"
+description = "LeRobot iCub Remote / Gazebo teleoperator plugin with MuJoCo GUI and Quest VR"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mujoco",
+    "numpy",
+    "pyyaml",
+    "glfw",
+    "pyzmq",
+    "pyquaternion",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["lerobot_teleoperator_icubrgteleop"]
+

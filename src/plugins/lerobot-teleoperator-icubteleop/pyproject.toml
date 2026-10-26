@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lerobot_teleoperator_icubteleop"
+version = "0.1.0"
+description = "LeRobot iCub MuJoCo teleoperator plugin with SO(3) head orientation and SE(3) bimanual mocaps"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mujoco",
+    "numpy",
+    "pyyaml",
+    "glfw",
+    "pyzmq",
+    "pyquaternion",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["lerobot_teleoperator_icubteleop"]
+
