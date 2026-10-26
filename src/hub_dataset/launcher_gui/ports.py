@@ -57,7 +57,11 @@ def listeners(ports) -> dict[int, int | None]:
 
 def release_own() -> int:
     """Cierra los núcleos MuJoCo que sigan abiertos en el proceso del Hub."""
-    core_mod = sys.modules.get("dependencies.teleop_mujoco")
+    core_mod = (
+        sys.modules.get("interfaces.teleop_mujoco")
+        or sys.modules.get("teleop_mujoco")
+        or sys.modules.get("dependencies.teleop_mujoco")
+    )
     if core_mod is None or not hasattr(core_mod, "close_all_live"):
         return 0
     return core_mod.close_all_live()

@@ -219,12 +219,15 @@ class iCubMuJoCo(Robot):
         if self._connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
 
-        # Import MuJoCoTeleop from local mujoco_sim directory
-        proj_root = Path(__file__).resolve().parents[3]
-        if str(proj_root) not in sys.path:
-            sys.path.insert(0, str(proj_root))
-
-        from mujoco_sim.teleop_mujoco import MuJoCoTeleop
+        # Import MuJoCoTeleop from local interfaces directory
+        try:
+            from interfaces.teleop_mujoco import MuJoCoTeleop
+        except ImportError:
+            proj_root = Path(__file__).resolve().parents[3]
+            for p in (proj_root, proj_root / "src"):
+                if str(p) not in sys.path:
+                    sys.path.insert(0, str(p))
+            from interfaces.teleop_mujoco import MuJoCoTeleop
 
         model_path = str(Path(self.config.model_path).expanduser().resolve())
         self.teleop_core = MuJoCoTeleop(
