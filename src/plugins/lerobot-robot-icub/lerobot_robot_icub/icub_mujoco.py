@@ -10,19 +10,9 @@ import mujoco
 import numpy as np
 import torch
 
-try:
-    from lerobot.robots.robot import Robot
-    from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
-except ImportError:
-    class Robot:
-        def __init__(self, config):
-            self.config = config
-
-    class DeviceAlreadyConnectedError(RuntimeError):
-        pass
-
-    class DeviceNotConnectedError(RuntimeError):
-        pass
+from lerobot.robots.robot import Robot
+from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
+from interfaces.teleop_mujoco import MuJoCoTeleop
 
 from .config_icub_mujoco import iCubMuJoCoConfig
 
@@ -218,16 +208,6 @@ class iCubMuJoCo(Robot):
     def connect(self, calibrate: bool = True) -> None:
         if self._connected:
             raise DeviceAlreadyConnectedError(f"{self} already connected")
-
-        # Import MuJoCoTeleop from local interfaces directory
-        try:
-            from interfaces.teleop_mujoco import MuJoCoTeleop
-        except ImportError:
-            proj_root = Path(__file__).resolve().parents[3]
-            for p in (proj_root, proj_root / "src"):
-                if str(p) not in sys.path:
-                    sys.path.insert(0, str(p))
-            from interfaces.teleop_mujoco import MuJoCoTeleop
 
         model_path = str(Path(self.config.model_path).expanduser().resolve())
         self.teleop_core = MuJoCoTeleop(

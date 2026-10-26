@@ -43,10 +43,7 @@ from controllers.whole_body_ik import (
 from controllers.whole_body_id import iCubWholeBodyID
 from interfaces.blf_robot_bridge import BLFRobotBridge
 
-try:
-    from interfaces.zmq_image_publisher import ZMQCompressedImageTransmitter
-except ImportError:
-    ZMQCompressedImageTransmitter = None
+from interfaces.zmq_image_publisher import ZMQCompressedImageTransmitter
 
 CAMERA_RELAY_DEFAULT_HW = (240, 320)
 CONFIG_FILE = os.getenv(

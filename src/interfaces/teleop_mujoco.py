@@ -47,33 +47,10 @@ from controllers.whole_body_ik import (
 )
 from controllers.whole_body_id import iCubWholeBodyID
 
-try:
-    import zmq
-    ZMQ_AVAILABLE = True
-except ImportError:
-    ZMQ_AVAILABLE = False
-
-try:
-    import cv2
-    CV2_AVAILABLE = True
-    _CV2_IMPORT_ERROR = None
-except ImportError as e:
-    CV2_AVAILABLE = False
-    _CV2_IMPORT_ERROR = e
-
-try:
-    from interfaces.zmq_image_publisher import ZMQCompressedImageTransmitter
-    BEAVR_IMG_AVAILABLE = True
-    _BEAVR_IMG_IMPORT_ERROR = None
-except ImportError as e:
-    BEAVR_IMG_AVAILABLE = False
-    _BEAVR_IMG_IMPORT_ERROR = e
-
-try:
-    from pyquaternion import Quaternion as PyQuaternion
-    PYQUAT_AVAILABLE = True
-except ImportError:
-    PYQUAT_AVAILABLE = False
+import cv2
+import zmq
+from pyquaternion import Quaternion as PyQuaternion
+from interfaces.zmq_image_publisher import ZMQCompressedImageTransmitter
 
 # Hand actuator names (order matches the actuator block in icub_visuomanip_*_limits.xml)
 RIGHT_HAND_ACTUATORS = [
@@ -452,7 +429,7 @@ class MuJoCoTeleop:
         self._home_total_steps = int(cfg.get("go_home_steps", 100))
 
         # Image streaming to VR (head_cam -> 10505, viewer -> 15001)
-        self.img_stream_enabled = CV2_AVAILABLE and BEAVR_IMG_AVAILABLE
+        self.img_stream_enabled = True
         self._head_cam_pub = None
         self._viewer_pub = None
         self._head_renderer = None
@@ -479,7 +456,7 @@ class MuJoCoTeleop:
 
         # VR setup
         self.vr_ip = vr_ip if vr_ip else cfg.get("vr_ip", None)
-        self.vr_enabled = vr_enabled and ZMQ_AVAILABLE and PYQUAT_AVAILABLE
+        self.vr_enabled = bool(vr_enabled)
         self.latest_rh_data = None
         self.latest_lh_data = None
         self.latest_buttons = None

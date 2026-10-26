@@ -5,19 +5,9 @@ from typing import Any
 import numpy as np
 import torch
 
-try:
-    from lerobot.robots.robot import Robot
-    from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
-except ImportError:
-    class Robot:
-        def __init__(self, config):
-            self.config = config
-
-    class DeviceAlreadyConnectedError(RuntimeError):
-        pass
-
-    class DeviceNotConnectedError(RuntimeError):
-        pass
+from lerobot.robots.robot import Robot
+from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
+import yarp
 
 from .config_icub import iCubConfig, load_control_config
 from .gz_pose import GzContactReader, GzPoseReader
@@ -54,14 +44,6 @@ class iCub(Robot):
 
     def __init__(self, config: iCubConfig):
         super().__init__(config)
-        try:
-            import yarp
-        except ModuleNotFoundError as exc:
-            raise ModuleNotFoundError(
-                "Python module 'yarp' is required for iCub robot plugin. "
-                "Install YARP Python bindings before using --robot.type=lerobot_robot_icubrg."
-            ) from exc
-
         self.yarp = yarp
         self.config = config
 
