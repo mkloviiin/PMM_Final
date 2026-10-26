@@ -2,48 +2,80 @@
 <!-- GENERADO por tools/object_sdf_from_mujoco.py desde scene_icub_peginhole.xml (hole-board): no editar a mano. -->
 <sdf version="1.7">
   <model name="hole-board">
-    <static>true</static>
+    <static>false</static>
     <link name="link">
+      <inertial>
+        <pose>0 0.06 -0.005 0 -0 0</pose>
+        <mass>0.12</mass>
+        <inertia><ixx>0.0004</ixx><iyy>0.0002</iyy><izz>0.0005</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
       <collision name="geom130">
-        <pose>0.055 0 0 0 -0 0</pose>
-        <geometry><box><size>0.05 0.16 0.02</size></box></geometry>
+        <pose>0.045 0 0 0 -0 0</pose>
+        <geometry><box><size>0.03 0.12 0.015</size></box></geometry>
         <surface><friction><ode><mu>1</mu><mu2>1</mu2></ode></friction></surface>
       </collision>
       <collision name="geom131">
-        <pose>-0.055 0 0 0 -0 0</pose>
-        <geometry><box><size>0.05 0.16 0.02</size></box></geometry>
+        <pose>-0.045 0 0 0 -0 0</pose>
+        <geometry><box><size>0.03 0.12 0.015</size></box></geometry>
         <surface><friction><ode><mu>1</mu><mu2>1</mu2></ode></friction></surface>
       </collision>
       <collision name="geom132">
-        <pose>0 0.055 0 0 -0 0</pose>
-        <geometry><box><size>0.06 0.05 0.02</size></box></geometry>
+        <pose>0 0.045 0 0 -0 0</pose>
+        <geometry><box><size>0.06 0.03 0.015</size></box></geometry>
         <surface><friction><ode><mu>1</mu><mu2>1</mu2></ode></friction></surface>
       </collision>
       <collision name="geom133">
-        <pose>0 -0.055 0 0 -0 0</pose>
-        <geometry><box><size>0.06 0.05 0.02</size></box></geometry>
+        <pose>0 -0.045 0 0 -0 0</pose>
+        <geometry><box><size>0.06 0.03 0.015</size></box></geometry>
+        <surface><friction><ode><mu>1</mu><mu2>1</mu2></ode></friction></surface>
+      </collision>
+      <collision name="board_foot">
+        <pose>0 -0.05 -0.02 0 -0 0</pose>
+        <geometry><box><size>0.12 0.02 0.025</size></box></geometry>
+        <surface><friction><ode><mu>1</mu><mu2>1</mu2></ode></friction></surface>
+      </collision>
+      <collision name="board_handle">
+        <pose>0 0.1 -0.0075 0 -0 0</pose>
+        <geometry><box><size>0.05 0.08 0.05</size></box></geometry>
         <surface><friction><ode><mu>1</mu><mu2>1</mu2></ode></friction></surface>
       </collision>
       <visual name="geom130_visual">
-        <pose>0.055 0 0 0 -0 0</pose>
-        <geometry><box><size>0.05 0.16 0.02</size></box></geometry>
+        <pose>0.045 0 0 0 -0 0</pose>
+        <geometry><box><size>0.03 0.12 0.015</size></box></geometry>
         <material><ambient>0.263 0.0593 0.0196 1</ambient><diffuse>0.263 0.0593 0.0196 1</diffuse></material>
       </visual>
       <visual name="geom131_visual">
-        <pose>-0.055 0 0 0 -0 0</pose>
-        <geometry><box><size>0.05 0.16 0.02</size></box></geometry>
+        <pose>-0.045 0 0 0 -0 0</pose>
+        <geometry><box><size>0.03 0.12 0.015</size></box></geometry>
         <material><ambient>0.263 0.0593 0.0196 1</ambient><diffuse>0.263 0.0593 0.0196 1</diffuse></material>
       </visual>
       <visual name="geom132_visual">
-        <pose>0 0.055 0 0 -0 0</pose>
-        <geometry><box><size>0.06 0.05 0.02</size></box></geometry>
+        <pose>0 0.045 0 0 -0 0</pose>
+        <geometry><box><size>0.06 0.03 0.015</size></box></geometry>
         <material><ambient>0.263 0.0593 0.0196 1</ambient><diffuse>0.263 0.0593 0.0196 1</diffuse></material>
       </visual>
       <visual name="geom133_visual">
-        <pose>0 -0.055 0 0 -0 0</pose>
-        <geometry><box><size>0.06 0.05 0.02</size></box></geometry>
+        <pose>0 -0.045 0 0 -0 0</pose>
+        <geometry><box><size>0.06 0.03 0.015</size></box></geometry>
         <material><ambient>0.263 0.0593 0.0196 1</ambient><diffuse>0.263 0.0593 0.0196 1</diffuse></material>
       </visual>
+      <visual name="board_foot_visual">
+        <pose>0 -0.05 -0.02 0 -0 0</pose>
+        <geometry><box><size>0.12 0.02 0.025</size></box></geometry>
+        <material><ambient>0.263 0.0593 0.0196 1</ambient><diffuse>0.263 0.0593 0.0196 1</diffuse></material>
+      </visual>
+      <visual name="board_handle_visual">
+        <pose>0 0.1 -0.0075 0 -0 0</pose>
+        <geometry><box><size>0.05 0.08 0.05</size></box></geometry>
+        <material><ambient>0.0331 0.0331 0.523 1</ambient><diffuse>0.0331 0.0331 0.523 1</diffuse></material>
+      </visual>
     </link>
+    <!-- Pose del modelo para play_gazebo (obj{i}_*, frame root) -->
+    <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+      <publish_link_pose>false</publish_link_pose>
+      <publish_model_pose>true</publish_model_pose>
+      <use_pose_vector_msg>false</use_pose_vector_msg>
+      <update_frequency>30</update_frequency>
+    </plugin>
   </model>
 </sdf>

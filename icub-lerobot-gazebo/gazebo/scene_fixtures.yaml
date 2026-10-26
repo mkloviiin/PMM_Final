@@ -7,6 +7,3 @@
 "Door Opening":
   - model: door                    # models/door (tools/door_sdf_from_mujoco.py): el giro va en el modelo
     pose: [-0.47, 0.086, 0.885]    # MuJoCo: door_mount en (0.47, -0.086, 0.885)
-"Peg-In-Hole":
-  - model: hole-board              # models/hole-board (tools/object_sdf_from_mujoco.py)
-    pose: [-0.36, 0.0, 0.73]       # MuJoCo: hole-board en (0.36, 0.0, 0.73)

@@ -14,18 +14,29 @@
   </visual>
 
   <worldbody>
-    <!-- Tabla con agujero al alcance de la mano derecha y la clavija de pie a la derecha
-         (acostada, pararla exige girar la muñeca 90°, que el iCub no da). Tabla de
-         16 x 16 x 2 cm sobre la mesa, agujero de 6 x 6 cm centrado en el body. -->
-    <body name="hole-board" pos="0.36 0.0 0.73">
-      <geom pos="0.055 0 0" size="0.025 0.08 0.01" type="box" group="1" material="plate_mat" />
-      <geom pos="-0.055 0 0" size="0.025 0.08 0.01" type="box" group="1" material="plate_mat" />
-      <geom pos="0 0.055 0" size="0.03 0.025 0.01" type="box" group="1" material="plate_mat" />
-      <geom pos="0 -0.055 0" size="0.03 0.025 0.01" type="box" group="1" material="plate_mat" />
+    <!-- Two-Arm Peg-In-Hole al estilo de robosuite (TwoArmPegInHole): la mano derecha toma la
+         tabla con el agujero por su mango y la levanta, la izquierda toma la clavija de pie y la
+         pasa por el agujero en el aire. En robosuite los objetos vienen pegados a las pinzas;
+         acá hay que tomarlos de la mesa.
+
+         Tabla de 12 x 12 x 1.5 cm con agujero de 6 x 6 cm (centro del body). El mango es un
+         bloque de 5 x 8 x 5 cm a la derecha, apoyado en la mesa: se toma como el cubo de Block
+         Lifting (una barra delgada, como el asa de la olla, se suelta seguido). Al otro lado
+         la tabla se apoya en una pata. Girada 180° en z como los demás objetos (scenes.yaml):
+         el mango va en +y local y queda a la derecha del robot. -->
+    <body name="hole-board" pos="0.30 -0.02 0.7525" quat="0 0 0 1">
+      <inertial pos="0 0.06 -0.005" mass="0.12" diaginertia="0.0004 0.0002 0.0005" />
+      <geom pos="0.045 0 0" size="0.015 0.06 0.0075" type="box" group="1" material="plate_mat" friction="1.0 0.005 0.0001" condim="4" />
+      <geom pos="-0.045 0 0" size="0.015 0.06 0.0075" type="box" group="1" material="plate_mat" friction="1.0 0.005 0.0001" condim="4" />
+      <geom pos="0 0.045 0" size="0.03 0.015 0.0075" type="box" group="1" material="plate_mat" friction="1.0 0.005 0.0001" condim="4" />
+      <geom pos="0 -0.045 0" size="0.03 0.015 0.0075" type="box" group="1" material="plate_mat" friction="1.0 0.005 0.0001" condim="4" />
+      <geom pos="0 -0.05 -0.02" size="0.06 0.01 0.0125" type="box" group="1" material="plate_mat" name="board_foot" />
+      <geom pos="0 0.10 -0.0075" size="0.025 0.04 0.025" type="box" group="1" rgba="0.2 0.2 0.75 1" friction="1.0 0.005 0.0001" condim="4" name="board_handle" />
       <site name="hole_center" pos="0 0 0" size="0.003" rgba="1 0 0 0" />
+      <freejoint />
     </body>
-    <!-- Clavija de pie: cilindro de 4 cm de diámetro y 13 cm de alto -->
-    <body name="peg" pos="0.32 -0.22 0.785" quat="0 0 0 1">
+    <!-- Clavija de pie a la izquierda: cilindro de 4 cm de diámetro y 13 cm de alto -->
+    <body name="peg" pos="0.32 0.24 0.785" quat="0 0 0 1">
       <inertial pos="0 0 0" mass="0.12" diaginertia="0.0002 0.0002 0.00005" />
       <geom type="cylinder" size="0.02 0.065" group="0" name="peg_collision" rgba="0.6 0.6 0.15 1" friction="0.9 0.01 0.001" condim="4" />
       <geom type="cylinder" size="0.02 0.065" conaffinity="0" contype="0" group="1" name="peg_visual" rgba="0.6 0.6 0.15 1" />

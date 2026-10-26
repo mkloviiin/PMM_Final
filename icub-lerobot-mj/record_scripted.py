@@ -312,45 +312,106 @@ class TwoArmLiftTask(Task):
 
 
 class PegInHoleTask(Task):
-    """Clavija de pie llevada al agujero de la tabla, con la mano derecha."""
+    """Two-Arm Peg-In-Hole (como TwoArmPegInHole de robosuite): la derecha levanta la tabla por
+    el mango y la izquierda pasa la clavija de pie por el agujero, en el aire. Plan sin ajustar:
+    con grip 0.8 la derecha levanta la tabla solo a veces y la izquierda suelta la clavija."""
     scene = "scene_icub_peginhole.xml"
-    grip = 0.8
-    # Agarre de costado (R_SIDE): la palma a la derecha de la clavija y algo atrás
-    cube_offset = np.array([-0.03, -0.03, 0.0])
+    arms = "both"
+    grip = None
+    # Agarre de costado de la izquierda (espejo de R_SIDE): la palma a la izquierda de la
+    # clavija y algo atrás
+    cube_offset = np.array([-0.03, 0.03, 0.0])
     HALF = 0.065          # media altura de la clavija
     GRASP_DZ = 0.015      # se toma algo arriba del centro
+    BOARD_HALF = 0.0075   # media hondura del agujero
+    BOARD_LIFT = 0.06     # la tabla se sostiene 6 cm sobre su pose en la mesa
+    HANDLE_OFFSET = CUBE_OFFSET   # el mango se toma como el cubo de Block Lifting
 
-    def _bottom(self, m, d):
+    def _peg_ends(self, m, d):
         b = m.body("peg").id
-        return d.xpos[b] - self.HALF * d.xmat[b].reshape(3, 3)[:, 2]
+        axis = d.xmat[b].reshape(3, 3)[:, 2]
+        return d.xpos[b] - self.HALF * axis, d.xpos[b] + self.HALF * axis
 
     def plan(self, m, d, tc, rng):
-        peg, hole = body_pos(m, d, "peg"), d.site_xpos[m.site("hole_center").id].copy()
-        grasp_pt = peg + np.array([0.0, 0.0, self.GRASP_DZ])
-        # Al soltar, la base 0.5 cm bajo la cara de la tabla (agujero de 2 cm de hondo)
-        place_pt = np.array([hole[0], hole[1], hole[2] + 0.01 - 0.005 + self.HALF + self.GRASP_DZ])
-        plan = pick_and_place_plan(grasp_pt, place_pt, rng, carry_z=0.12, offset=self.args.cube_offset,
-                                   approach_z=0.12, R=R_SIDE, start=(d.site_xpos[tc.rh_site_id].copy(),
-                                                           d.site_xmat[tc.rh_site_id].reshape(3, 3).copy()))
-        return {"right": plan}, (peg + hole) / 2, {"peg": peg.round(3).tolist()}
+        board, peg = m.body("hole-board").id, body_pos(m, d, "peg")
+        self.z0 = float(d.xpos[board][2])
+        up = np.array([0.0, 0.0, 1.0])
+        j = lambda: rng.uniform(0.9, 1.1)  # noqa: E731
+
+        # Derecha: el mango (bloque de 5 x 8 x 5 cm) se toma como un cubo
+        handle = d.xpos[board] + d.xmat[board].reshape(3, 3) @ np.array([0.0, 0.10, -0.0075])
+        grasp = handle + self.HANDLE_OFFSET
+        right = [
+            (3.0 * j(), grasp + 0.08 * up, R_CUBE, 0.0, "sobre el mango"),
+            (1.5, grasp, R_CUBE, 0.0, "baja al mango"),
+            (1.0, grasp, R_CUBE, 0.0, "espera"),
+            (3.5, grasp, R_CUBE, 1.0, "cierra la mano"),
+            (3.0 * j(), grasp + self.BOARD_LIFT * up, R_CUBE, 1.0, "levanta la tabla"),
+            (12.0, grasp + self.BOARD_LIFT * up, R_CUBE, 1.0, "sostiene"),
+        ]
+
+        # Izquierda: toma la clavija de costado, la lleva sobre el agujero (la tabla ya en el
+        # aire) y la baja hasta que la base pase 3 cm bajo el centro del agujero
+        R = mirror_grasp(R_SIDE)
+        off = self.args.cube_offset
+        site = d.site_xpos[tc.lh_site_id].copy()
+        g = peg + np.array([0.0, 0.0, self.GRASP_DZ]) + off
+        hole_up = d.site_xpos[m.site("hole_center").id] + self.BOARD_LIFT * up
+        above = hole_up + np.array([0.0, 0.0, self.BOARD_HALF + 0.03 + self.HALF + self.GRASP_DZ]) + off
+        inside = hole_up + np.array([0.0, 0.0, -0.03 + self.HALF + self.GRASP_DZ]) + off
+        left = [
+            (1.5, site + 0.12 * up, d.site_xmat[tc.lh_site_id].reshape(3, 3).copy(), 0.0, "sube la mano"),
+            (2.5 * j(), g + 0.12 * up, R, 0.0, "sobre la clavija"),
+            (1.5 * j(), g, R, 0.0, "baja a la clavija"),
+            (1.0, g, R, 0.0, "espera"),
+            (3.5, g, R, 1.0, "cierra la mano"),
+            (2.5 * j(), g + (above[2] - g[2]) * up, R, 1.0, "levanta"),
+            (3.0 * j(), above, R, 1.0, "lleva"),
+            (1.5, above, R, 1.0, "espera arriba"),
+            (2.5 * j(), inside, R, 1.0, "baja"),
+            (2.0, inside, R, 1.0, "espera abajo"),
+        ]
+        return ({"right": right, "left": left}, (peg + d.xpos[board]) / 2,
+                {"board": d.xpos[board].round(3).tolist(), "peg": peg.round(3).tolist()})
 
     def correct(self, m, d, trajs, label):
-        # Sobre el agujero: alinea la base de la clavija (no la mano) con el agujero
-        if label == "baja":
-            shift_from(trajs["right"], "baja", d.site_xpos[m.site("hole_center").id] - self._bottom(m, d))
+        # Sobre el agujero y al bajar: alinea en xy la base de la clavija con el agujero
+        if label in ("espera arriba", "baja"):
+            bottom = self._peg_ends(m, d)[0]
+            shift_from(trajs["left"], label, d.site_xpos[m.site("hole_center").id] - bottom)
 
     def success(self, m, d):
         met = self.metrics(m, d)
-        dx, dy, dz = met["bottom_minus_hole"]
-        # Base dentro del agujero (6 x 6 cm), a más de la mitad de su hondura (2 cm: la cara de
-        # la tabla está en dz = +0.01 y la mesa en -0.01) y sin quedar acostada
-        return abs(dx) < 0.03 and abs(dy) < 0.03 and dz < 0.0 and met["tilt_deg"] < 30.0
+        x, y = met["peg_in_board"][:2]
+        # Tabla en el aire, clavija cruzando la tabla (base bajo la cara de abajo y punta sobre la
+        # de arriba), por dentro del agujero (6 x 6 cm, holgura de 1 cm) y casi paralela a su eje
+        return (met["board_dz"] > 0.03 and met["through"] and abs(x) < 0.02 and abs(y) < 0.02
+                and met["angle_deg"] < 20.0)
 
     def metrics(self, m, d):
-        b = m.body("peg").id
-        rel = self._bottom(m, d) - d.site_xpos[m.site("hole_center").id]
-        tilt = np.degrees(np.arccos(np.clip(d.xmat[b].reshape(3, 3)[2, 2], -1, 1)))
-        return {"bottom_minus_hole": rel.round(3).tolist(), "tilt_deg": round(float(tilt), 1)}
+        board = m.body("hole-board").id
+        Rb = d.xmat[board].reshape(3, 3)
+        c = d.site_xpos[m.site("hole_center").id]
+        bottom, top = (Rb.T @ (p - c) for p in self._peg_ends(m, d))
+        # Punto donde el eje de la clavija corta el plano de la tabla (marco de la tabla)
+        t = bottom[2] / (bottom[2] - top[2]) if abs(bottom[2] - top[2]) > 1e-6 else 0.0
+        cross = bottom + t * (top - bottom)
+        axis = unit(top - bottom)
+        touch = {"r": 0, "l": 0}
+        peg = m.body("peg").id
+        for con in d.contact[:d.ncon]:
+            b1, b2 = m.geom_bodyid[con.geom1], m.geom_bodyid[con.geom2]
+            for obj, other in ((board, b2), (peg, b2), (board, b1), (peg, b1)):
+                if obj in (b1, b2) and other != obj:
+                    name = m.body(other).name
+                    if name[:7] in ("r_hand_", "l_hand_"):
+                        touch[name[0]] += 1
+        return {"board_dz": round(float(d.xpos[board][2]) - getattr(self, "z0", 0.0), 3),
+                "board_tilt_deg": round(float(np.degrees(np.arccos(np.clip(Rb[2, 2], -1, 1)))), 1),
+                "peg_in_board": cross.round(3).tolist(),
+                "through": bool(bottom[2] < -self.BOARD_HALF and top[2] > self.BOARD_HALF),
+                "angle_deg": round(float(np.degrees(np.arccos(np.clip(abs(axis[2]), -1, 1)))), 1),
+                "touch": touch}
 
 
 TASKS = {"door": DoorTask, "stacking": StackingTask, "pickplace": PickPlaceTask,

@@ -10,7 +10,7 @@ orientación en el frame root.
 
 Uso (entorno con mujoco, p. ej. icubenv), desde icub-lerobot-gazebo/:
     python tools/object_sdf_from_mujoco.py scene_icub_twoarmlift.xml lift-pot
-    python tools/object_sdf_from_mujoco.py scene_icub_peginhole.xml hole-board --static
+    python tools/object_sdf_from_mujoco.py scene_icub_peginhole.xml hole-board
 """
 
 from __future__ import annotations

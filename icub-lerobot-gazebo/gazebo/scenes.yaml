@@ -83,13 +83,19 @@
       qpos: 0.0
 
 - file: scene_icub_peginhole.xml
-  label: "Peg-In-Hole"          # con la mano derecha
+  label: "Two-Arm Peg-In-Hole"   # tabla con la derecha, clavija con la izquierda
   task: "insert the peg into the hole"
   objects:
+    - body: "hole-board"
+      spawn:
+        x: [0.29, 0.31]
+        y: [-0.03, -0.01]        # mango hacia la mano derecha
+        z: 0.7525                # tapa de la mesa 0.72 + 0.0325 (mango de 5 cm en la mesa)
+        quat: [0, 0, 0, 1]
     - body: "peg"
       spawn:
-        x: [0.30, 0.34]          # de pie a la derecha; en y > -0.20 la mano
-        y: [-0.26, -0.22]        # derecha en home la bota
+        x: [0.30, 0.34]          # de pie a la izquierda; en y < 0.20 la mano
+        y: [0.22, 0.26]          # izquierda en home la bota
         z: 0.785                 # tapa de la mesa 0.72 + media altura 0.065
         quat: [0, 0, 0, 1]
 
