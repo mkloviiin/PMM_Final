@@ -37,7 +37,9 @@ app.
   the same cameras. A dataset from one platform therefore works for the other (see
   [Recorded data](#recorded-data)).
 
-**Teleoperation:** with the BeaVR app on a Meta Quest, over Wi-Fi or a USB cable.
+**Teleoperation:** with the BeaVR app on a Meta Quest (over Wi-Fi or USB) or **interactively using mouse and keyboard in the MuJoCo viewer**.
+
+#### VR Controls (Meta Quest)
 
 | VR control | Action |
 |---|---|
@@ -47,8 +49,38 @@ app.
 | **B** | Stop and save episode (hold **B**: discard it) |
 | **Y** | Reposition the scene objects |
 
-Without VR, MuJoCo also accepts the viewer's keyboard: `8`/`9` open and close the right
-hand, `6`/`7` the left one, and `N` repositions the objects.
+#### Bimanual Teleoperation in MuJoCo with Mocaps (Mouse & Keyboard)
+
+To teleoperate interactively in MuJoCo without a VR headset, manipulate the *mocap* targets (`r_hand_target`, `l_hand_target`, `head_target`) directly in the graphical viewer:
+
+```bash
+# 1. With QP Inverse Kinematics (TSIK - iCubWholeBodyIK):
+pixi run python play.py --backend mujoco --controller ik --control-arms both --no-record
+
+# 2. With QP Task-Space Inverse Dynamics (TSID - iCubWholeBodyID):
+pixi run python play.py --backend mujoco --controller id --control-arms both --no-record
+
+# 3. With TSID + Compliant Cartesian Impedance Mode:
+pixi run python play.py --backend mujoco --controller id --impedance --control-arms both --no-record
+```
+
+**Viewer Interaction:**
+- **Select an effector:** **Double-left-click** on the desired mocap target (`r_hand_target` or `l_hand_target`).
+- **Translate position ($X, Y, Z$):** Hold `Ctrl` and **drag with Right-Click**.
+- **Rotate orientation ($SO(3)$):** Hold `Ctrl` and **drag with Left-Click**.
+- **Gripper / Hand controls:**
+  - Right hand: key `8` (open) / key `9` (close).
+  - Left hand: key `6` (open) / key `7` (close).
+- **Simulation and posture controls:**
+  - `SPACE`: Reset mocaps to home and smoothly return the robot to the neutral posture (*minimum-jerk* 2.5s trajectory).
+  - `T`: Toggle teleoperation tracking / idle pause.
+  - `N`: Reset tabletop object positions.
+  - `I`: Toggle Cartesian impedance mode at runtime (when `--controller id` is used).
+- **Console commands (`play.py`):**
+  - `1`: Start recording an episode.
+  - `2`: Stop and save the episode.
+  - `h`: Request smooth return to home posture.
+  - `3`: Cleanly exit teleoperation.
 
 ---
 

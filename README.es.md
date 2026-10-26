@@ -36,7 +36,9 @@ realidad virtual (Meta Quest 2), con la aplicación **BeaVR** modificada.
   las mismas cámaras. Así un dataset de una plataforma sirve para la otra (ver
   [Datos que se graban](#datos-que-se-graban)).
 
-**Teleoperación:** con la app BeaVR en un Meta Quest, por Wi-Fi o por cable USB.
+**Teleoperación:** con la app BeaVR en un Meta Quest (por Wi-Fi o cable USB) o **interactivamente con el ratón y teclado en el visor de MuJoCo**.
+
+#### Controles con VR (Meta Quest)
 
 | Control VR | Acción |
 |---|---|
@@ -46,8 +48,38 @@ realidad virtual (Meta Quest 2), con la aplicación **BeaVR** modificada.
 | **B** | Detener y guardar episodio (mantener **B**: descartarlo) |
 | **Y** | Reposicionar los objetos de la escena |
 
-Sin VR, en MuJoCo también se puede usar el teclado del visor: `8`/`9` abren y cierran la
-mano derecha, `6`/`7` la izquierda y `N` reposiciona los objetos.
+#### Teleoperación Bímana en MuJoCo con Mocaps (Ratón y Teclado)
+
+Para teleoperar interactivamente en MuJoCo sin visor VR, se manipulan directamente los cuerpos *mocap* (`r_hand_target`, `l_hand_target`, `head_target`) en la interfaz gráfica:
+
+```bash
+# 1. Con Cinemática Inversa QP (TSIK - iCubWholeBodyIK):
+pixi run python play.py --backend mujoco --controller ik --control-arms both --no-record
+
+# 2. Con Dinámica Inversa QP (TSID - iCubWholeBodyID):
+pixi run python play.py --backend mujoco --controller id --control-arms both --no-record
+
+# 3. Con TSID + Modo de Impedancia Cartesiana compliant:
+pixi run python play.py --backend mujoco --controller id --impedance --control-arms both --no-record
+```
+
+**Interacción en el visor gráfico de MuJoCo:**
+- **Seleccionar un efector:** Haz **doble clic izquierdo** sobre el mocap deseado (`r_hand_target` o `l_hand_target`).
+- **Mover posición ($X, Y, Z$):** Mantén presionada la tecla `Ctrl` y **arrastra con Clic Derecho**.
+- **Rotar orientación ($SO(3)$):** Mantén presionada la tecla `Ctrl` y **arrastra con Clic Izquierdo**.
+- **Control de pinzas / manos:**
+  - Mano derecha: tecla `8` (abrir) / tecla `9` (cerrar).
+  - Mano izquierda: tecla `6` (abrir) / tecla `7` (cerrar).
+- **Control de simulación y postura:**
+  - `ESPACIO`: Resetea los mocaps al origen y mueve el robot suavemente a la postura de inicio (*home*).
+  - `T`: Pausa o activa el seguimiento teleoperado.
+  - `N`: Resetea la posición de los objetos en la mesa.
+  - `I`: Alterna en caliente el modo de impedancia cartesiana (cuando se usa `--controller id`).
+- **Comandos de consola (`play.py`):**
+  - `1`: Iniciar grabación de episodio.
+  - `2`: Detener y guardar episodio.
+  - `h`: Solicitar retorno suave a postura inicial (*home*).
+  - `3`: Salir de la teleoperación.
 
 ---
 
