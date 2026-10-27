@@ -10,12 +10,12 @@ Todo usa el entorno `icubenv`.
 | `metrics_report.py` | Tablas (Markdown + LaTeX) y figuras para el informe | Después de grabar/probar |
 | `dataset_check.py` | Integridad y sincronización de datasets ya grabados (también los antiguos) | Cuando quieras |
 
-Todo se escribe en `hub_dataset/logs/metrics/` (fuera del dataset, no se sube a Hugging Face).
+Todo se escribe en `src/hub_dataset/logs/metrics/` (fuera del dataset, no se sube a Hugging Face).
 `PMM_METRICS=0` desactiva el registro; `PMM_METRICS_DIR=<carpeta>` lo redirige.
 
 ## 1. Grabar (métricas por frame)
 
-No hay que hacer nada distinto: al grabar, se crea `hub_dataset/logs/metrics/<dataset>.jsonl` y al
+No hay que hacer nada distinto: al grabar, se crea `src/hub_dataset/logs/metrics/<dataset>.jsonl` y al
 guardar cada episodio aparece en el log del Hub una línea así:
 
 ```
@@ -49,11 +49,11 @@ del Hub no debe estar enviando targets a la vez (detén el paso 3; el módulo YA
 ## 3. Generar el informe
 
 ```bash
-python metrics/metrics_report.py --logs hub_dataset/logs/hub_*.txt
-python metrics/dataset_check.py data/<dataset> [data/<otro> ...] --out hub_dataset/logs/metrics/report
+python metrics/metrics_report.py --logs src/hub_dataset/logs/hub_*.txt
+python metrics/dataset_check.py data/<dataset> [data/<otro> ...] --out src/hub_dataset/logs/metrics/report
 ```
 
-Sale en `hub_dataset/logs/metrics/report/`: `resumen.md`, `tablas.tex` (requiere `\usepackage{booktabs}`),
+Sale en `src/hub_dataset/logs/metrics/report/`: `resumen.md`, `tablas.tex` (requiere `\usepackage{booktabs}`),
 `resumen.json` y `fig_*.png`. Por defecto usa todos los `.jsonl` y `probe_*_trials.csv` de la carpeta;
 con `--frames ...` / `--probes ...` eliges cuáles (p. ej. para excluir sesiones de prueba).
 
@@ -98,5 +98,37 @@ reportan aparte. σ entre escalones = jitter de la respuesta.
 - **Gazebo:** la mano se detiene a 1–2 cm del target aunque el controlador cartesiano reporte
   `desired = target`. Esto aparece como error estacionario en la prueba de escalón; en el log del
   robot real del 05-10, "hand-target" tiene una mediana de 1,4 cm.
-- Si `play_mujoco.py` se corre a mano sin `--model`, el XML por defecto
-  (`icub_table_scene.xml`) no existe. El Hub sí pasa la escena.
+
+## Criterios de éxito de las tareas (`task_success.py`)
+
+`eval_policy.py` (MuJoCo y Gazebo) decide el éxito con el mismo módulo, que porta el
+`_check_success` de robosuite (1.5.2) para cada tarea. Cada simulador solo arma el estado: poses de
+los objetos, agarres, contactos entre objetos y articulaciones. Como en los rollouts de robomimic,
+un episodio cuenta como éxito si el criterio se cumple **en algún paso**. Además se guarda
+`success_at_end`, porque un objeto puede cumplirlo un instante y caerse después.
+
+| Tarea (escena) | robosuite | Criterio en el iCub |
+|---|---|---|
+| Block Lifting | `Lift` | centro del cubo azul > mesa + 4 cm |
+| Block Stacking | `Stack` | azul > mesa + 4 cm, tocando el rojo y sin agarrar |
+| Pick-and-Place | `PickPlace` | centro del cubo dentro de la caja (±6 cm en su frame, de la base a +10 cm) y sin agarrar |
+| Door Opening | `Door` | bisagra > 0,3 rad |
+| Two-Arm Lifting | `TwoArmLift` | fondo de la olla > mesa + 10 cm |
+| Two-Arm Peg-In-Hole | `TwoArmPegInHole` | d < 3,6 cm, −12 ≤ t ≤ 14 cm, cos > 0,95 (eje de la clavija vs. agujero) |
+
+**Agarre:** robosuite pide contacto de las dos almohadillas de la pinza. En el iCub cuenta como
+agarre que la yema del pulgar y la del índice o el medio toquen el objeto, en cualquiera de las dos
+manos. Son los eslabones `*_hand_{thumb,index,middle}_3`: en Gazebo tienen sensores de contacto
+(`/icub/touch/<mano>_<dedo>`) y en MuJoCo se leen los contactos de esos mismos cuerpos.
+
+**Contactos entre objetos:** en MuJoCo salen de `mjData.contact`. En Gazebo, del sensor del modelo
+(`gazebo_sim/models/red-cube`, que publica en `/red-cube/contact`).
+
+**Adaptaciones respecto de robosuite:**
+- *PickPlace:* robosuite exige además que la pinza quede a más de 4,2 cm del objeto, como señal de
+  que lo soltó. En el iCub el sitio de la mano está en la palma, a unos 5 cm de un cubo tomado, así
+  que se usa la misma prueba de agarre que en Stack.
+- *PegInHole:* la clavija mide 0,13 m, igual que en robosuite, así que t y cos no cambian. El
+  agujero mide 6 cm y no 10, por lo que d se escala: 0,06 × 0,03 / 0,05.
+- *Umbrales de altura:* se usan tal cual (4 y 10 cm). El cubo del iCub mide 5 cm y el de robosuite
+  unos 4, así que en Lift basta levantarlo 1,5 cm, frente a 2 cm en robosuite.

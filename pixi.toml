@@ -40,7 +40,7 @@ pyyaml = "*"
 pyzmq = "*"
 pyquaternion = "*"
 scipy = "*"
-pandas = "*"
+pandas = "<3"                     # lerobot[dataset] requires pandas < 3
 matplotlib = "*"
 glfw = "*"
 
@@ -60,7 +60,9 @@ index-strategy = "unsafe-best-match"
 # ML, VLA, and Imitation Learning Stack with CUDA support (PyPI)
 torch = ">=2.2.0"
 torchvision = "*"
-lerobot = "*"
+# Same LeRobot commit as the training env (smolvla, editable lerobot 0.6.2.dev): checkpoints
+# saved by 0.6 do not load in the PyPI 0.5.x.
+lerobot = { git = "https://github.com/huggingface/lerobot.git", rev = "3f2c29ef", extras = ["dataset", "training", "smolvla"] }
 datasets = "*"
 gradio = ">=6.18,<7"         # Hub UI (gradio 3.x does not run the Hub)
 plotly = ">=6.5"                 # Hub curation plots
