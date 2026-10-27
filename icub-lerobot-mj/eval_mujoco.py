@@ -13,7 +13,9 @@ Optional flags:
     --n-episodes 5                   Number of evaluation episodes
     --episode-steps 300              Max steps per episode (at --fps Hz)
     --fps 30
-    --scene 1                        1=lift, 2=stack, 3=door (con pestillo)
+    --scene 1                        1=lift, 2=stack, 3=door (con pestillo), 4=pick-and-place,
+                                     5=two-arm lifting, 6=two-arm peg-in-hole
+                                     (éxito: criterio de robosuite, metrics/task_success.py)
 """
 
 from __future__ import annotations
@@ -51,6 +53,10 @@ if _icubenv_sp not in sys.path:
 
 from dependencies.door_scene import handle_side, place_door, set_handle_side  # noqa: E402
 
+# Criterios de éxito de robosuite, compartidos con eval_gazebo.py
+sys.path.insert(0, str(repo_root.parent / "metrics"))
+import task_success  # noqa: E402
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -81,8 +87,10 @@ def parse_args() -> argparse.Namespace:
         "--scene",
         type=int,
         default=1,
-        choices=[1, 2, 3],
-        help="1=lift cube, 2=stack cubes, 3=open the door (latch; success = door_hinge > 0.3 rad)",
+        choices=[1, 2, 3, 4, 5, 6],
+        help="1=lift cube, 2=stack cubes, 3=open the door (latch), 4=pick-and-place, "
+             "5=two-arm lifting, 6=two-arm peg-in-hole. Success as robosuite's _check_success "
+             "of the same task (metrics/task_success.py)",
     )
     p.add_argument(
         "--control-arms",
@@ -130,7 +138,8 @@ def parse_args() -> argparse.Namespace:
         "--lift-threshold",
         type=float,
         default=0.03,
-        help="Lift success threshold in meters (max_cube_z - initial_cube_z)",
+        help="Extra 'lifted' metric of the cube scenes (max_cube_z - initial_cube_z >= threshold); "
+             "success is robosuite's criterion",
     )
     p.add_argument(
         "--min-hand-z",
@@ -233,9 +242,51 @@ LEGACY_CAMERA_NAMES = ["head_cam", "head_cam_track_hand", "frontview"]
 LEGACY_CAMERA_SOURCES = {"head_cam": "head_cam_v1", "head_cam_track_hand": "head_cam_track_hand_v1"}
 
 SCENES_DIR = repo_root / "dependencies" / "assets" / "scenes"
-SCENE_FILES = {1: "scene_icub_lift.xml", 2: "scene_icub_stack.xml", 3: "scene_icub_door.xml"}
-# Puerta: éxito como robosuite (Door._check_success), bisagra sobre 0.3 rad en algún paso
-DOOR_SUCCESS_RAD = 0.3
+SCENE_FILES = {1: "scene_icub_lift.xml", 2: "scene_icub_stack.xml", 3: "scene_icub_door.xml",
+               4: "scene_icub_pickplace.xml", 5: "scene_icub_twoarmlift.xml", 6: "scene_icub_peginhole.xml"}
+
+
+def body_geoms(model, body_names) -> set[int]:
+    ids = {model.body(n).id for n in body_names}
+    return {g for g in range(model.ngeom) if model.geom_bodyid[g] in ids}
+
+
+def in_contact(data, geoms_a: set[int], geoms_b: set[int]) -> bool:
+    """Como check_contact de robosuite: algún contacto entre los dos grupos de geoms."""
+    for c in data.contact[:data.ncon]:
+        if (c.geom1 in geoms_a and c.geom2 in geoms_b) or (c.geom2 in geoms_a and c.geom1 in geoms_b):
+            return True
+    return False
+
+
+class MujocoSceneState:
+    """SceneState de task_success (metrics/) desde MuJoCo: poses, agarres (yema del pulgar y del
+    índice o el medio, como los sensores de Gazebo), contactos entre objetos y articulaciones."""
+
+    def __init__(self, model, task: str):
+        self.task = task
+        self.bodies = {b: model.body(b).id for b in task_success.BODIES[task]}
+        self.geoms = {b: body_geoms(model, [b]) for b in self.bodies}
+        self.table_site = model.site("table_top").id
+        self.hands = [
+            (body_geoms(model, [f"{s}_hand_{task_success.GRASP_THUMB}_3"]),
+             body_geoms(model, [f"{s}_hand_{f}_3" for f in task_success.GRASP_FINGERS]))
+            for s in ("r", "l")
+        ]
+        self.joints = {j: model.jnt_qposadr[model.joint(j).id] for j in task_success.JOINTS.get(task, [])}
+
+    def __call__(self, data) -> task_success.SceneState:
+        grasped = {b for b in task_success.GRASP_BODIES.get(self.task, [])
+                   if any(in_contact(data, thumb, self.geoms[b]) and in_contact(data, fingers, self.geoms[b])
+                          for thumb, fingers in self.hands)}
+        touching = {frozenset(pair) for pair in task_success.CONTACT_PAIRS.get(self.task, [])
+                    if in_contact(data, self.geoms[pair[0]], self.geoms[pair[1]])}
+        return task_success.SceneState(
+            poses={b: (data.xpos[i].copy(), data.xquat[i].copy()) for b, i in self.bodies.items()},
+            table_z=float(data.site_xpos[self.table_site][2]),
+            grasped=grasped, touching=touching,
+            joints={j: float(data.qpos[adr]) for j, adr in self.joints.items()},
+        )
 
 FULL_ACTION_ORDER = [
     "rh_pos_x", "rh_pos_y", "rh_pos_z",
@@ -545,8 +596,6 @@ def main() -> None:
     if "door_hinge" in [tc.model.joint(j).name for j in range(tc.model.njnt)]:
         door_adr = tc.model.jnt_qposadr[tc.model.joint("door_hinge").id]
         handle_adr = tc.model.jnt_qposadr[tc.model.joint("handle_hinge").id]
-        print(f"[eval] Door scene: success = door_hinge > {DOOR_SUCCESS_RAD} rad "
-              f"({np.degrees(DOOR_SUCCESS_RAD):.0f} deg) at some step")
         if args.door_xy is not None:
             # Se mueve todo el montaje (marco, hoja, manilla); cambiar de lado la manilla
             # espeja respecto del centro de la hoja, así que basta con ubicarla una vez.
@@ -556,6 +605,10 @@ def main() -> None:
             print(f"[eval] Door moved: panel center {np.round(panel_xy, 3)} -> {args.door_xy}")
     elif args.door_xy is not None or args.door_side is not None:
         raise SystemExit("--door-xy / --door-side only apply to the door scene (--scene 3)")
+
+    success_task = task_success.TASK_BY_SCENE[model_file.name]
+    scene_state = MujocoSceneState(tc.model, success_task)
+    print(f"[eval] Success ({success_task}): {task_success.DESCRIPTION[success_task]}, at some step")
 
     # ── Evaluation loop ───────────────────────────────────────────────────────
     episode_metrics: list[dict] = []
@@ -571,16 +624,16 @@ def main() -> None:
                     side = (args.door_side if args.door_side != "alternate"
                             else ("right" if ep % 2 == 0 else "left"))
                     set_handle_side(tc.model, side)
-                if door_adr is not None:
-                    # Las demos parten en home; una mano que quedó en la manilla sostendría
-                    # la puerta durante el reset.
-                    tc.data.qpos[:] = tc.home_qpos
-                    tc.data.ctrl[:] = tc.home_ctrl
-                    tc._apply_home_pose_to_arrays(tc.data.qpos, tc.data.ctrl)
-                    tc.data.qvel[:] = 0
-                    tc._set_hand_level("right", 0.0)
-                    tc._set_hand_level("left", 0.0)
-                    mujoco.mj_forward(tc.model, tc.data)
+                # Las demos parten en home con las manos abiertas (Hub y record_scripted.py), y
+                # una mano que quedó sobre un objeto (la manilla, la olla) lo sostendría durante
+                # el reset.
+                tc.data.qpos[:] = tc.home_qpos
+                tc.data.ctrl[:] = tc.home_ctrl
+                tc._apply_home_pose_to_arrays(tc.data.qpos, tc.data.ctrl)
+                tc.data.qvel[:] = 0
+                tc._set_hand_level("right", 0.0)
+                tc._set_hand_level("left", 0.0)
+                mujoco.mj_forward(tc.model, tc.data)
                 if hasattr(tc, "_reset_scenario"):
                     tc._reset_scenario()
 
@@ -604,6 +657,7 @@ def main() -> None:
             ep_initial_cube_z: float | None = None
             ep_max_cube_z: float | None = None
             ep_max_door = ep_min_handle = 0.0
+            ep_success = task_success.EpisodeSuccess(success_task)
             ep_touch_frames = 0
             ep_clamp_steps = 0
             infer_ms: list[float] = []
@@ -639,6 +693,8 @@ def main() -> None:
                 if door_adr is not None:
                     ep_max_door = max(ep_max_door, float(tc.data.qpos[door_adr]))
                     ep_min_handle = min(ep_min_handle, float(tc.data.qpos[handle_adr]))
+
+                ep_success.update(step, scene_state(tc.data))
 
                 touched = False
                 for touch_key in ("rh_touch_thumb", "rh_touch_index", "rh_touch_middle"):
@@ -701,7 +757,11 @@ def main() -> None:
                     "door_final_deg": float(np.degrees(tc.data.qpos[door_adr])),
                     "handle_min_deg": float(np.degrees(ep_min_handle)),
                 }
-            success = ep_max_door > DOOR_SUCCESS_RAD if door_adr is not None else lifted
+            # Criterio de robosuite en el estado final (el de ep_success es el del último paso,
+            # antes de la última acción)
+            ep_success.update(args.episode_steps, scene_state(tc.data))
+            success_metrics = ep_success.summary()
+            success = success_metrics["success"]
             episode_metrics.append(
                 {
                     "episode": ep + 1,
@@ -712,7 +772,7 @@ def main() -> None:
                     "clamp_ratio": ep_clamp_steps / max(args.episode_steps, 1),
                     "lifted": lifted,
                     **door_metrics,
-                    "success": success,
+                    **success_metrics,
                     "infer_ms_max": max(infer_ms) if infer_ms else None,
                     "realtime_extra_s": rt_gap_s,
                 }
@@ -725,6 +785,11 @@ def main() -> None:
                         f"final={door_metrics['door_final_deg']:.1f}deg "
                         f"handle min={door_metrics['handle_min_deg']:.1f}deg"
                         if door_metrics else f"z0={init_str} zmax={max_str} lift={lift_str}m")
+            if success_task not in ("lift", "stack", "door"):
+                task_str = ""
+            task_str += (f" success_step={success_metrics['success_step']} final: "
+                         + " ".join(f"{k.removeprefix('final_')}={v}" for k, v in success_metrics.items()
+                                    if k.startswith("final_")))
             print(
                 f"  [metrics] {task_str} "
                 f"touch={touch_ratio:.1%} clamp={ep_clamp_steps / max(args.episode_steps, 1):.1%} "
@@ -746,17 +811,26 @@ def main() -> None:
             avg_lift_str = f"{avg_lift:.3f}m" if not np.isnan(avg_lift) else "n/a"
 
             print("[eval] Summary")
-            print(f"  success_rate: {successes}/{total} ({successes / total:.1%})")
+            # success es como robomimic (éxito en algún paso); un objeto que lo cumple un
+            # instante y se cae cuenta, por eso también el estado al final del episodio
+            at_end = sum(1 for m in episode_metrics if m["success_at_end"])
+            print(f"  success_rate: {successes}/{total} ({successes / total:.1%})  "
+                  f"[{success_task}: {task_success.DESCRIPTION[success_task]}]")
+            print(f"  success_at_end: {at_end}/{total} ({at_end / total:.1%})")
             if door_adr is not None:
                 print(f"  avg_door_max: {np.mean([m['door_max_deg'] for m in episode_metrics]):.1f}deg")
-            else:
+            elif success_task in ("lift", "stack"):
                 print(f"  avg_lift_delta: {avg_lift_str}")
             print(f"  avg_touch_ratio: {avg_touch:.1%}")
             print(f"  avg_clamp_ratio: {avg_clamp:.1%}")
 
         (run_dir / "summary.json").write_text(json.dumps(
-            {"args": vars(args), "episodes": episode_metrics,
+            {"args": vars(args), "success_task": success_task,
+             "success_criterion": task_success.DESCRIPTION[success_task],
+             "episodes": episode_metrics,
              "success_rate": (sum(m["success"] for m in episode_metrics) / len(episode_metrics))
+             if episode_metrics else None,
+             "success_at_end_rate": (sum(m["success_at_end"] for m in episode_metrics) / len(episode_metrics))
              if episode_metrics else None},
             indent=2, default=float))
         print(f"[eval] Summary saved to {run_dir / 'summary.json'}")

@@ -9,7 +9,7 @@ import gradio as gr
 
 from ..paths import HUB_ROOT
 from .dir_picker import dir_textbox
-from ..curation import build_custom_plotly_chart
+from ..curation import MODAL_HIDDEN, build_custom_plotly_chart
 
 
 def build_curation_tab():
@@ -35,8 +35,12 @@ def build_curation_tab():
                 last_btn = gr.Button("Use last recorded")
                 load_ds_btn = gr.Button("Load dataset", variant="primary", elem_classes=["btn-green"])
                 delete_ds_btn = gr.Button("Delete dataset", variant="stop", elem_classes=["btn-red"])
-        # Diálogo de confirmación (pop-up centrado, ver .pmm-modal en app.py)
-        with gr.Column(visible=False, elem_classes=["pmm-modal"]) as delete_confirm_grp:
+        # Diálogo de confirmación (pop-up centrado, ver .pmm-modal en app.py). "Delete" borra
+        # delete_target_state (el dataset que muestra el diálogo), no el valor actual del
+        # dropdown: Gradio puede volver a mostrar un diálogo viejo al reabrir la pestaña.
+        # Se muestra/oculta con clases (MODAL_SHOWN/MODAL_HIDDEN en curation.py), no visible=.
+        delete_target_state = gr.State(None)
+        with gr.Column(elem_classes=MODAL_HIDDEN) as delete_confirm_grp:
             delete_confirm_md = gr.Markdown("")
             with gr.Row():
                 delete_cancel_btn = gr.Button("Cancel")
@@ -281,7 +285,7 @@ def build_curation_tab():
         dataset_dd=dataset_dd, last_btn=last_btn, browse_dir_ev=browse_dir_ev, tab=curation_tab,
         delete_ds_btn=delete_ds_btn, delete_confirm_grp=delete_confirm_grp,
         delete_confirm_md=delete_confirm_md, delete_yes_btn=delete_yes_btn,
-        delete_cancel_btn=delete_cancel_btn,
+        delete_cancel_btn=delete_cancel_btn, delete_target_state=delete_target_state,
         load_ds_btn=load_ds_btn, viz_status=viz_status,
         ep_prev_btn=ep_prev_btn, ep_num_nb=ep_num_nb, ep_next_btn=ep_next_btn,
         ep_delete_btn=ep_delete_btn, ep_info_tb=ep_info_tb, marked_summary_tb=marked_summary_tb,

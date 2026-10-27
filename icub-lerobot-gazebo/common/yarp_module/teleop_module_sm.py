@@ -82,6 +82,72 @@ def draw_status_corner(img, lines):
     return img
 
 
+# Ayuda en la pantalla grande del VR: "X: Ayuda" chico en la esquina inferior derecha y,
+# con la app en pausa (o tras apretar X, si llega al PC), un panel con los botones.
+# Sin tildes: cv2.putText no las soporta.
+VR_HELP_HINT = "X: Ayuda"
+VR_HELP_LINES = (
+    ("A", "Empezar a grabar"),
+    ("B", "Guardar episodio"),
+    ("B (mantener 1.5 s)", "Descartar episodio"),
+    ("Y", "Reiniciar escena"),
+    ("Gatillo inferior", "Abrir / cerrar mano"),
+    ("Ambos gatillos indice", "Embrague: acomodar el control"),
+    ("X", "Pausa / ayuda"),
+)
+# Sin datos de los controles por más de esto [s] = la app está en pausa (BeaVR deja de
+# mandarlos; la imagen la sigue mandando el PC).
+VR_PAUSE_TIMEOUT_S = 0.3
+
+
+def draw_help_hint(img):
+    """Dibuja (in place) "X: Ayuda" chico y semitransparente en la esquina inferior
+    derecha de `img` (BGR). Misma función en icub-lerobot-mj/dependencies/teleop_mujoco.py."""
+    h, w = img.shape[:2]
+    k = w / 640.0
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    sc, thick = 0.5 * k, max(1, round(1 * k))
+    pad, margin = max(3, int(6 * k)), max(4, int(14 * k))
+    (tw, th), base = cv2.getTextSize(VR_HELP_HINT, font, sc, thick)
+    x1, y1 = w - margin, h - margin
+    x0, y0 = max(0, x1 - tw - 2 * pad), max(0, y1 - th - base - 2 * pad)
+    img[y0:y1, x0:x1] = (img[y0:y1, x0:x1] * 0.6).astype(img.dtype)
+    text = img[y0:y1, x0:x1].copy()
+    cv2.putText(text, VR_HELP_HINT, (pad, pad + th), font, sc, (255, 255, 255), thick, cv2.LINE_AA)
+    img[y0:y1, x0:x1] = cv2.addWeighted(text, 0.7, img[y0:y1, x0:x1], 0.3, 0)
+    return img
+
+
+def draw_help_panel(img, title="AYUDA"):
+    """Dibuja (in place) en el centro de `img` (BGR) un panel con los botones del VR
+    (VR_HELP_LINES). Misma función en icub-lerobot-mj/dependencies/teleop_mujoco.py."""
+    h, w = img.shape[:2]
+    k = w / 640.0
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    thick = max(1, round(1 * k))
+    sc_title, sc = 0.8 * k, 0.5 * k
+    pad, gap = max(6, int(16 * k)), max(4, int(10 * k))
+    (tw_t, th_t), _ = cv2.getTextSize(title, font, sc_title, thick + 1)
+    sizes_k = [cv2.getTextSize(key, font, sc, thick)[0] for key, _ in VR_HELP_LINES]
+    sizes_d = [cv2.getTextSize(desc, font, sc, thick)[0] for _, desc in VR_HELP_LINES]
+    col_k = max(tw for tw, _ in sizes_k)
+    row_h = max(th for _, th in sizes_k + sizes_d) + gap
+    box_w = max(tw_t, col_k + 2 * gap + max(tw for tw, _ in sizes_d)) + 2 * pad
+    box_h = th_t + gap + row_h * len(VR_HELP_LINES) + 2 * pad
+    x0, y0 = max(0, (w - box_w) // 2), max(0, (h - box_h) // 2)
+    x1, y1 = min(w, x0 + box_w), min(h, y0 + box_h)
+    img[y0:y1, x0:x1] = (img[y0:y1, x0:x1] * 0.25).astype(img.dtype)
+    cv2.rectangle(img, (x0, y0), (x1 - 1, y1 - 1), (200, 200, 200), thick, cv2.LINE_AA)
+    y = y0 + pad + th_t
+    cv2.putText(img, title, (x0 + (box_w - tw_t) // 2, y), font, sc_title, (0, 220, 255), thick + 1, cv2.LINE_AA)
+    y += gap
+    for key, desc in VR_HELP_LINES:
+        y += row_h
+        cv2.putText(img, key, (x0 + pad, y), font, sc, (0, 220, 255), thick, cv2.LINE_AA)
+        cv2.putText(img, desc, (x0 + pad + col_k + 2 * gap, y), font, sc, (255, 255, 255), thick, cv2.LINE_AA)
+    return img
+
+
 class TeleopModuleSM(yarp.RFModule):
     """
     iCub Teleoperation Module with State Machine pattern.
@@ -115,6 +181,7 @@ class TeleopModuleSM(yarp.RFModule):
         - stop_gaze: Disable gaze controller
         - reset_scenario: Reset objects in scene (Gazebo only)
         - vr_status <text>: Recording status for the VR screens ("|" separates lines)
+        - vr_help <0|1>: Help panel on the big VR screen (0 = only "X: Ayuda" in the corner)
         - quit: Close module
     """
 
@@ -351,6 +418,11 @@ class TeleopModuleSM(yarp.RFModule):
             # Texto de la pantalla chica cuando no hay cámara frontal (lo fija play_gazebo
             # con el RPC vr_status; "|" separa líneas).
             self.vr_status_text = "EN ESPERA"
+            # Ayuda en la pantalla grande (vr_help del YAML): "X: Ayuda" en la esquina y el
+            # panel con los botones cuando play_gazebo lo pide (RPC vr_help 1: app del VR en
+            # pausa o X apretado; lo detecta el teleoperador, que es quien recibe el VR).
+            self.vr_help_enabled = bool(self.cfg.get("vr_help", True))
+            self.vr_help_panel = False
             self._status_img = None
             self._status_img_text = None
             self._status_last_send = 0.0
@@ -358,6 +430,27 @@ class TeleopModuleSM(yarp.RFModule):
                 print(f"  ✓ Front camera connected: {self.front_source_port}")
             else:
                 print(f"  ⏳ Front camera not available now: {self.front_source_port} (will retry)")
+
+            # Cámara solo para la pantalla grande del VR. En Gazebo la publica el modelo del
+            # iCub (vr_camera_rgb: pose del ojo izquierdo, 640x480 y FOV más abierto, como
+            # head_cam_vr de MuJoCo); en el robot real no existe y se muestra el ojo.
+            self.vr_cam_source_port = self.cfg.get(
+                "vr_camera_port", f"/{robot_name}/cam/vr/rgbImage:o")
+            self.vr_cam_local_port = "/teleop/vr_cam:i"
+            self.ports["vr_cam_in"] = yarp.BufferedPortImageRgb()
+            if not self.ports["vr_cam_in"].open(self.vr_cam_local_port):
+                print(f"✗ ERROR: Failed to open {self.vr_cam_local_port}")
+                return False
+            self.vr_cam_buf = yarp.ImageRgb()
+            self.vr_cam_arr = None
+            self.vr_cam_bgr = None
+            self._vr_cam_last_try = 0.0
+            self._vr_cam_last_frame_t = 0.0
+            if self._connect_vr_camera():
+                print(f"  ✓ VR camera connected: {self.vr_cam_source_port}")
+            else:
+                print(f"  ⏳ VR camera not available now: {self.vr_cam_source_port} "
+                      f"(VR shows the eye camera; will retry)")
 
             # --- Estado Interno ---
             print("[8/9] Initializing internal state...")
@@ -389,6 +482,19 @@ class TeleopModuleSM(yarp.RFModule):
                 "close": hand_open + close_ratio * (hand_full_close - hand_open),
             }
             print(f"  Hand close ratio {close_ratio:.2f} -> close = {np.round(self.hand_vals['close'], 1).tolist()}")
+
+            # hand_close_time_s: duración de un cierre completo [s], igual que en MuJoCo.
+            # Cada motor va a |cierre - apertura| / hand_close_time_s (los que no se mueven
+            # quedan con la velocidad del controlador). Sin la clave = velocidad del
+            # controlador (~10 deg/s en Gazebo, un cierre de ~3.8 s).
+            close_time = self.cfg.get("hand_close_time_s")
+            if close_time:
+                delta = np.abs(self.hand_vals["close"] - self.hand_vals["open"])
+                speeds = [d / float(close_time) if d > 0 else None for d in delta]
+                for arm in ("left_arm", "right_arm"):
+                    if arm in self.actuators_to_use:
+                        ok = self.yarp_interface.set_hand_ref_speeds(arm, speeds)
+                        print(f"  Hand {arm} close time {float(close_time):.1f} s -> {'ok' if ok else 'FAILED'}")
             print("✓ Internal state initialized")
 
             if self.use_tactile and self.tactile_auto_connect:
@@ -520,6 +626,10 @@ class TeleopModuleSM(yarp.RFModule):
             
         elif cmd == "vr_status":
             self.vr_status_text = command.get(1).asString() if command.size() > 1 else ""
+            reply.addString("ok")
+
+        elif cmd == "vr_help":
+            self.vr_help_panel = command.size() > 1 and command.get(1).asInt32() != 0
             reply.addString("ok")
 
         elif cmd == "reset_scenario":
@@ -910,10 +1020,21 @@ class TeleopModuleSM(yarp.RFModule):
             # Con cámara frontal (Gazebo) la pantalla chica la muestra a ella, así que el
             # estado de la grabación va en la esquina de la pantalla grande. Sin ella
             # (robot real) ya lo muestra la pantalla chica (_stream_status_screen).
-            # view_out (recorder) recibe la imagen limpia.
-            img_vr = img_view
+            # view_out (recorder) recibe la imagen limpia del ojo. La pantalla grande
+            # muestra la cámara del VR si llega (Gazebo) y si no, el ojo.
+            vr_src = self._read_vr_camera()
+            if vr_src is None:
+                vr_src = img_view
+            img_vr = vr_src
             if time.time() - self._front_last_frame_t <= 1.0:
-                img_vr = draw_status_corner(img_view.copy(), self.vr_status_text.split("|"))
+                img_vr = draw_status_corner(vr_src.copy(), self.vr_status_text.split("|"))
+            if self.vr_help_enabled:
+                if img_vr is vr_src:
+                    img_vr = vr_src.copy()
+                if self.vr_help_panel:
+                    draw_help_panel(img_vr)
+                else:
+                    draw_help_hint(img_vr)
 
             window_name = "iCub_VR_View"
             cv2.imshow(window_name, img_vr)
@@ -1000,6 +1121,39 @@ class TeleopModuleSM(yarp.RFModule):
                 self.vr_viewer_pub.send_image(cv2.cvtColor(self.front_arr, cv2.COLOR_RGB2BGR))
             except Exception:
                 pass
+
+    def _connect_vr_camera(self):
+        """Conecta la cámara del VR a /teleop/vr_cam:i si su puerto existe."""
+        self._vr_cam_last_try = time.time()
+        if yarp.Network.isConnected(self.vr_cam_source_port, self.vr_cam_local_port):
+            return True
+        return (yarp.Network.exists(self.vr_cam_source_port, True)
+                and yarp.Network.connect(self.vr_cam_source_port, self.vr_cam_local_port, "fast_tcp", True))
+
+    def _read_vr_camera(self):
+        """Último frame de la cámara del VR en BGR (lo que espera el transmisor), o None si
+        no llegan frames hace más de 1 s (robot real): entonces se muestra el ojo."""
+        img = self.ports["vr_cam_in"].read(False)
+        now = time.time()
+        if img is None:
+            # Solo reconecta si no llegan frames hace rato; sin frame en este ciclo es normal.
+            if (now - self._vr_cam_last_frame_t > FRONT_RETRY_S
+                    and now - self._vr_cam_last_try > FRONT_RETRY_S):
+                if (not yarp.Network.isConnected(self.vr_cam_source_port, self.vr_cam_local_port)
+                        and self._connect_vr_camera()):
+                    print(f"  ✓ VR camera connected: {self.vr_cam_source_port}")
+                self._vr_cam_last_try = time.time()
+        else:
+            w, h = img.width(), img.height()
+            if self.vr_cam_arr is None or self.vr_cam_arr.shape[:2] != (h, w):
+                self.vr_cam_arr = np.zeros((h, w, 3), dtype=np.uint8)
+                self.vr_cam_buf.resize(w, h)
+                self.vr_cam_buf.setExternal(self.vr_cam_arr.data, w, h)
+            self.vr_cam_buf.copy(img)
+            # YARP entrega RGB; el transmisor codifica con OpenCV (espera BGR).
+            self.vr_cam_bgr = cv2.cvtColor(self.vr_cam_arr, cv2.COLOR_RGB2BGR)
+            self._vr_cam_last_frame_t = now
+        return self.vr_cam_bgr if now - self._vr_cam_last_frame_t <= 1.0 else None
 
     def _stream_status_screen(self):
         """Sin cámara frontal (robot real: no existe /icub/cam/front), la pantalla chica

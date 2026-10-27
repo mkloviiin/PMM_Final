@@ -136,18 +136,21 @@ cámaras**:
 - **Brazos:** solo se graba el brazo elegido en el Hub (`control_arms`), en ambos simuladores.
 - **Cámaras:** `left` / `right` (ojos del iCub, pose de iKin) y `front` (cámara externa
   espejada), todas 320x240 (`camera_shapes`).
-- **Escena:** `mujoco/assets/scenes/scenes.yaml` es un enlace al de `icub-lerobot-mj` (una sola
-  fuente de rangos y tareas). Robot a 0.73 m en ambos, mesa con tapa en 0.72, mismo cubo
-  (5 cm, 0.1 kg, fricción 5) y mismos límites del torso que el robot real
+- **Escena:** `gazebo/scenes.yaml` es la copia propia de las tareas y rangos (la misma de
+  `icub-lerobot-mj`; Gazebo no depende de esa carpeta, un cambio va en las dos). Robot a 0.73 m en ambos, mesa con tapa en 0.72, mismo cubo
+  (5 cm, 0.028 kg medidos del cubo impreso, fricción 5) y mismos límites del torso que el robot real
   (`cart_torso_limits`).
 - **Colores:** cubiertas azul rey (iCub real) y manos gris oscuro en ambos.
 - **Pinza:** `rh/lh_gripper` = fracción de cierre 0 (abierta, `hand_open_values`) a 1
   (cerrada, `hand_close_values` x `hand_close_ratio`), en la acción y en la observación. VR:
   el gatillo inferior es la fracción (suelto = abierta, a fondo = cerrada, zona muerta
-  `vr_grip_deadband`); el gatillo índice congela brazos y cabeza. Teclado del visor: 6/7
+  `vr_grip_deadband`); los dos gatillos índice a la vez son un embrague: mientras están
+  apretados la posición de las manos no se mueve (para acomodar el control; la orientación
+  sigue) y al soltarlos continúa desde ahí, sin salto; también congela la cabeza. Teclado
+  del visor: 6/7
   abrir/cerrar mano izquierda, 8/9 mano derecha, N reset (0-5 y las letras son atajos del
-  visor de MuJoCo). La mano se mueve a velocidad limitada en los tres (MuJoCo:
-  `hand_close_time_s`). Antes del 2026-10-21 era 0 abrir / 0.5 cerrar / 1 mantener
+  visor de MuJoCo). La mano se mueve a velocidad limitada en los tres
+  (`hand_close_time_s`, mismo valor en MuJoCo y Gazebo). Antes del 2026-10-21 era 0 abrir / 0.5 cerrar / 1 mantener
   (`gripper_legacy`, `--legacy-gripper` en `eval_gazebo.py`).
 - **Solo en Gazebo / robot real:** los ojos (`eyes_*`), que MuJoCo no modela.
 - **No se graba:** la fuerza externa en la mano (solo existía en MuJoCo) ni el torque de los

@@ -1,9 +1,6 @@
 # Piezas fijas de cada escena en Gazebo (las que en MuJoCo estan en el XML pero no en scenes.yaml).
 # Las lee gazebo/scripts/reset_objects.sh. Etiqueta de scenes.yaml -> lista de modelos con su pose
 # en el marco de GAZEBO (el iCub mira hacia -x): (x, y) = (-x, -y) del XML de MuJoCo.
-"Pick-and-Place":
-  - model: place-bin
-    pose: [-0.4, -0.12, 0.72]      # MuJoCo: place-bin en (0.4, 0.12, 0.72)
 "Door Opening":
   - model: door                    # models/door (tools/door_sdf_from_mujoco.py): el giro va en el modelo
     pose: [-0.47, 0.086, 0.885]    # MuJoCo: door_mount en (0.47, -0.086, 0.885)

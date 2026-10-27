@@ -61,6 +61,10 @@
          superficie de la mesa (los objetos) y hacia arriba el robot, sin patas ni piso.
          Gazebo: camara_externa en icub_world.sdf. -->
     <camera mode="fixed" name="frontview" pos="1.2 0 0.95" xyaxes="0 1 0 -0.1392 0 0.9903" fovy="45" />
+    <!-- Frontal anterior (hasta el 2026-10-24: más lejos y alta, se ven las patas de la mesa).
+         No se graba: solo para evaluar modelos entrenados con ella, p. ej. door_scripted
+         (eval_mujoco.py --camera-source front=frontview_v1). -->
+    <camera mode="fixed" name="frontview_v1" pos="1.6 0 1.0" quat="0.56 0.43 0.43 0.56" fovy="45" />
     <camera mode="fixed" name="birdview" pos="1.2 0 4.0" quat="0.7071 0 0 0.7071" />
     <camera mode="fixed" name="agentview" pos="0.5 0 1.35" quat="0.653 0.271 0.271 0.653" />
     <!-- Cenital: recta hacia abajo (fácil de montar igual en el robot real), 0.83 m sobre la

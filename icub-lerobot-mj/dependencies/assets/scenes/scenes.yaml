@@ -49,15 +49,16 @@
   objects:
     - body: "blue-cube"
       spawn:
-        x: [0.25, 0.40]
-        y: [-0.20, -0.05]
+        x: [0.35, 0.45]          # mismo rango que Block Lifting (desde el 2026-10-27; antes
+        y: [-0.15, -0.05]        # x [0.25, 0.40], y [-0.20, -0.05], el de stacking_mujoco_demo)
         z: 0.745                 # tapa 0.72 + semialtura 0.025 (como Z_GAZEBO de reset_objects.sh);
                                  # más bajo, los cubos quedan hundidos en la mesa
         quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
     - body: "red-cube"
       spawn:
         x: [0.3025, 0.40]
-        y: [0.05, 0.20]
+        y: [0.02, 0.09]          # el brazo derecho lo apila bien hasta y = 0.09; desde 0.12 pierde
+                                 # orientación y desde 0.15 no llega (hasta el 2026-10-26: [0.05, 0.20])
         z: 0.745
         quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
 
@@ -71,6 +72,12 @@
         y: [-0.20, -0.05]
         z: 0.725
         quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
+    - body: "place-bin"          # suelta (0.073 kg); se graba como obj1
+      spawn:
+        x: [0.36, 0.44]
+        y: [0.09, 0.15]          # a la izquierda; con y < 0.09 la pared queda cerca del rango del cubo
+        z: 0.7225                # tapa de la mesa 0.72 + media altura de la base 0.0025
+        quat: [0, 0, 0, 1]
 
 - file: scene_icub_door.xml
   label: "Door Opening"
@@ -87,16 +94,16 @@
   label: "Two-Arm Peg-In-Hole"   # tabla con la derecha, clavija con la izquierda
   task: "insert the peg into the hole"
   objects:
-    - body: "hole-board"
+    - body: "hole-board"         # vertical, de pie sobre su canto, agujero apuntando en y
       spawn:
-        x: [0.29, 0.31]
-        y: [-0.03, -0.01]        # mango hacia la mano derecha
-        z: 0.7525                # tapa de la mesa 0.72 + 0.0325 (mango de 5 cm en la mesa)
+        x: [0.40, 0.42]          # delante de la mano derecha en home (>= 3.9 cm del robot); se
+        y: [-0.07, -0.05]        # toma por el canto cercano y se acerca ~3 cm para la inserción
+        z: 0.81                  # tapa de la mesa 0.72 + media tabla 0.09
         quat: [0, 0, 0, 1]
     - body: "peg"
       spawn:
-        x: [0.30, 0.34]          # de pie a la izquierda; en y < 0.20 la mano
-        y: [0.22, 0.26]          # izquierda en home la bota
+        x: [0.34, 0.36]          # de pie (>= 3 cm del robot en home; más cerca del antebrazo
+        y: [0.07, 0.09]          # izquierdo choca); desde x = 0.40 el IK pierde ~30° en el agarre
         z: 0.785                 # tapa de la mesa 0.72 + media altura 0.065
         quat: [0, 0, 0, 1]
 
@@ -106,8 +113,7 @@
   objects:
     - body: "lift-pot"
       spawn:
-        x: [0.32, 0.34]          # en x=0.40 queda fuera del alcance cómodo del brazo izquierdo
+        x: [0.35, 0.37]          # en x >= 0.38 el brazo izquierdo no alcanza a levantarla (IK)
         y: [-0.01, 0.01]
-        z: 0.795
+        z: 0.785                 # tapa de la mesa 0.72 + media altura 0.06 + 5 mm
         quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
-

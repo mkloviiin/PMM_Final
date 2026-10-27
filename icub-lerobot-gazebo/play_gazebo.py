@@ -291,6 +291,17 @@ def _forward_world_reset(robot, teleop) -> None:
         print(f"[Reset] reset_scenario -> {reply}", flush=True)
 
 
+def _forward_vr_help(robot, teleop) -> None:
+    """Panel de ayuda del VR: el teleoperador detecta la pausa de la app (o X) y
+    teleop_module_sm lo dibuja en la pantalla grande. Solo manda el RPC cuando cambia."""
+    if not hasattr(teleop, "vr_help_active"):
+        return
+    active = teleop.vr_help_active()
+    if active != getattr(teleop, "_vr_help_sent", None):
+        robot.send_rpc_command(f"vr_help {int(active)}")
+        teleop._vr_help_sent = active
+
+
 def _manual_vr_record(
     *,
     args: argparse.Namespace,
@@ -401,6 +412,7 @@ def _manual_vr_record(
                 robot.send_action(robot_action_to_send)
                 fm.mark("send")
                 _forward_world_reset(robot, teleop)
+                _forward_vr_help(robot, teleop)
                 fm.end(robot=robot, obs=obs, action=act_processed)
 
                 # VR record events (A/B) come from the teleoperator: the real/Gazebo
@@ -442,6 +454,7 @@ def _manual_vr_record(
                 robot.send_action(robot_action_to_send)
                 fm.mark("send")
                 _forward_world_reset(robot, teleop)
+                _forward_vr_help(robot, teleop)
 
                 # Mismo signo de cuaternión que la observación (canonicalize_quats)
                 recorded_action = (canonicalize_quats(dict(act_processed))
@@ -525,6 +538,7 @@ def _simple_teleop_loop(*, args, robot, teleop) -> None:
             act = teleop.get_action()
             robot.send_action(act)
             _forward_world_reset(robot, teleop)
+            _forward_vr_help(robot, teleop)
             time.sleep(max(1.0 / args.fps - (time.perf_counter() - start_t), 0.0))
     except KeyboardInterrupt:
         print("\nStopping teleoperation loop...")

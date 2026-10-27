@@ -515,6 +515,10 @@
                                          entrenados con ella (p. ej. mujocotrainPMM). -->
                                     <body name="head_camera" pos="0.03368 0.10401 0.04627" quat="0 0 1 0">
                                         <camera name="head_cam" fovy="38.5526"/>
+                                        <!-- Solo para los lentes VR (no se graba): misma pose que head_cam, con
+                                             el fovy de vr_head_fovy (control_config.yaml) para que la imagen no
+                                             se vea tan cerca. -->
+                                        <camera name="head_cam_vr" fovy="38.5526"/>
                                     </body>
                                     <body name="head_camera_track_hand" pos="0.03368 0.10401 0.04627" quat="0 0 1 0">
                                         <camera name="head_cam_track_hand" fovy="38.5526" mode="targetbody" target="r_hand"/>

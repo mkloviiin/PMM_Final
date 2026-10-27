@@ -85,6 +85,12 @@ def refresh_datasets(root_dir: str, current: str | None = None):
 
 # ── Borrado de datasets (con confirmación, a la papelera) ─────────────────────
 
+# El diálogo se muestra/oculta con la clase .pmm-modal-hidden, no con visible=: en Gradio 6
+# la visibilidad del diálogo se desincroniza al salir y volver a la pestaña (reaparecía un
+# diálogo viejo, o dejaba de abrirse), igual que las columnas de robot (ui/tab_config.py).
+MODAL_SHOWN = ["pmm-modal"]
+MODAL_HIDDEN = ["pmm-modal", "pmm-modal-hidden"]
+
 def _deletable(dataset_path: str | None) -> tuple[Path | None, str | None]:
     """(ruta, None) si se puede borrar; (None, motivo) si no."""
     if not dataset_path or not str(dataset_path).strip():
@@ -100,14 +106,20 @@ def _deletable(dataset_path: str | None) -> tuple[Path | None, str | None]:
 
 
 def ask_delete_dataset(dataset_path: str):
-    """Primer click en 'Delete dataset': muestra la confirmación."""
+    """Primer click en 'Delete dataset': muestra la confirmación y fija el dataset que se
+    borrará (delete_target_state), el mismo que muestra el diálogo."""
     path, why = _deletable(dataset_path)
     if path is None:
         gr.Warning(why)
-        return gr.update(visible=False), gr.update()
-    return gr.update(visible=True), gr.update(value=(
+        return gr.update(elem_classes=MODAL_HIDDEN), gr.update(), None
+    return gr.update(elem_classes=MODAL_SHOWN), gr.update(value=(
         f"### Delete dataset\n\n`{path.name}`\n\n"
-        "It will be moved to the trash, so you can still restore it from there."))
+        "It will be moved to the trash, so you can still restore it from there.")), str(path)
+
+
+def close_delete_dialog():
+    """Cierra la confirmación y olvida el dataset pendiente (Cancel, Back, abrir la pestaña)."""
+    return gr.update(elem_classes=MODAL_HIDDEN), None
 
 
 def _move_to_trash(path: Path) -> str:
@@ -124,26 +136,27 @@ def _move_to_trash(path: Path) -> str:
     return f"moved to {dst}"
 
 
-def delete_dataset(dataset_path: str, root_dir: str):
-    """'Yes, delete': manda el dataset a la papelera y refresca la lista. Si era el cargado
-    en el visualizador, lo descarga."""
-    path, why = _deletable(dataset_path)
+def delete_dataset(target: str | None, root_dir: str):
+    """'Yes, delete': manda a la papelera el dataset que muestra el diálogo (target, fijado
+    por ask_delete_dataset; no el valor actual del dropdown) y refresca la lista. Si era el
+    cargado en el visualizador, lo descarga."""
+    path, why = _deletable(target)
     if path is None:
         gr.Warning(why)
-        return gr.update(visible=False), gr.update(), why, gr.update()
+        return gr.update(elem_classes=MODAL_HIDDEN), gr.update(), why, gr.update(), None
     was_loaded = state.viz_dataset_path is not None and state.viz_dataset_path.resolve() == path.resolve()
     try:
         where = _move_to_trash(path)
     except Exception as e:  # noqa: BLE001
         gr.Warning(f"Could not delete {path.name}: {e}")
-        return gr.update(visible=False), gr.update(), f"Could not delete {path.name}: {e}", gr.update()
+        return gr.update(elem_classes=MODAL_HIDDEN), gr.update(), f"Could not delete {path.name}: {e}", gr.update(), None
     if was_loaded:
         state.viz_dataset_path = None
         state.viz_ep_rows = []
     dd, _ = refresh_datasets(root_dir)
     msg = f"Deleted {path.name} ({where})."
     gr.Info(msg)
-    return gr.update(visible=False), dd, msg, gr.update(visible=False) if was_loaded else gr.update()
+    return gr.update(elem_classes=MODAL_HIDDEN), dd, msg, gr.update(visible=False) if was_loaded else gr.update(), None
 
 
 def use_last_dataset(root_dir: str):

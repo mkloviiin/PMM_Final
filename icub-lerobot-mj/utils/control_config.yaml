@@ -123,16 +123,27 @@ hand_close_values:
 # agarra sin forzar los dedos dentro del cubo. 0.6 aprieta más (~3.3 cm), 0.4 casi no toca (~5.8 cm).
 hand_close_ratio: 0.5
 # Duración de un cierre completo [s]: los dedos siguen la fracción pedida a velocidad
-# limitada, como el controlador de Gazebo y del robot real (en las demos de Gazebo el índice
-# llega al 90% del cierre en ~3.4 s).
-hand_close_time_s: 3.8
+# limitada, como el controlador de Gazebo y del robot real. Mismo valor en icub-lerobot-mj y
+# icub-lerobot-gazebo (allá fija la velocidad de referencia de los motores de la mano).
+# Hasta el 2026-10-26 era 3.8 (velocidad por defecto de Gazebo, ~10 deg/s).
+hand_close_time_s: 2.0
 # Pinza = fracción de cierre 0..1 (rh/lh_gripper). Gatillo inferior del VR: bajo el primer
 # valor = abierta, sobre el segundo = cerrada, proporcional entre medio. Mismo valor en
 # icub-lerobot-mj y icub-lerobot-gazebo.
 vr_grip_deadband: [0.1, 0.9]
+# Ayuda en la pantalla grande del VR: "X: Ayuda" chico en la esquina inferior derecha y, con
+# la app en pausa (los controles dejan de mandar datos por más de 0.3 s) o tras apretar X
+# (si BeaVR lo manda al PC), un panel con los botones. false = sin nada. Mismo valor en
+# icub-lerobot-mj y icub-lerobot-gazebo.
+vr_help: true
 # Targets (mocap de manos y mirada) en la vista head_cam del VR: true = se ven en los lentes
 # como guía. En las cámaras que se graban nunca aparecen.
 vr_show_targets: true
+# Campo de visión vertical [grados] de la imagen del ojo que se envía al VR (cámara head_cam_vr,
+# misma pose que head_cam). La head_cam usa el del ojo real (38.55°, ~50° horizontal) y en los
+# lentes se ve demasiado cerca; más grande = se ve más lejos y entra más escena. Solo cambia lo
+# que se ve en el VR, no lo que se graba. Comentado o null = mismo de head_cam.
+vr_head_fovy: 60
 
 # Respaldo heredado: solo se usa si la escena no declara objetos en scenes.yaml
 # (la fuente de verdad es scenes.yaml, compartido con Gazebo).

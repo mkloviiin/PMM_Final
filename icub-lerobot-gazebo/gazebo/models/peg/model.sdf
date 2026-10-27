@@ -6,8 +6,8 @@
     <link name="link">
       <inertial>
         <pose>0 0 0 0 -0 0</pose>
-        <mass>0.12</mass>
-        <inertia><ixx>0.0002</ixx><iyy>0.0002</iyy><izz>5e-05</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        <mass>0.027</mass>
+        <inertia><ixx>4.0725e-05</ixx><iyy>4.0725e-05</iyy><izz>5.4e-06</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
       </inertial>
       <collision name="peg_collision">
         <pose>0 0 0 0 -0 0</pose>

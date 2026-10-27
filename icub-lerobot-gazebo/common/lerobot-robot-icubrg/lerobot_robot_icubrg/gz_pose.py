@@ -103,19 +103,23 @@ class GzContactReader:
 
     gazebo/models/iCubGazeboV2_5_visuomanip_camada/model.urdf publica gz.msgs.Contacts en
     /icub/touch/<side>_<finger> a 30 Hz solo mientras hay contacto; un dedo cuenta como
-    tocando si llegó un mensaje con contactos hace menos de hold_s.
+    tocando si llegó un mensaje con contactos hace menos de hold_s. `topics` cambia el tópico
+    de una clave (p. ej. el sensor de models/red-cube, /red-cube/contact), y touching(key,
+    model) dice además con qué modelo: los contactos traen las colisiones como
+    "<modelo>::<link>::<colisión>".
     """
 
-    def __init__(self, keys: list[str], hold_s: float = 0.1):
+    def __init__(self, keys: list[str], hold_s: float = 0.1, topics: dict[str, str] | None = None):
         self.keys = list(keys)
         self.hold_s = hold_s
+        self._topics = dict(topics or {})
         self._last: dict[str, float] = {}
+        self._last_with: dict[str, dict[str, float]] = {}
         self._lock = threading.Lock()
         self._procs: list[subprocess.Popen] = []
 
-    @staticmethod
-    def topic(key: str) -> str:
-        return f"/icub/touch/{key}"
+    def topic(self, key: str) -> str:
+        return self._topics.get(key, f"/icub/touch/{key}")
 
     def start(self) -> list[str]:
         """Arranca los lectores; devuelve los tópicos que Gazebo no anuncia (sin sensor)."""
@@ -140,13 +144,22 @@ class GzContactReader:
                 msg = json.loads(line)
             except ValueError:
                 continue
-            if msg.get("contact"):
+            contacts = msg.get("contact")
+            if contacts:
+                now = time.time()
+                models = {c.get(side, {}).get("name", "").split("::")[0]
+                          for c in contacts for side in ("collision1", "collision2")}
                 with self._lock:
-                    self._last[key] = time.time()
+                    self._last[key] = now
+                    seen = self._last_with.setdefault(key, {})
+                    for model in models:
+                        seen[model] = now
 
-    def touching(self, key: str) -> bool:
+    def touching(self, key: str, model: str | None = None) -> bool:
+        """Contacto reciente del sensor `key` (con el modelo `model`, si se da)."""
         with self._lock:
-            return time.time() - self._last.get(key, 0.0) < self.hold_s
+            last = self._last.get(key, 0.0) if model is None else self._last_with.get(key, {}).get(model, 0.0)
+            return time.time() - last < self.hold_s
 
     def stop(self) -> None:
         for proc in self._procs:

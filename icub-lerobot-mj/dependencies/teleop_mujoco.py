@@ -163,6 +163,72 @@ def draw_status_corner(img, lines):
     return img
 
 
+# Ayuda en la pantalla grande del VR: "X: Ayuda" chico en la esquina inferior derecha y,
+# con la app en pausa (o tras apretar X, si llega al PC), un panel con los botones.
+# Sin tildes: cv2.putText no las soporta.
+VR_HELP_HINT = "X: Ayuda"
+VR_HELP_LINES = (
+    ("A", "Empezar a grabar"),
+    ("B", "Guardar episodio"),
+    ("B (mantener 1.5 s)", "Descartar episodio"),
+    ("Y", "Reiniciar escena"),
+    ("Gatillo inferior", "Abrir / cerrar mano"),
+    ("Ambos gatillos indice", "Embrague: acomodar el control"),
+    ("X", "Pausa / ayuda"),
+)
+# Sin datos de los controles por más de esto [s] = la app está en pausa (BeaVR deja de
+# mandarlos; la imagen la sigue mandando el PC).
+VR_PAUSE_TIMEOUT_S = 0.3
+
+
+def draw_help_hint(img):
+    """Dibuja (in place) "X: Ayuda" chico y semitransparente en la esquina inferior
+    derecha de `img` (BGR). Misma función en teleop_module_sm.py."""
+    h, w = img.shape[:2]
+    k = w / 640.0
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    sc, thick = 0.5 * k, max(1, round(1 * k))
+    pad, margin = max(3, int(6 * k)), max(4, int(14 * k))
+    (tw, th), base = cv2.getTextSize(VR_HELP_HINT, font, sc, thick)
+    x1, y1 = w - margin, h - margin
+    x0, y0 = max(0, x1 - tw - 2 * pad), max(0, y1 - th - base - 2 * pad)
+    img[y0:y1, x0:x1] = (img[y0:y1, x0:x1] * 0.6).astype(img.dtype)
+    text = img[y0:y1, x0:x1].copy()
+    cv2.putText(text, VR_HELP_HINT, (pad, pad + th), font, sc, (255, 255, 255), thick, cv2.LINE_AA)
+    img[y0:y1, x0:x1] = cv2.addWeighted(text, 0.7, img[y0:y1, x0:x1], 0.3, 0)
+    return img
+
+
+def draw_help_panel(img, title="AYUDA"):
+    """Dibuja (in place) en el centro de `img` (BGR) un panel con los botones del VR
+    (VR_HELP_LINES). Misma función en teleop_module_sm.py."""
+    h, w = img.shape[:2]
+    k = w / 640.0
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    thick = max(1, round(1 * k))
+    sc_title, sc = 0.8 * k, 0.5 * k
+    pad, gap = max(6, int(16 * k)), max(4, int(10 * k))
+    (tw_t, th_t), _ = cv2.getTextSize(title, font, sc_title, thick + 1)
+    sizes_k = [cv2.getTextSize(key, font, sc, thick)[0] for key, _ in VR_HELP_LINES]
+    sizes_d = [cv2.getTextSize(desc, font, sc, thick)[0] for _, desc in VR_HELP_LINES]
+    col_k = max(tw for tw, _ in sizes_k)
+    row_h = max(th for _, th in sizes_k + sizes_d) + gap
+    box_w = max(tw_t, col_k + 2 * gap + max(tw for tw, _ in sizes_d)) + 2 * pad
+    box_h = th_t + gap + row_h * len(VR_HELP_LINES) + 2 * pad
+    x0, y0 = max(0, (w - box_w) // 2), max(0, (h - box_h) // 2)
+    x1, y1 = min(w, x0 + box_w), min(h, y0 + box_h)
+    img[y0:y1, x0:x1] = (img[y0:y1, x0:x1] * 0.25).astype(img.dtype)
+    cv2.rectangle(img, (x0, y0), (x1 - 1, y1 - 1), (200, 200, 200), thick, cv2.LINE_AA)
+    y = y0 + pad + th_t
+    cv2.putText(img, title, (x0 + (box_w - tw_t) // 2, y), font, sc_title, (0, 220, 255), thick + 1, cv2.LINE_AA)
+    y += gap
+    for key, desc in VR_HELP_LINES:
+        y += row_h
+        cv2.putText(img, key, (x0 + pad, y), font, sc, (0, 220, 255), thick, cv2.LINE_AA)
+        cv2.putText(img, desc, (x0 + pad + col_k + 2 * gap, y), font, sc, (255, 255, 255), thick, cv2.LINE_AA)
+    return img
+
+
 # ===========================================================================
 #                            MAIN TELEOP CLASS
 # ===========================================================================
@@ -346,8 +412,8 @@ class MuJoCoTeleop:
 
         # Mano: fracción de cierre 0 (abierta) .. 1 (cerrada), seguida a velocidad limitada
         # como el controlador de posición de Gazebo y del robot real. hand_close_time_s =
-        # duración de un cierre completo (en las demos de Gazebo el índice llega al 90% del
-        # cierre en ~3.4 s). vr_grip_deadband: gatillo inferior del VR bajo el primer valor =
+        # duración de un cierre completo (Gazebo usa el mismo valor para la velocidad de
+        # referencia de la mano). vr_grip_deadband: gatillo inferior del VR bajo el primer valor =
         # 0, sobre el segundo = 1, proporcional entre medio.
         self._hand_close_time_s = float(cfg.get("hand_close_time_s", 3.8))
         self._vr_grip_deadband = tuple(cfg.get("vr_grip_deadband", (0.1, 0.9)))
@@ -375,7 +441,7 @@ class MuJoCoTeleop:
         self._home_step = 0
         self._home_total_steps = cfg.get("go_home_steps", 120)
 
-        # ----- Image streaming (head_cam → 10505, viewer → 15001) -----
+        # ----- Image streaming (head_cam → 10505, frontview → 15001) -----
         self.img_stream_enabled = CV2_AVAILABLE and BEAVR_IMG_AVAILABLE
         self._head_cam_pub = None
         self._viewer_pub = None
@@ -394,8 +460,28 @@ class MuJoCoTeleop:
                 if not cfg.get("vr_show_targets", True):
                     self._head_scene_option.geomgroup[2] = 0
                     self._head_scene_option.sitegroup[2] = 0
+                # head_cam (FOV del ojo real, ~50° horizontal) estirada en los lentes se ve
+                # como con zoom: el VR usa head_cam_vr, misma pose y fovy vr_head_fovy.
+                # Sin vr_head_fovy (o modelo sin head_cam_vr), la head_cam de siempre.
+                self._vr_head_cam = "head_cam"
+                vr_fovy = cfg.get("vr_head_fovy")
+                vr_cam_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, "head_cam_vr")
+                if vr_fovy and vr_cam_id >= 0:
+                    self.model.cam_fovy[vr_cam_id] = float(vr_fovy)
+                    self._vr_head_cam = "head_cam_vr"
                 self._viewer_renderer = mujoco.Renderer(self.model, height=480, width=640)
-                print(f"  [Stream] head_cam → port 10505, viewer → port 15001 (jpeg quality={stream_quality})")
+                # Pantalla chica del VR (15001): la cámara frontal fija (frontview), como en
+                # Gazebo (teleop_module_sm.py manda ahí su cámara frontal). Sin targets, igual
+                # que la cámara que se graba. Si la escena no la tiene, la vista del viewer.
+                self._vr_front_cam = "frontview" if mujoco.mj_name2id(
+                    self.model, mujoco.mjtObj.mjOBJ_CAMERA, "frontview") >= 0 else None
+                self._front_scene_option = mujoco.MjvOption()
+                self._front_scene_option.geomgroup[2] = 0
+                self._front_scene_option.sitegroup[2] = 0
+                vr_fovy_txt = f" fovy {self.model.cam_fovy[vr_cam_id]:g}°" if self._vr_head_cam == "head_cam_vr" else ""
+                print(f"  [Stream] {self._vr_head_cam}{vr_fovy_txt} → port 10505, "
+                      f"{self._vr_front_cam or 'viewer'} → port 15001 "
+                      f"(jpeg quality={stream_quality})")
             except Exception as e:
                 print(f"  [Stream] Failed to init image streaming: {e}")
                 self.img_stream_enabled = False
@@ -411,6 +497,9 @@ class MuJoCoTeleop:
         # Estado de la grabación que se dibuja en la esquina de la pantalla grande
         # (lo fija play_mujoco: ("GRABANDO", "Episodio 3/10")). Vacío = sin recuadro.
         self.vr_status_lines: tuple[str, ...] = ()
+        # Ayuda en la pantalla grande (vr_help del YAML): "X: Ayuda" en la esquina y el
+        # panel con los botones mientras la app está en pausa o tras apretar X.
+        self._vr_help_enabled = bool(cfg.get("vr_help", True))
 
         # ----- VR -----
         self.vr_ip = vr_ip if vr_ip else cfg.get("vr_ip", None)
@@ -419,6 +508,8 @@ class MuJoCoTeleop:
         # --- Smoothing Config ---
         self._target_filter_alpha = 0.15
         self._prev_target_pos = {"right": None, "left": None}
+        # Embrague (gatillo índice): posición del control al apretarlo, None = suelto
+        self._clutch_start = {"right": None, "left": None}
         
         # --- Cache Joint IDs for IK ---
         self._rh_act_ids = []
@@ -444,6 +535,10 @@ class MuJoCoTeleop:
         self.freeze_head = False
         self.gaze_distance = 1.5
         self._last_btn_recv_time = 0.0
+        self._last_ctrl_recv_time = 0.0   # último dato de un control (0 = nunca)
+        self._vr_help_toggled = False      # panel abierto con X (si BeaVR manda X al PC)
+        self._index_state = {"INDEX_RIGHT": 0.0, "INDEX_LEFT": 0.0}  # último valor de cada gatillo índice
+        self._vr_x_held = False
         if self.vr_enabled:
             self._init_vr()
 
@@ -576,14 +671,37 @@ class MuJoCoTeleop:
                         raw = sock.recv_string(flags=zmq.NOBLOCK)
                         if name == "rh":
                             self.latest_rh_data = self._parse_controller(raw)
+                            self._last_ctrl_recv_time = time.time()
                         elif name == "lh":
                             self.latest_lh_data = self._parse_controller(raw)
+                            self._last_ctrl_recv_time = time.time()
                         elif name == "btn":
                             self.latest_buttons = self._parse_buttons(raw)
                             self._last_btn_recv_time = time.time()
+                            if isinstance(self.latest_buttons, dict):
+                                for k in self._index_state.keys() & self.latest_buttons.keys():
+                                    self._index_state[k] = float(self.latest_buttons[k])
+                            self._ingest_help_button(self.latest_buttons)
                 except zmq.Again:
                     pass
             time.sleep(0.001)
+
+    def _ingest_help_button(self, b):
+        """(Hilo VR) X abre/cierra el panel de ayuda, si BeaVR lo manda al PC."""
+        if not isinstance(b, dict) or not any(k in b for k in ("BTN_ONE_LEFT", "X")):
+            return
+        pressed = b.get("BTN_ONE_LEFT", 0) > 0.5 or b.get("X", 0) > 0.8
+        if pressed and not self._vr_x_held:
+            self._vr_help_toggled = not self._vr_help_toggled
+        self._vr_x_held = pressed
+
+    def vr_help_active(self) -> bool:
+        """True = mostrar el panel de ayuda: X apretado, o los controles mandaron datos y
+        dejaron de hacerlo por más de VR_PAUSE_TIMEOUT_S (app en pausa)."""
+        if self._vr_help_toggled:
+            return True
+        last = self._last_ctrl_recv_time
+        return last > 0 and time.time() - last > VR_PAUSE_TIMEOUT_S
 
     # ---------------------- VR data parsers --------------------------------
 
@@ -680,27 +798,47 @@ class MuJoCoTeleop:
         
         target_pos = filtered_pos
 
-        if "quat" in hand_data:
-            q_vr = hand_data["quat"]
-            # -Z_vr -> X_rob (Fwd), -X_vr -> Y_rob (Left), Y_vr -> Z_rob (Up)
-            q_remapped = PyQuaternion(w=q_vr.w, x=-q_vr.z, y=-q_vr.x, z=q_vr.y)
-            
-            # Rotate 180 degrees around X axis
-            q_fix_x = PyQuaternion(axis=[1, 0, 0], degrees=180)
-            q_final = q_fix_x * q_remapped
-
-            if roll_offset != 0:
-                q_fix = PyQuaternion(axis=[1, 0, 0], degrees=roll_offset)
-                q_final = q_final * q_fix
-            # Additional 45° Z-axis rotation to align VR wrist orientation with robot hand
-            #q_fix_z = PyQuaternion(axis=[0, 1, 0], degrees=-45)
-            #q_final = q_final * q_fix_z
-            target_quat = np.array([q_final.w, q_final.x,
-                                    q_final.y, q_final.z])
-        else:
-            target_quat = np.array([1.0, 0.0, 0.0, 0.0])
+        target_quat = self._vr_hand_quat(hand_data, roll_offset)
 
         return target_pos, target_quat, calib_origin
+
+    def _vr_hand_quat(self, hand_data, roll_offset=0):
+        """Orientación del target (wxyz) a partir del control del VR."""
+        if "quat" not in hand_data:
+            return np.array([1.0, 0.0, 0.0, 0.0])
+        q_vr = hand_data["quat"]
+        # -Z_vr -> X_rob (Fwd), -X_vr -> Y_rob (Left), Y_vr -> Z_rob (Up)
+        q_remapped = PyQuaternion(w=q_vr.w, x=-q_vr.z, y=-q_vr.x, z=q_vr.y)
+
+        # Rotate 180 degrees around X axis
+        q_fix_x = PyQuaternion(axis=[1, 0, 0], degrees=180)
+        q_final = q_fix_x * q_remapped
+
+        if roll_offset != 0:
+            q_fix = PyQuaternion(axis=[1, 0, 0], degrees=roll_offset)
+            q_final = q_final * q_fix
+        return np.array([q_final.w, q_final.x, q_final.y, q_final.z])
+
+    def _clutch_hand(self, side, hand_data, frozen):
+        """Embrague de posición con el gatillo índice: mientras está apretado la posición del
+        target no se mueve (el operador acomoda el control); al soltarlo, el origen se corre
+        lo que se movió el control, así el target sigue desde donde quedó, sin salto. La
+        orientación no tiene embrague. True = posición congelada en este paso."""
+        vr_pos = hand_data.get("pos")
+        if vr_pos is None or np.linalg.norm(vr_pos) < 0.001:
+            return frozen
+        if frozen:
+            if self._clutch_start[side] is None:
+                self._clutch_start[side] = vr_pos.copy()
+            return True
+        start = self._clutch_start[side]
+        if start is not None:
+            attr = "calibrated_origin_rh" if side == "right" else "calibrated_origin_lh"
+            origin = getattr(self, attr)
+            if origin is not None:
+                setattr(self, attr, origin + (vr_pos - start))
+            self._clutch_start[side] = None
+        return False
 
     def _process_vr_hands(self):
         """Map VR hand controller data → mocap target positions."""
@@ -708,7 +846,10 @@ class MuJoCoTeleop:
         ROBOT_HOME_LH = np.array([0.4,  0.2, 0.7])
 
         # Right hand
-        if not self.freeze_rh and self.latest_rh_data is not None:
+        rh = self.latest_rh_data
+        if rh is not None and self._clutch_hand("right", rh, self.freeze_rh):
+            self.data.mocap_quat[self.rh_mocap_id] = self._vr_hand_quat(rh, roll_offset=90)
+        elif rh is not None:
             pos, quat, self.calibrated_origin_rh = self._vr_hand_to_target(
                 self.latest_rh_data, self.calibrated_origin_rh,
                 ROBOT_HOME_RH, roll_offset=90, side="right")
@@ -720,7 +861,10 @@ class MuJoCoTeleop:
                 self.data.mocap_quat[self.rh_mocap_id] = quat
 
         # Left hand
-        if not self.freeze_lh and self.latest_lh_data is not None:
+        lh = self.latest_lh_data
+        if lh is not None and self._clutch_hand("left", lh, self.freeze_lh):
+            self.data.mocap_quat[self.lh_mocap_id] = self._vr_hand_quat(lh, roll_offset=90)
+        elif lh is not None:
             pos, quat, self.calibrated_origin_lh = self._vr_hand_to_target(
                 self.latest_lh_data, self.calibrated_origin_lh,
                 ROBOT_HOME_LH, roll_offset=90, side="left")
@@ -827,12 +971,14 @@ class MuJoCoTeleop:
         else:
             self._rec_b_held = False
 
-        # Congelar brazos y cabeza solo con el gatillo índice: el inferior sostiene la mano
-        # cerrada mientras se mueve el brazo (para levantar el objeto).
-        any_active = any(b.get(k, 0) > 0.8 for k in ("INDEX_RIGHT", "INDEX_LEFT"))
-        self.freeze_rh = any_active
-        self.freeze_lh = any_active
-        self.freeze_head = any_active
+        # Los dos gatillos índice a la vez: embrague de la posición de las manos
+        # (_clutch_hand) y congela la cabeza. El inferior sostiene la mano cerrada mientras
+        # se mueve el brazo. _index_state acumula ambos (BeaVR puede mandar una tecla por
+        # mensaje).
+        both_active = all(v > 0.8 for v in self._index_state.values())
+        self.freeze_rh = both_active
+        self.freeze_lh = both_active
+        self.freeze_head = both_active
 
     # ========================= HAND CONTROL ================================
 
@@ -1313,27 +1459,37 @@ class MuJoCoTeleop:
 
     def _stream_images(self, viewer_cam=None, force=False):
         """Stream images to ZMQ if enabled. force=True ignora el límite de ~15 fps
-        (p. ej. para que el VR muestre "GUARDANDO..." antes de un save bloqueante)."""
+        (p. ej. para que el VR muestre "GUARDANDO..." antes de un save bloqueante).
+        La pantalla grande lleva el estado de la grabación y la ayuda del VR."""
         if self.img_stream_enabled and (force or time.time() - self._last_stream_time > 0.066):
             try:
                 # head_cam → port 10505, con el estado de la grabación en la esquina
-                self._head_renderer.update_scene(self.data, camera="head_cam",
+                self._head_renderer.update_scene(self.data, camera=self._vr_head_cam,
                                                  scene_option=self._head_scene_option)
                 head_img = cv2.cvtColor(self._head_renderer.render(), cv2.COLOR_RGB2BGR)
-                self._head_cam_pub.send_image(draw_status_corner(head_img, self.vr_status_lines))
+                draw_status_corner(head_img, self.vr_status_lines)
+                if self.vr_enabled and self._vr_help_enabled:
+                    if self.vr_help_active():
+                        draw_help_panel(head_img)
+                    else:
+                        draw_help_hint(head_img)
+                self._head_cam_pub.send_image(head_img)
 
-                # viewer scene → port 15001
-                camera_arg = viewer_cam
-                if camera_arg is None:
-                     # Use a fixed 3rd person camera if no specific camera provided
-                     cam = mujoco.MjvCamera()
-                     cam.lookat = [0.3, 0.0, 0.7]
-                     cam.distance = 1.5
-                     cam.elevation = -15
-                     cam.azimuth = 180
-                     camera_arg = cam
-
-                self._viewer_renderer.update_scene(self.data, camera=camera_arg)
+                # frontview (o, sin ella, la vista del viewer) → port 15001
+                if self._vr_front_cam is not None:
+                    self._viewer_renderer.update_scene(self.data, camera=self._vr_front_cam,
+                                                       scene_option=self._front_scene_option)
+                else:
+                    camera_arg = viewer_cam
+                    if camera_arg is None:
+                        # Use a fixed 3rd person camera if no specific camera provided
+                        cam = mujoco.MjvCamera()
+                        cam.lookat = [0.3, 0.0, 0.7]
+                        cam.distance = 1.5
+                        cam.elevation = -15
+                        cam.azimuth = 180
+                        camera_arg = cam
+                    self._viewer_renderer.update_scene(self.data, camera=camera_arg)
                 viewer_img = self._viewer_renderer.render()
                 self._viewer_pub.send_image(cv2.cvtColor(viewer_img, cv2.COLOR_RGB2BGR))
                 

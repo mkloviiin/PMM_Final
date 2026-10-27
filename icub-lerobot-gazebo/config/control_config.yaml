@@ -144,10 +144,20 @@ hand_close_values:
 # Con 0.7 quedan ~3 cm entre las puntas de índice y pulgar (no se atraviesan);
 # súbelo o bájalo para ajustar el espacio.
 hand_close_ratio: 0.5
+# Duración de un cierre completo [s]: fija la velocidad de referencia de cada motor de la mano
+# (|cierre - apertura| / hand_close_time_s). Mismo valor en icub-lerobot-mj y
+# icub-lerobot-gazebo. Comentado = velocidad del controlador (~10 deg/s, cierre de ~3.8 s,
+# lo que se usó hasta el 2026-10-26).
+hand_close_time_s: 2.0
 # Pinza = fracción de cierre 0..1 (rh/lh_gripper). Gatillo inferior del VR: bajo el primer
 # valor = abierta, sobre el segundo = cerrada, proporcional entre medio. Mismo valor en
 # icub-lerobot-mj y icub-lerobot-gazebo.
 vr_grip_deadband: [0.1, 0.9]
+# Ayuda en la pantalla grande del VR: "X: Ayuda" chico en la esquina inferior derecha y, con
+# la app en pausa (los controles dejan de mandar datos por más de 0.3 s) o tras apretar X
+# (si BeaVR lo manda al PC), un panel con los botones. false = sin nada. Mismo valor en
+# icub-lerobot-mj y icub-lerobot-gazebo.
+vr_help: true
 
 # Área donde el visualizador MuJoCo hace aparecer el cubo (marco MuJoCo). Solo se usa si
 # su escena tiene blue-cube y scenes.yaml no declara objetos: el espejo de play_gazebo es la

@@ -2,7 +2,7 @@
 """
 Web GUI para grabar datasets LeRobot con iCub (real, Gazebo o MuJoCo).
 
-Agnóstico al robot: los backends disponibles se declaran en
+Los backends disponibles se declaran en
 ``launcher_gui/robots/registry.py`` y cada uno hace sus imports de forma
 perezosa al lanzar. Este arranque solo prepara el sys.path del propio Hub.
 

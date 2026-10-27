@@ -3,15 +3,15 @@
   <model name="red-cube">
     <link name="link">
       <inertial>
-        <mass>0.1</mass>
-        <!-- Cubo sólido: I = m*a^2/6 -->
+        <mass>0.027</mass>
+        <!-- Cubo sólido: I = m*a^2/6. Masa del cubo de apilado medido el 20-10-2026 (parametros_fisicos_objetos.txt), antes 0.1 kg -->
         <inertia>
-          <ixx>4.1667e-05</ixx>
+          <ixx>1.125e-05</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>4.1667e-05</iyy>
+          <iyy>1.125e-05</iyy>
           <iyz>0</iyz>
-          <izz>4.1667e-05</izz>
+          <izz>1.125e-05</izz>
         </inertia>
       </inertial>
       
@@ -45,6 +45,18 @@
           <specular>0.1 0.1 0.1 1</specular>
         </material>
       </visual>
+
+      <!-- Contactos del cubo (gz.msgs.Contacts, solo mientras hay contacto) para el criterio
+           de éxito de Block Stacking (robosuite Stack: el azul toca el rojo), que eval_gazebo.py
+           lee con GzContactReader. Requiere gz-sim-contact-system en el mundo. -->
+      <sensor name="contact" type="contact">
+        <always_on>true</always_on>
+        <update_rate>30</update_rate>
+        <contact>
+          <collision>collision</collision>
+          <topic>/red-cube/contact</topic>
+        </contact>
+      </sensor>
     </link>
     <!-- Pose del modelo en /model/<nombre>/pose (gz.msgs.Pose, mundo Gazebo) a 30 Hz:
          la lee el plugin lerobot_robot_icubrg (use_object_pose) como obj{i}_* del dataset. -->

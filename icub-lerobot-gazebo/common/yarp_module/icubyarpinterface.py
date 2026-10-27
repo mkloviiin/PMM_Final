@@ -447,6 +447,19 @@ class iCubYARPInterface:
             ipos.positionMove(joint_index, float(target_positions_deg[i]))
         return True
 
+    def set_hand_ref_speeds(self, arm, speeds_deg_s):
+        """Velocidad de referencia [deg/s] de los 9 motores de la mano (la que usa
+        positionMove). None en un motor = deja la que trae el controlador."""
+        if arm not in self.pos_control or self.pos_control[arm] is None: return False
+        num_hand = self.num_joints_part[arm] - 7
+        if len(speeds_deg_s) != num_hand: return False
+        ipos = self.pos_control[arm]
+        ok = True
+        for i, speed in enumerate(speeds_deg_s):
+            if speed is not None:
+                ok = ipos.setRefSpeed(i + 7, float(speed)) and ok
+        return ok
+
     def get_hand_positions(self, arm):
         if arm not in self.encoders: return None
         num_total = self.num_joints_part[arm]

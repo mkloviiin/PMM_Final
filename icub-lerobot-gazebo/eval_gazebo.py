@@ -18,7 +18,10 @@ frame root y las cámaras left/right/front, como Gazebo):
     frontview=front), redimensionadas a la resolución de entrenamiento.
 En todos los casos:
   * Lo que Gazebo no entrega (p. ej. rh_ext_force_*) se rellena con la media del dataset.
-  * El cubo se coloca dentro del rango de cube_spawn de MuJoCo (--cube-x/--cube-y).
+  * Block Lifting: el cubo se coloca dentro del rango de cube_spawn de MuJoCo (--cube-x/--cube-y).
+    Las demás escenas se resetean con reset_objects.sh (rangos de gazebo/scenes.yaml).
+  * Éxito: el criterio de robosuite de la tarea (metrics/task_success.py, el mismo de
+    eval_mujoco.py) en algún paso, con poses, contactos de las yemas y articulaciones de Gazebo.
 
 Uso:
     python eval_gazebo.py \\
@@ -52,6 +55,10 @@ import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
+# Criterios de éxito de robosuite, compartidos con eval_mujoco.py
+sys.path.insert(0, str(repo_root.parent / "metrics"))
+import task_success  # noqa: E402
+
 # Rotación de 180 deg en z (w, x, y, z): mundo MuJoCo <-> mundo/root de Gazebo
 Q_Z180 = (0.0, 0.0, 0.0, 1.0)
 Q_Z180_INV = (0.0, 0.0, 0.0, -1.0)
@@ -78,8 +85,8 @@ CONSTANT_STD = 1e-3
 LOG_STATE_KEYS = [f"{p}_{ax}" for p in ("rh_ee_pos", "rh_target_pos", "obj0_pos") for ax in "xyz"] + [
     "rh_gripper", "rh_touch_thumb", "rh_touch_index", "rh_touch_middle"]
 
-# Mismo criterio que eval_policy_mujoco.py: cubo sobre 0.80 m (mundo, tapa de la mesa en
-# 0.72 en ambos simuladores) durante 1 s.
+# Métrica extra de Block Lifting (el éxito es el criterio de robosuite, task_success): cubo
+# sobre 0.80 m (mundo, tapa de la mesa en 0.72 en ambos simuladores) durante 1 s.
 SUCCESS_HEIGHT_M = 0.80
 SUCCESS_HOLD_S = 1.0
 
@@ -87,8 +94,70 @@ SUCCESS_HOLD_S = 1.0
 # gazebo/scripts/reset_objects.sh (el Hub escribe ahí la etiqueta)
 SCENES_YAML = repo_root / "gazebo" / "scenes.yaml"
 SCENE_FILE = Path(os.environ.get("ICUB_SCENE_FILE", "/tmp/icub_lerobot_scene"))
-# Puerta: éxito como en MuJoCo (eval_mujoco.py --scene 3, robosuite Door._check_success)
-DOOR_SUCCESS_RAD = 0.3
+
+
+class GazeboSceneState:
+    """SceneState de task_success (metrics/) desde Gazebo, como MujocoSceneState de
+    eval_mujoco.py: poses en el mundo Gazebo (PosePublisher de cada modelo), agarres con los
+    sensores de las yemas (/icub/touch/<mano>_<dedo>: pulgar y el índice o el medio tocando el
+    objeto), contactos entre objetos con el sensor del modelo (/<cuerpo>/contact, p. ej.
+    models/red-cube) y articulaciones con el JointStatePublisher (la puerta)."""
+
+    HANDS = ("rh", "lh")
+
+    def __init__(self, task: str, joint_reader=None):
+        from lerobot_robot_icubrg.gz_pose import GzContactReader, GzPoseReader
+
+        self.task = task
+        self.bodies = task_success.BODIES[task]
+        self.grasp_bodies = task_success.GRASP_BODIES.get(task, [])
+        self.pairs = task_success.CONTACT_PAIRS.get(task, [])
+        self.pose_reader = GzPoseReader(self.bodies, (0.0, 0.0, 0.0))  # mundo Gazebo
+        fingers = (task_success.GRASP_THUMB, *task_success.GRASP_FINGERS)
+        keys = [f"{h}_{f}" for h in self.HANDS for f in fingers] if self.grasp_bodies else []
+        topics = {b: f"/{b}/contact" for _, b in self.pairs}
+        self.contacts = GzContactReader(keys + list(topics), topics=topics) if keys or topics else None
+        self.joint_reader = joint_reader
+
+    def start(self) -> list[str]:
+        """Arranca los lectores; devuelve los tópicos de contacto que Gazebo no anuncia."""
+        self.pose_reader.start()
+        return self.contacts.start() if self.contacts is not None else []
+
+    def stop(self) -> None:
+        self.pose_reader.stop()
+        if self.contacts is not None:
+            self.contacts.stop()
+
+    def _grasped(self, body: str) -> bool:
+        c = self.contacts
+        return any(c.touching(f"{h}_{task_success.GRASP_THUMB}", body)
+                   and any(c.touching(f"{h}_{f}", body) for f in task_success.GRASP_FINGERS)
+                   for h in self.HANDS)
+
+    def wait(self, since: float, timeout_s: float = 3.0) -> list[str]:
+        """Espera una pose posterior a `since` de cada objeto; devuelve los que no llegaron."""
+        t0 = time.time()
+        while time.time() < t0 + timeout_s:
+            late = [b for b in self.bodies if (self.pose_reader.stamp(b) or 0.0) < since]
+            if not late:
+                return []
+            time.sleep(0.05)
+        return late
+
+    def __call__(self, since: float) -> "task_success.SceneState | None":
+        """Estado actual, o None si falta una pose posterior a `since` (tras reset_objects.sh
+        los objetos se recrean y la última pose del episodio anterior ya no vale)."""
+        if any((self.pose_reader.stamp(b) or 0.0) < since for b in self.bodies):
+            return None
+        return task_success.SceneState(
+            poses={b: self.pose_reader.get(b) for b in self.bodies},
+            table_z=task_success.TABLE_Z,
+            grasped={b for b in self.grasp_bodies if self._grasped(b)},
+            touching={frozenset((a, b)) for a, b in self.pairs if self.contacts.touching(b, a)},
+            joints={j: self.joint_reader.get(j) or 0.0 for j in task_success.JOINTS.get(self.task, [])}
+            if self.joint_reader is not None else {},
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -138,7 +207,8 @@ def parse_args() -> argparse.Namespace:
                         "geometry with a rule fitted on the MuJoCo dataset")
     p.add_argument("--clip-z", type=float, default=None, metavar="Z",
                    help="Clip every state value to mean ± Z·std of the training data")
-    p.add_argument("--lift-threshold", type=float, default=0.03, help="Lift success threshold [m]")
+    p.add_argument("--lift-threshold", type=float, default=0.03,
+                   help="Extra 'lifted' metric of Block Lifting [m]; success is robosuite's criterion")
     p.add_argument("--grasp-offset", type=float, nargs=3, default=None, metavar=("X", "Y", "Z"),
                    help="Right-hand-frame offset [m] = cube-in-hand at grasp in the eval sim minus "
                         "the training sim (tools/grasp_offset.py). The policy sees the hand shifted "
@@ -406,6 +476,7 @@ def start_episode(robot, args, cube_body: str) -> None:
         robot.send_rpc_command("reset_scenario")
     time.sleep(args.home_wait)
     robot.send_rpc_command("open_right")
+    robot.send_rpc_command("open_left")
     robot.send_rpc_command("start_gaze")
     time.sleep(0.1)
     gx, gy, gz = robot.config.gaze_target_init
@@ -467,8 +538,11 @@ def main() -> None:
         # reset_objects.sh (RPC reset_scenario del módulo YARP) lee la escena de aquí
         SCENE_FILE.write_text(label, encoding="utf-8")
         print(f"[eval] Scene: {label!r} (written to {SCENE_FILE})")
-    if door_scene:
-        args.scene_spawn = True   # la puerta se recrea cerrada en cada episodio
+    success_task = task_success.TASK_BY_SCENE.get(scene["file"], "lift") if scene is not None else "lift"
+    if success_task != "lift":
+        # La puerta se recrea cerrada en cada episodio; las demás escenas tienen más de un
+        # objeto (o no el cubo de --cube-x/--cube-y): todos a sus rangos de scenes.yaml
+        args.scene_spawn = True
     state_names: list[str] = ds_features["observation.state"]["names"]
     image_keys = [k for k in ds_features if k.startswith("observation.images.")]
 
@@ -557,8 +631,16 @@ def main() -> None:
         from lerobot_robot_icubrg.gz_pose import GzJointReader
         door_reader = GzJointReader("door")
         door_reader.start()
-        print(f"[eval] Door scene: success = door_hinge > {DOOR_SUCCESS_RAD} rad at some step "
-              f"({door_reader.topic})")
+        print(f"[eval] Door joints from {door_reader.topic}")
+    scene_state = GazeboSceneState(success_task, door_reader)
+    missing_topics = scene_state.start()
+    if missing_topics:
+        # Los de los objetos aparecen recién cuando reset_objects.sh los crea; los lectores ya
+        # escuchan esos tópicos
+        print(f"[eval][warn] Contact topics not advertised yet: {missing_topics}. Fine for objects "
+              f"created on reset; otherwise restart Gazebo (model.urdf / models/<body>/model.sdf "
+              f"without the contact sensor): grasps / contacts would read as none.")
+    print(f"[eval] Success ({success_task}): {task_success.DESCRIPTION[success_task]}, at some step")
     hold_steps = max(1, int(np.ceil(SUCCESS_HOLD_S * args.fps)))
     episodes = []
 
@@ -572,6 +654,12 @@ def main() -> None:
                     f"would see a stale or zero pose. Check `gz topic -l | grep pose` "
                     f"with icubenv's gz, and restart Gazebo if model.sdf lacks the PosePublisher."
                 )
+            t_since = time.time()
+            late = scene_state.wait(t_since)
+            if late:
+                raise SystemExit(f"No pose from Gazebo for {late} (/model/<body>/pose): the success "
+                                 f"criterion needs them. Restart Gazebo if model.sdf lacks the PosePublisher.")
+            ep_success = task_success.EpisodeSuccess(success_task)
             policy.reset()
             preprocessor.reset()
             postprocessor.reset()
@@ -619,6 +707,9 @@ def main() -> None:
                     z_max = z if z_max is None else max(z_max, z)
                     above = above + 1 if z > SUCCESS_HEIGHT_M else 0
                     held = held or above >= hold_steps
+                scene_now = scene_state(t_since)
+                if scene_now is not None:
+                    ep_success.update(step, scene_now)
 
                 for trained_cam, gz_cam in camera_map.items():
                     h, w = image_hw(ds_features[f"observation.images.{trained_cam}"])
@@ -675,19 +766,28 @@ def main() -> None:
                     writer = csv.DictWriter(fh, fieldnames=list(log_rows[0]))
                     writer.writeheader()
                     writer.writerows(log_rows)
+            scene_now = scene_state(t_since)   # estado al terminar el episodio
+            if scene_now is not None:
+                ep_success.update(args.episode_steps, scene_now)
+            success_metrics = ep_success.summary()
             lift = (z_max - z0) if z0 is not None else float("nan")
-            result = {"episode": ep + 1, "z0": z0, "z_max": z_max, "lift_delta": lift,
-                      "lifted": bool(lift >= args.lift_threshold) if z0 is not None else False,
-                      "held_above_0p80_1s": held}
+            result = {"episode": ep + 1}
             if door_reader is not None:
-                result = {"episode": ep + 1, "door_max_deg": float(np.degrees(door_max)),
-                          "door_final_deg": float(np.degrees(door_reader.get("door_hinge") or 0.0)),
-                          "handle_min_deg": float(np.degrees(handle_min)),
-                          "success": bool(door_max > DOOR_SUCCESS_RAD)}
+                result.update({"door_max_deg": float(np.degrees(door_max)),
+                               "door_final_deg": float(np.degrees(door_reader.get("door_hinge") or 0.0)),
+                               "handle_min_deg": float(np.degrees(handle_min))})
                 print(f"  [metrics] door max={result['door_max_deg']:.1f} deg  handle min="
-                      f"{result['handle_min_deg']:.1f} deg  success={result['success']}")
-            else:
+                      f"{result['handle_min_deg']:.1f} deg")
+            elif success_task == "lift":
+                result.update({"z0": z0, "z_max": z_max, "lift_delta": lift,
+                               "lifted": bool(lift >= args.lift_threshold) if z0 is not None else False,
+                               "held_above_0p80_1s": held})
                 print(f"  [metrics] lift={lift:.3f} m  lifted={result['lifted']}  held={held}")
+            result.update(success_metrics)
+            print(f"  [success] {success_task}: success={result['success']} step={result['success_step']} "
+                  f"at_end={result['success_at_end']} final: "
+                  + " ".join(f"{k.removeprefix('final_')}={v}" for k, v in success_metrics.items()
+                             if k.startswith("final_")))
             episodes.append(result)
             if log_rows:
                 inf = np.array([r["infer_ms"] for r in log_rows])
@@ -704,19 +804,26 @@ def main() -> None:
             "grasp_offset": args.grasp_offset,
             "episodes": episodes,
             "scene": label,
+            "success_task": success_task,
+            "success_criterion": task_success.DESCRIPTION[success_task],
         }
-        if door_reader is not None:
-            summary["success_rate"] = float(np.mean([e["success"] for e in episodes])) if episodes else None
-        else:
-            summary["success_rate_lift"] = float(np.mean([e["lifted"] for e in episodes])) if episodes else None
-            summary["success_rate_held"] = (float(np.mean([e["held_above_0p80_1s"] for e in episodes]))
-                                            if episodes else None)
+        # success es como robomimic (éxito en algún paso); un objeto que lo cumple un instante y
+        # se cae cuenta, por eso también el estado al final del episodio
+        summary["success_rate"] = float(np.mean([e["success"] for e in episodes])) if episodes else None
+        summary["success_at_end_rate"] = (float(np.mean([e["success_at_end"] for e in episodes]))
+                                          if episodes else None)
+        if success_task == "lift":
+            summary["lifted_rate"] = float(np.mean([e["lifted"] for e in episodes])) if episodes else None
+            summary["held_rate"] = (float(np.mean([e["held_above_0p80_1s"] for e in episodes]))
+                                    if episodes else None)
         (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
         print(f"\n[eval] Summary saved to {run_dir / 'summary.json'}")
-        if episodes and door_reader is not None:
-            print(f"  door success: {summary['success_rate']:.0%}")
-        elif episodes:
-            print(f"  lift success: {summary['success_rate_lift']:.0%}   held success: {summary['success_rate_held']:.0%}")
+        if episodes:
+            print(f"  success: {summary['success_rate']:.0%}   at end: {summary['success_at_end_rate']:.0%}  "
+                  f"[{success_task}: {task_success.DESCRIPTION[success_task]}]")
+        if episodes and success_task == "lift":
+            print(f"  lifted: {summary['lifted_rate']:.0%}   held: {summary['held_rate']:.0%}")
+        scene_state.stop()
         if door_reader is not None:
             door_reader.stop()
         if robot.is_connected:
