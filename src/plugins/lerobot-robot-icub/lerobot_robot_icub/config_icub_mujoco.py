@@ -77,9 +77,11 @@ class iCubMuJoCoConfig(RobotConfig):
     impedance_mode: bool | None = None      # Compliant Cartesian impedance when controller_type == "id"
     actuators_to_use: dict[str, list[str]] = field(default_factory=dict)
 
+    # top = overhead camera (topview); a task picks its cameras with `cameras` in scenes.yaml
+    # (the door records left/right/top instead of front).
     camera_names: list[str] = field(default_factory=lambda: ["left", "right", "front"])
     camera_sources: dict[str, str] = field(default_factory=lambda: {
-        "left": "head_cam", "right": "head_cam_right", "front": "frontview"
+        "left": "head_cam", "right": "head_cam_right", "front": "frontview", "top": "topview"
     })
     camera_width: int = 320
     camera_height: int = 240

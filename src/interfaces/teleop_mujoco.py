@@ -51,6 +51,7 @@ import cv2
 import zmq
 from pyquaternion import Quaternion as PyQuaternion
 from interfaces.zmq_image_publisher import ZMQCompressedImageTransmitter
+from interfaces.vr_overlay import VR_PAUSE_TIMEOUT_S, draw_help_hint, draw_help_panel
 
 # Hand actuator names (order matches the actuator block in icub_visuomanip_*_limits.xml)
 RIGHT_HAND_ACTUATORS = [
@@ -444,8 +445,26 @@ class MuJoCoTeleop:
                 if not cfg.get("vr_show_targets", True):
                     self._head_scene_option.geomgroup[2] = 0
                     self._head_scene_option.sitegroup[2] = 0
+                # head_cam (real eye FOV, ~50 deg horizontal) stretched in the lenses looks
+                # zoomed in: the VR uses head_cam_vr, same pose with fovy vr_head_fovy.
+                self._vr_head_cam = "head_cam"
+                vr_fovy = cfg.get("vr_head_fovy")
+                vr_cam_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, "head_cam_vr")
+                if vr_fovy and vr_cam_id >= 0:
+                    self.model.cam_fovy[vr_cam_id] = float(vr_fovy)
+                    self._vr_head_cam = "head_cam_vr"
                 self._viewer_renderer = mujoco.Renderer(self.model, height=480, width=640)
-                print("  [Stream] VR Image streaming initialized on ports 10505 (head_cam) and 15001 (viewer)")
+                # Small VR screen (15001): the fixed front camera (frontview), as in Gazebo
+                # (teleop_module_sm.py sends its front camera there), without the targets like
+                # the recorded camera. Scenes without it: the viewer's view.
+                self._vr_front_cam = "frontview" if mujoco.mj_name2id(
+                    self.model, mujoco.mjtObj.mjOBJ_CAMERA, "frontview") >= 0 else None
+                self._front_scene_option = mujoco.MjvOption()
+                self._front_scene_option.geomgroup[2] = 0
+                self._front_scene_option.sitegroup[2] = 0
+                vr_fovy_txt = f" fovy {self.model.cam_fovy[vr_cam_id]:g} deg" if self._vr_head_cam == "head_cam_vr" else ""
+                print(f"  [Stream] {self._vr_head_cam}{vr_fovy_txt} -> port 10505, "
+                      f"{self._vr_front_cam or 'viewer'} -> port 15001 (jpeg quality={stream_quality})")
             except Exception as e:
                 print(f"  [Stream] Failed to init image streaming: {e}")
                 self.img_stream_enabled = False
@@ -453,6 +472,8 @@ class MuJoCoTeleop:
         self._stream_errors: set[str] = set()
         self._stream_first_ok = False
         self.vr_status_lines: tuple[str, ...] = ()
+        # VR help on the big screen (vr_help in the YAML)
+        self._vr_help_enabled = bool(cfg.get("vr_help", True))
 
         # VR setup
         self.vr_ip = vr_ip if vr_ip else cfg.get("vr_ip", None)
@@ -464,6 +485,13 @@ class MuJoCoTeleop:
         self.freeze_lh = False
         self.freeze_head = False
         self._last_btn_recv_time = 0.0
+        self._last_ctrl_recv_time = 0.0    # last controller message (0 = never)
+        self._vr_help_toggled = False       # help panel opened with X (if BeaVR sends X to the PC)
+        self._vr_x_held = False
+        # Last value of each lower (grip) trigger: BeaVR may send one key per message
+        self._grip_state = {"HAND_RIGHT": 0.0, "HAND_LEFT": 0.0}
+        # Clutch (lower trigger): controller position when it was pressed, None = released
+        self._clutch_start = {"right": None, "left": None}
         if self.vr_enabled:
             self._init_vr()
 
@@ -573,6 +601,7 @@ class MuJoCoTeleop:
         self.calibrated_quat_lh = None
         self.calibrated_quat_head = None
         self._prev_target_pos = {"right": None, "left": None}
+        self._clutch_start = {"right": None, "left": None}
 
         self._q_cmd_20 = self.data.qpos[self._upper_qpos_idxs].copy()
         self.solver.set_desired_right_hand(self._locked_rh_pos, self._locked_rh_rot)
@@ -710,14 +739,37 @@ class MuJoCoTeleop:
                         raw = sock.recv_string(flags=zmq.NOBLOCK)
                         if name == "rh":
                             self.latest_rh_data = self._parse_controller(raw)
+                            self._last_ctrl_recv_time = time.time()
                         elif name == "lh":
                             self.latest_lh_data = self._parse_controller(raw)
+                            self._last_ctrl_recv_time = time.time()
                         elif name == "btn":
                             self.latest_buttons = self._parse_buttons(raw)
                             self._last_btn_recv_time = time.time()
+                            if isinstance(self.latest_buttons, dict):
+                                for k in self._grip_state.keys() & self.latest_buttons.keys():
+                                    self._grip_state[k] = float(self.latest_buttons[k])
+                            self._ingest_help_button(self.latest_buttons)
                 except zmq.Again:
                     pass
             time.sleep(0.001)
+
+    def _ingest_help_button(self, b):
+        """(VR thread) X opens/closes the help panel, if BeaVR sends it to the PC."""
+        if not isinstance(b, dict) or not any(k in b for k in ("BTN_ONE_LEFT", "X")):
+            return
+        pressed = b.get("BTN_ONE_LEFT", 0) > 0.5 or b.get("X", 0) > 0.8
+        if pressed and not self._vr_x_held:
+            self._vr_help_toggled = not self._vr_help_toggled
+        self._vr_x_held = pressed
+
+    def vr_help_active(self) -> bool:
+        """True = show the help panel: X pressed, or the controllers sent data and then stopped
+        for longer than VR_PAUSE_TIMEOUT_S (app paused)."""
+        if self._vr_help_toggled:
+            return True
+        last = self._last_ctrl_recv_time
+        return last > 0 and time.time() - last > VR_PAUSE_TIMEOUT_S
 
     @staticmethod
     def _parse_controller(data_str: str):
@@ -806,28 +858,52 @@ class MuJoCoTeleop:
         self._prev_target_pos[side] = filtered_pos
         target_pos = filtered_pos
 
-        target_quat = None
-        if "quat" in hand_data:
-            q_vr = hand_data["quat"]
-            q_world = unity_to_world_quat(q_vr)
-            if calib_quat is None:
-                calib_quat = PyQuaternion(q_world)
-            # Relative rotation in world frame from neutral calibration pose
-            q_rel = q_world * calib_quat.inverse
-            delta_R_world = q_rel.rotation_matrix
-            # Target orientation relative to robot home pose
-            R_target = delta_R_world @ home_rot
-            target_quat = rotmat_to_quat_wxyz(R_target)
-        else:
-            target_quat = rotmat_to_quat_wxyz(home_rot)
-
+        target_quat, calib_quat = self._vr_hand_quat(hand_data, calib_quat, home_rot)
         return target_pos, target_quat, calib_origin, calib_quat
+
+    @staticmethod
+    def _vr_hand_quat(hand_data, calib_quat, home_rot):
+        """Target orientation (wxyz) from the controller, relative to its calibration pose."""
+        if "quat" not in hand_data:
+            return rotmat_to_quat_wxyz(home_rot), calib_quat
+        q_world = unity_to_world_quat(hand_data["quat"])
+        if calib_quat is None:
+            calib_quat = PyQuaternion(q_world)
+        # Relative rotation in world frame from neutral calibration pose
+        q_rel = q_world * calib_quat.inverse
+        R_target = q_rel.rotation_matrix @ home_rot
+        return rotmat_to_quat_wxyz(R_target), calib_quat
+
+    def _clutch_hand(self, side: str, hand_data, engaged: bool) -> bool:
+        """Position clutch on the lower (grip) trigger: while pressed the target position does
+        not move (the operator repositions the controller); on release the origin shifts by
+        what the controller moved, so the target continues from where it stopped, without a
+        jump. Orientation has no clutch. True = position held this step."""
+        vr_pos = hand_data.get("pos")
+        if vr_pos is None or np.linalg.norm(vr_pos) < 0.001:
+            return engaged
+        if engaged:
+            if self._clutch_start[side] is None:
+                self._clutch_start[side] = vr_pos.copy()
+            return True
+        start = self._clutch_start[side]
+        if start is not None:
+            attr = "calibrated_origin_rh" if side == "right" else "calibrated_origin_lh"
+            origin = getattr(self, attr)
+            if origin is not None:
+                setattr(self, attr, origin + (vr_pos - start))
+            self._clutch_start[side] = None
+        return False
 
     def _process_vr_hands(self):
         if self._home_pos_rh is None or self._home_pos_lh is None:
             return
 
-        if not self.freeze_rh and self.latest_rh_data is not None:
+        rh = self.latest_rh_data
+        if rh is not None and self._clutch_hand("right", rh, self.freeze_rh):
+            quat, self.calibrated_quat_rh = self._vr_hand_quat(rh, self.calibrated_quat_rh, self._home_rot_rh)
+            self.data.mocap_quat[self.rh_mocap_id] = quat
+        elif rh is not None:
             pos, quat, self.calibrated_origin_rh, self.calibrated_quat_rh = self._vr_hand_to_target(
                 self.latest_rh_data,
                 self.calibrated_origin_rh,
@@ -844,7 +920,11 @@ class MuJoCoTeleop:
                 if quat is not None:
                     self.data.mocap_quat[self.rh_mocap_id] = quat
 
-        if not self.freeze_lh and self.latest_lh_data is not None:
+        lh = self.latest_lh_data
+        if lh is not None and self._clutch_hand("left", lh, self.freeze_lh):
+            quat, self.calibrated_quat_lh = self._vr_hand_quat(lh, self.calibrated_quat_lh, self._home_rot_lh)
+            self.data.mocap_quat[self.lh_mocap_id] = quat
+        elif lh is not None:
             pos, quat, self.calibrated_origin_lh, self.calibrated_quat_lh = self._vr_hand_to_target(
                 self.latest_lh_data,
                 self.calibrated_origin_lh,
@@ -929,7 +1009,9 @@ class MuJoCoTeleop:
         if b.get("BTN_TWO_LEFT", 0) > 0.5 or b.get("Y", 0) > 0.8:
             self._reset_scenario()
 
-        any_active = any(b.get(k, 0) > 0.8 for k in ("HAND_RIGHT", "HAND_LEFT"))
+        # Lower (grip) trigger, either hand: clutch of both hands' position (_clutch_hand)
+        # and head freeze. _grip_state accumulates both (BeaVR may send one key per message).
+        any_active = any(v > 0.8 for v in self._grip_state.values())
         self.freeze_rh = any_active
         self.freeze_lh = any_active
         self.freeze_head = any_active
@@ -1119,21 +1201,30 @@ class MuJoCoTeleop:
         if self.img_stream_enabled and (force or time.time() - self._last_stream_time > 0.066):
             try:
                 self._head_renderer.update_scene(
-                    self.data, camera="head_cam", scene_option=self._head_scene_option
+                    self.data, camera=self._vr_head_cam, scene_option=self._head_scene_option
                 )
                 head_img = cv2.cvtColor(self._head_renderer.render(), cv2.COLOR_RGB2BGR)
-                self._head_cam_pub.send_image(draw_status_corner(head_img, self.vr_status_lines))
+                head_img = draw_status_corner(head_img, self.vr_status_lines)
+                if self._vr_help_enabled:
+                    if self.vr_help_active():
+                        draw_help_panel(head_img)
+                    else:
+                        draw_help_hint(head_img)
+                self._head_cam_pub.send_image(head_img)
 
-                camera_arg = viewer_cam
-                if camera_arg is None:
-                    cam = mujoco.MjvCamera()
-                    cam.lookat = [0.3, 0.0, 0.7]
-                    cam.distance = 1.5
-                    cam.elevation = -15
-                    cam.azimuth = 180
-                    camera_arg = cam
-
-                self._viewer_renderer.update_scene(self.data, camera=camera_arg)
+                if self._vr_front_cam is not None:
+                    self._viewer_renderer.update_scene(
+                        self.data, camera=self._vr_front_cam, scene_option=self._front_scene_option)
+                else:
+                    camera_arg = viewer_cam
+                    if camera_arg is None:
+                        cam = mujoco.MjvCamera()
+                        cam.lookat = [0.3, 0.0, 0.7]
+                        cam.distance = 1.5
+                        cam.elevation = -15
+                        cam.azimuth = 180
+                        camera_arg = cam
+                    self._viewer_renderer.update_scene(self.data, camera=camera_arg)
                 viewer_img = self._viewer_renderer.render()
                 self._viewer_pub.send_image(cv2.cvtColor(viewer_img, cv2.COLOR_RGB2BGR))
                 self._last_stream_time = time.time()

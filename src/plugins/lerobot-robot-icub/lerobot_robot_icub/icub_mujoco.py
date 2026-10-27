@@ -605,6 +605,7 @@ class iCubMuJoCo(Robot):
         if not scene_objects:
             scene_objects = [{"body": "blue-cube"}]
 
+        absent_objects = []
         for i, obj_def in enumerate(scene_objects):
             body_name = obj_def.get("body", "")
             prefix = f"obj{i}"
@@ -626,6 +627,7 @@ class iCubMuJoCo(Robot):
                 obs[f"{prefix}_quat_y"] = torch.tensor(float(quat[2]), dtype=torch.float32)
                 obs[f"{prefix}_quat_z"] = torch.tensor(float(quat[3]), dtype=torch.float32)
             except Exception:
+                absent_objects.append(prefix)
                 for suffix in ("pos_x", "pos_y", "pos_z", "quat_w", "quat_x", "quat_y", "quat_z"):
                     obs[f"{prefix}_{suffix}"] = torch.tensor(0.0, dtype=torch.float32)
 
@@ -657,6 +659,11 @@ class iCubMuJoCo(Robot):
             self._convert_poses(obs, self._POSE_GROUPS, to_root=True)
             if self.config.canonical_quats:
                 canonicalize_quats(obs)
+            # Absent object (e.g. the door scene, no cube): zeros in the root frame too, like
+            # Gazebo; the conversion would otherwise leave obj_pos_z = -0.73 (the waist).
+            for prefix in absent_objects:
+                for suffix in ("pos_x", "pos_y", "pos_z", "quat_w", "quat_x", "quat_y", "quat_z"):
+                    obs[f"{prefix}_{suffix}"] = torch.tensor(0.0, dtype=torch.float32)
 
         if getattr(self, "_obs_keys", None) is None:
             self._obs_keys = set(self.observation_features)

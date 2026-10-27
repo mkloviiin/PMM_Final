@@ -89,16 +89,24 @@ class GzPoseReader:
 
 
 class GzContactReader:
-    def __init__(self, keys: list[str], hold_s: float = 0.1):
+    """Binary touch per key from Gazebo contact sensors (/icub/touch/<key> by default).
+
+    `topics` changes the topic of a key (e.g. the sensor of models/red-cube, /red-cube/contact),
+    and touching(key, model) also tells with which model: contacts carry the collisions as
+    "<model>::<link>::<collision>".
+    """
+
+    def __init__(self, keys: list[str], hold_s: float = 0.1, topics: dict[str, str] | None = None):
         self.keys = list(keys)
         self.hold_s = hold_s
+        self._topics = dict(topics or {})
+        self._last_with: dict[str, dict[str, float]] = {}
         self._last: dict[str, float] = {}
         self._lock = threading.Lock()
         self._procs: list[subprocess.Popen] = []
 
-    @staticmethod
-    def topic(key: str) -> str:
-        return f"/icub/touch/{key}"
+    def topic(self, key: str) -> str:
+        return self._topics.get(key, f"/icub/touch/{key}")
 
     def start(self) -> list[str]:
         gz = _find_gz()
@@ -125,13 +133,22 @@ class GzContactReader:
                 msg = json.loads(line)
             except ValueError:
                 continue
-            if msg.get("contact"):
+            contacts = msg.get("contact")
+            if contacts:
+                now = time.time()
+                models = {c.get(side, {}).get("name", "").split("::")[0]
+                          for c in contacts for side in ("collision1", "collision2")}
                 with self._lock:
-                    self._last[key] = time.time()
+                    self._last[key] = now
+                    seen = self._last_with.setdefault(key, {})
+                    for model in models:
+                        seen[model] = now
 
-    def touching(self, key: str) -> bool:
+    def touching(self, key: str, model: str | None = None) -> bool:
+        """Recent contact on sensor `key` (with model `model`, if given)."""
         with self._lock:
-            return time.time() - self._last.get(key, 0.0) < self.hold_s
+            last = self._last.get(key, 0.0) if model is None else self._last_with.get(key, {}).get(model, 0.0)
+            return time.time() - last < self.hold_s
 
     def stop(self) -> None:
         for proc in self._procs:
@@ -143,3 +160,51 @@ class GzContactReader:
                 proc.kill()
         self._procs.clear()
 
+
+class GzJointReader:
+    """Joint angles of a scene model (e.g. door_hinge of the door), published by its
+    JointStatePublisher on /world/<world>/model/<model>/joint_state. Same scheme as
+    GzPoseReader: `gz topic -e --json-output` in a thread; the last message wins."""
+
+    def __init__(self, model: str, world: str = "default"):
+        self.topic = f"/world/{world}/model/{model}/joint_state"
+        self._latest: dict[str, float] = {}
+        self._lock = threading.Lock()
+        self._proc: subprocess.Popen | None = None
+
+    def start(self) -> None:
+        gz = _find_gz()
+        if gz is None:
+            print("[WARN] 'gz' not found: joint states unavailable.")
+            return
+        self._proc = subprocess.Popen(
+            [gz, "topic", "-e", "-t", self.topic, "--json-output"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
+            preexec_fn=_die_with_parent,
+        )
+        threading.Thread(target=self._reader, daemon=True).start()
+
+    def _reader(self) -> None:
+        for line in self._proc.stdout:
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            pos = {j["name"]: float(j["axis1"].get("position", 0.0)) for j in msg.get("joint", [])
+                   if "axis1" in j}
+            with self._lock:
+                self._latest = pos
+
+    def get(self, joint: str) -> float | None:
+        """Angle [rad] from the last message, or None if none arrived yet."""
+        with self._lock:
+            return self._latest.get(joint)
+
+    def stop(self) -> None:
+        if self._proc is not None:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+            self._proc = None

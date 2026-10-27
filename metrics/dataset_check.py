@@ -14,7 +14,7 @@ episodio y por cámara:
 
 Ejemplos:
   python metrics/dataset_check.py data/local_icub_gazebo_demo_2026-10-05_17-45-30
-  python metrics/dataset_check.py data/* --out hub_dataset/logs/metrics/report
+  python metrics/dataset_check.py data/* --out src/hub_dataset/logs/metrics/report
   python metrics/dataset_check.py data/X --max-episodes 5      # decodificar menos
 """
 

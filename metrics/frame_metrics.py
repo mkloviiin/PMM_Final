@@ -2,7 +2,7 @@
 
 Los loops de ``play_mujoco.py`` y ``play_gazebo.py`` llaman a este registrador en
 cada iteración. Se escribe un archivo JSON Lines por sesión (una línea por frame,
-más líneas de episodio y de sesión) en ``hub_dataset/logs/metrics/``: fuera del
+más líneas de episodio y de sesión) en ``src/hub_dataset/logs/metrics/``: fuera del
 dataset, para que no se suba a Hugging Face con él. ``metrics_report.py`` lo
 convierte en tablas y figuras.
 
@@ -44,7 +44,7 @@ import numpy as np
 
 METRICS_DIR = Path(
     os.environ.get("PMM_METRICS_DIR")
-    or Path(__file__).resolve().parent.parent / "hub_dataset" / "logs" / "metrics"
+    or Path(__file__).resolve().parent.parent / "src" / "hub_dataset" / "logs" / "metrics"
 )
 
 # Un frame cuyo periodo supera este múltiplo del nominal cuenta como frame perdido

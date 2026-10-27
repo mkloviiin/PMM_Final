@@ -9,6 +9,10 @@ Supported Backends:
 Supported Controllers:
   - ik: Task-Space Inverse Kinematics (blf.ik.QPFixedBaseInverseKinematics)
   - id: Task-Space Inverse Dynamics (blf.tsid.QPFixedBaseTSID) with optional Cartesian impedance (--impedance)
+
+Both backends share one record loop (_record_loop). Episodes start/stop with A/B on the VR
+or 1/2/3 on the console; the Hub (src/hub_dataset/launcher_gui/robots/icub_rg.py, _bridge_play)
+writes those commands to stdin and reads the "[Manual] ..." and "[Live] {json}" lines.
 """
 
 from __future__ import annotations
@@ -65,14 +69,23 @@ class _NoMetrics:
 
 
 def _make_metrics(**kwargs):
+    """Per-frame recorder of metrics/frame_metrics.py (per-episode metrics in the Hub logbook).
+    Without it the session records the same, only without metrics."""
     try:
         from frame_metrics import FrameMetrics
         return FrameMetrics.create(**kwargs)
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        print(f"[Metrics] frame metrics unavailable ({e}): recording without metrics.", flush=True)
         return _NoMetrics()
 
 
 def _discard_episode(dataset) -> None:
+    """Drop the episode being recorded (B held on the VR) so it can be recorded again.
+
+    clear_episode_buffer() only removes the temporary PNGs of 'image' cameras, but 'video'
+    cameras are also written as PNGs in images/<cam>/episode-N before encoding; without
+    removing them, re-recording the same episode mixes frames of the discarded attempt.
+    """
     import shutil
 
     if not hasattr(dataset, "clear_episode_buffer"):
@@ -91,13 +104,23 @@ def _discard_episode(dataset) -> None:
             shutil.rmtree(img_dir)
 
 
-def _resolve_scene(scene_arg: str | int | None, controller: str = "ik") -> tuple[Path, str, list, list]:
+def _load_scene_entries() -> list[dict]:
     import yaml
 
-    scenes_data = []
-    if SCENES_YAML.exists():
-        with open(SCENES_YAML, "r", encoding="utf-8") as f:
-            scenes_data = yaml.safe_load(f) or []
+    if not SCENES_YAML.exists():
+        return []
+    with open(SCENES_YAML, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or []
+
+
+def _resolve_scene(scene_arg: str | int | None, controller: str = "ik",
+                   model_file: str | None = None) -> tuple[Path, str, list, list, list]:
+    """(model path, task, objects, joints, cameras) of a scenes.yaml entry, by 1-based index or
+    label, or else by the scene XML file name (model_file, e.g. --model from the Hub).
+
+    The ID controller loads icub_visuomanip_idyn_limits.xml instead of the ikin robot model
+    (MuJoCoTeleop swaps the include, see load_mujoco_model_for_controller)."""
+    scenes_data = _load_scene_entries()
 
     selected = None
     if scene_arg is not None:
@@ -111,32 +134,27 @@ def _resolve_scene(scene_arg: str | int | None, controller: str = "ik") -> tuple
                     selected = s
                     break
 
+    if selected is None and model_file:
+        selected = next((s for s in scenes_data if s.get("file") == Path(model_file).name), None)
     if selected is None and scenes_data:
         selected = scenes_data[0]
 
     if selected:
-        xml_name = selected.get("model", "scene_icub_lift.xml")
-        task = selected.get("task", "Pick up the blue cube")
+        xml_name = selected.get("file", "scene_icub_lift.xml")
+        task = selected.get("task", "lift the blue block")
         objects = selected.get("objects", [])
         joints = selected.get("joints", [])
+        cameras = selected.get("cameras", [])
     else:
         xml_name = "scene_icub_lift.xml"
-        task = "Pick up the blue cube"
+        task = "lift the blue block"
         objects = [{"body": "blue-cube"}]
         joints = []
+        cameras = []
 
-    model_dir = repo_root / "mujoco_sim" / "assets" / "scenes"
-    if controller == "id":
-        # Check if dedicated idyn scene exists, or use default visuomanip_idyn_limits
-        idyn_candidate = model_dir / xml_name.replace("ikin", "idyn")
-        if idyn_candidate.exists():
-            model_path = idyn_candidate
-        else:
-            model_path = model_dir / xml_name
-    else:
-        model_path = model_dir / xml_name
+    model_path = repo_root / "mujoco_sim" / "assets" / "scenes" / xml_name
+    return model_path, task, objects, joints, cameras
 
-    return model_path, task, objects, joints
 
 
 def parse_args() -> argparse.Namespace:
@@ -173,9 +191,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--single-task", default=None, help="Task description string")
     parser.add_argument(
         "--control-arms",
-        choices=["right", "left", "both"],
+        choices=["right", "left", "both", "auto"],
         default=None,
-        help="Active arms (default: auto-detect from active teleop module or control_config.yaml)",
+        help="Active arms (default / auto: detect from the active teleop module or control_config.yaml)",
+    )
+    parser.add_argument(
+        "--cameras",
+        default=None,
+        help="Comma-separated cameras of the task (cameras in scenes.yaml, e.g. left,right,top). "
+             "Default: the scene's cameras, else the robot's (left, right, front)",
     )
     parser.add_argument("--vr", action="store_true", help="Enable Meta Quest VR teleoperation")
     parser.add_argument("--vr-ip", default=None, help="Meta Quest headset IP for streaming")
@@ -188,7 +212,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def _resolve_control_arms(explicit_arms: str | None, config_path: str | Path | None = None) -> str:
-    if explicit_arms:
+    if explicit_arms and explicit_arms != "auto":
         return explicit_arms
     # 1. Try to auto-detect from active teleop module
     tmp_arms_file = Path("/tmp/icub_teleop_arms")
@@ -218,70 +242,183 @@ def _resolve_control_arms(explicit_arms: str | None, config_path: str | Path | N
     return "right"
 
 
-def run_mujoco_teleop_loop(args, model_path: Path, scene_task: str, scene_objects: list, scene_joints: list):
-    args.control_arms = _resolve_control_arms(args.control_arms, args.config)
-    from lerobot_robot_icub.config_icub_mujoco import iCubMuJoCoConfig
-    from lerobot_robot_icub.icub_mujoco import iCubMuJoCo
-    from lerobot_teleoperator_icubteleop.config_icubteleop import iCubTeleopConfig
-    from lerobot_teleoperator_icubteleop.icubteleop import iCubTeleop
+# ── Backend sessions: what differs between MuJoCo and Gazebo / real in the record loop ──────
+# Video encoding without a process pool: with > 1 camera LeRobot forks to encode in parallel,
+# and forking a process with live threads (YARP, EGL renderers, ZMQ, CUDA) leaves the children
+# stuck on an inherited lock: the episode is never saved.
+_SAVE_KWARGS = {"parallel_encoding": False}
 
-    fps = max(1, int(args.fps))
-    control_dt = 1.0 / fps
 
-    robot_cfg = iCubMuJoCoConfig(
-        model_path=str(model_path),
-        config_path=str(args.config),
-        control_arms=args.control_arms,
-        controller_type=args.controller,
-        impedance_mode=args.impedance,
-        control_dt=control_dt,
-        vr_enabled=bool(args.vr or args.vr_ip),
-        vr_ip=args.vr_ip,
-        scene_objects=scene_objects,
-        scene_joints=scene_joints,
-    )
+class _MuJoCoSession:
+    backend = "mujoco"
 
-    teleop_cfg = iCubTeleopConfig(
-        model_path=str(model_path),
-        config_path=str(args.config),
-        control_arms=args.control_arms,
-        vr_enabled=False,
-        scene_objects=scene_objects,
-        scene_joints=scene_joints,
-    )
+    def __init__(self, args, robot, teleop):
+        self.args, self.robot, self.teleop = args, robot, teleop
+        self.vr_enabled = bool(robot.config.vr_enabled)
 
-    robot = iCubMuJoCo(robot_cfg)
-    teleop = iCubTeleop(teleop_cfg)
+    def closed(self) -> bool:
+        viewer = getattr(self.teleop, "viewer", None)
+        if viewer is not None and not viewer.is_running():
+            print("[Viewer] Window closed by user. Exiting...")
+            return True
+        return False
 
-    print(f"\n=======================================================")
-    print(f" Starting iCub Teleoperation (Backend: MuJoCo)")
-    print(f" Controller: {args.controller.upper()} {'(Impedance Mode)' if args.impedance else ''}")
-    print(f" Model:      {model_path.name}")
-    print(f" Control:    {args.control_arms} arm(s)")
-    print(f" Recording:  {'DISABLED (--no-record)' if args.no_record else 'ENABLED'}")
-    print(f"=======================================================\n")
+    def reset_world(self) -> None:
+        self.teleop._reset_scenario()
+        poses = getattr(self.teleop, "_last_reset_poses", None)
+        if self.robot.teleop_core and poses:
+            self.robot.teleop_core.set_object_poses(poses)
 
-    robot.connect()
-    teleop.connect()
+    def poll_world_reset(self, requested: bool) -> None:
+        if requested or self.teleop.consume_world_reset_event():
+            print("\n[Teleop] Reset scenario: re-randomizing scene objects...")
+            self.reset_world()
 
-    teleop._reset_scenario()
-    if robot.teleop_core:
-        reset_poses = getattr(teleop, "_last_reset_poses", None)
-        if reset_poses:
-            robot.teleop_core.set_object_poses(reset_poses)
+    def vr_status(self, *lines: str, push: bool = False) -> None:
+        """Recording status in the top-right corner of the big VR screen (no accents:
+        cv2.putText). push=True sends a frame now: save_episode blocks send_action."""
+        tc = self.robot.teleop_core
+        if tc is None:
+            return
+        tc.vr_status_lines = lines
+        if push and self.vr_enabled:
+            tc._stream_images(force=True)
 
-    dataset = None
+    def forward_vr_help(self) -> None:
+        pass  # MuJoCoTeleop draws the help itself
+
+    def vr_record_events(self) -> tuple[bool, bool, bool]:
+        events = self.robot.consume_vr_record_events()
+        return events if any(events) else self.teleop.consume_vr_record_events()
+
+    def recorded_action(self, sent_action: dict, act: dict) -> dict:
+        # With VR the robot moves the targets inside send_action and returns what it applied
+        # (already in the root frame and canonicalized): the observation then carries the
+        # previous command, as in Gazebo.
+        if self.vr_enabled:
+            return sent_action
+        from lerobot_robot_icub.icub_mujoco import canonicalize_quats
+        if self.robot.config.canonical_quats and self.robot.config.pose_frame == "root":
+            return canonicalize_quats(dict(act))
+        return act
+
+    def toggle_teleop(self) -> None:
+        state = self.robot.toggle_teleop()
+        print(f"\n[Teleop] Teleoperation: {'ACTIVE' if state else 'IDLE (paused)'}")
+
+    def go_home(self) -> None:
+        self.teleop._reset_mocaps_to_xml_pose(strict=True)
+        self.robot.go_home()
+
+    def on_episode_start(self) -> None:
+        pass
+
+
+class _YarpSession:
+    def __init__(self, args, robot, teleop):
+        self.args, self.robot, self.teleop = args, robot, teleop
+        self.backend = args.backend
+        self.vr_enabled = bool(args.vr or args.vr_ip)
+        self._vr_help_sent = None
+
+    def closed(self) -> bool:
+        return False
+
+    def reset_world(self) -> None:
+        # The teleoperator only resets its MuJoCo mirror (empty table): the objects live in
+        # Gazebo, where the YARP module runs gazebo_sim/scripts/reset_objects.sh (asynchronous).
+        if self.backend == "gazebo":
+            reply = self.robot.send_rpc_command("reset_scenario")
+            print(f"[Gazebo] reset_scenario -> {reply}", flush=True)
+
+    def poll_world_reset(self, requested: bool) -> None:
+        if requested or self.teleop.consume_world_reset_event():
+            self.reset_world()
+
+    def vr_status(self, *lines: str, push: bool = False) -> None:
+        """Drawn by teleop_module_sm (RPC vr_status): big-screen corner in Gazebo, small screen
+        when there is no front camera (real robot). No accents: cv2.putText."""
+        text = "|".join(lines).replace('"', "'")
+        self.robot.send_rpc_command(f'vr_status "{text}"')
+
+    def forward_vr_help(self) -> None:
+        """The teleoperator detects the paused app (or X); teleop_module_sm draws the panel.
+        The RPC is only sent when it changes."""
+        if not self.vr_enabled or not hasattr(self.teleop, "vr_help_active"):
+            return
+        active = self.teleop.vr_help_active()
+        if active != self._vr_help_sent:
+            self.robot.send_rpc_command(f"vr_help {int(active)}")
+            self._vr_help_sent = active
+
+    def vr_record_events(self) -> tuple[bool, bool, bool]:
+        # VR record events (A/B) come from the teleoperator: the robot never sees the VR stream
+        return self.teleop.consume_vr_record_events()
+
+    def recorded_action(self, sent_action: dict, act: dict) -> dict:
+        from lerobot_robot_icubrg.icub import canonicalize_quats
+        return canonicalize_quats(dict(act)) if self.robot.config.canonical_quats else act
+
+    def toggle_teleop(self) -> None:
+        if self.robot.is_teleop_active:
+            self.robot.stop_teleop()
+            print("\n[Teleop] Status: STOPPED (holding current posture)\n")
+        else:
+            self.robot.start_teleop()
+            print("\n[Teleop] Status: ACTIVE (tracking targets)\n")
+
+    def go_home(self) -> None:
+        self.teleop._reset_mocaps_to_xml_pose()
+        self.robot.go_home()
+        print("[Teleop] Status: IDLE (robot at home - press 't' to resume teleoperation)\n")
+
+    def on_episode_start(self) -> None:
+        self.robot.reset_command_state()
+
+
+def _console_commands() -> list[str]:
+    """Commands typed on the console (or written to stdin by the Hub), read in a thread."""
+    queue: list[str] = []
+
+    def _reader() -> None:
+        while True:
+            try:
+                line = input()
+            except EOFError:
+                break
+            except Exception:  # noqa: BLE001
+                continue
+            if line.strip():
+                queue.append(line.strip())
+
+    threading.Thread(target=_reader, daemon=True).start()
+    return queue
+
+
+def _record_loop(args, session, *, scene_task: str, cameras: list[str]) -> None:
+    """Teleoperation loop shared by every backend; records a LeRobot dataset unless --no-record.
+
+    Console: 1 = START, 2 = STOP/SAVE, 3 = EXIT, h = HOME, n = RESET objects, t = TOGGLE teleop,
+    i = TOGGLE impedance, 8/9 = right hand open/close, 6/7 = left hand open/close.
+    VR: A = START, B = STOP/SAVE (held 1.5 s = DISCARD), Y = RESET objects."""
+    from lerobot.processor import make_default_processors
+    from lerobot.utils.constants import ACTION, OBS_STR
+    from lerobot.utils.robot_utils import precise_sleep
+    try:
+        from lerobot.utils.feature_utils import build_dataset_frame, combine_feature_dicts
+    except ImportError:
+        from lerobot.datasets.feature_utils import build_dataset_frame, combine_feature_dicts
+
+    robot, teleop = session.robot, session.teleop
+    teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
+
+    dataset = dataset_root = None
+    repo_id = args.repo_id if "/" in args.repo_id else f"local/{args.repo_id}"
     if not args.no_record:
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
         from lerobot.datasets.pipeline_features import aggregate_pipeline_dataset_features, create_initial_features
-        try:
-            from lerobot.utils.feature_utils import build_dataset_frame, combine_feature_dicts
-        except ImportError:
-            from lerobot.datasets.feature_utils import build_dataset_frame, combine_feature_dicts
-        from lerobot.processor import make_default_processors
 
-        has_cameras = bool(getattr(robot.config, "camera_ports", None) or getattr(robot, "_cameras_ft", None))
-        teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
+        has_cameras = bool(getattr(robot, "_cameras_ft", None))
         dataset_features = combine_feature_dicts(
             aggregate_pipeline_dataset_features(
                 pipeline=teleop_action_processor,
@@ -294,162 +431,228 @@ def run_mujoco_teleop_loop(args, model_path: Path, scene_task: str, scene_object
                 use_videos=has_cameras,
             ),
         )
-
-        dataset_root = args.dataset_root or str(Path(args.root) / f"{args.repo_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        dataset_root = Path(args.dataset_root or Path(args.root) / (
+            f"{repo_id.replace('/', '_')}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"))
         dataset = LeRobotDataset.create(
-            args.repo_id,
-            args.fps,
-            root=dataset_root,
-            robot_type=robot.name,
-            features=dataset_features,
-            use_videos=has_cameras,
+            repo_id, args.fps, root=dataset_root, robot_type=robot.name,
+            features=dataset_features, use_videos=has_cameras,
         )
-        print(f"[Dataset] Recording to: {dataset_root}")
+        print(f"[Manual] dataset root: {dataset_root}")
 
-    is_recording = False
-    episode_index = 0
-    ep_start_t = 0.0
+    fm = _make_metrics(
+        backend=session.backend, fps=args.fps,
+        name=dataset_root.name if dataset_root else "no_record",
+        repo_id=repo_id, task=scene_task, vr=session.vr_enabled,
+        robot_name=os.environ.get("ICUB_ROBOT_NAME", ""),
+        scene=Path(args.model).name if args.model else None,
+        controller=args.controller, impedance=bool(args.impedance),
+        control_arms=getattr(robot.config, "control_arms", None), cameras=list(cameras),
+    )
+    # The Hub reads these lines for its "Real-time Metrics" panel
+    live_every = max(int(round(args.fps / 2)), 1) if os.environ.get("PMM_LIVE_METRICS") == "1" else 0
 
-    print("[Controls] Console: 1 = START, 2 = STOP/SAVE, 3 = EXIT, h = HOME, n = RESET objects, t = TOGGLE teleop, i = TOGGLE impedance, 8/9 = Right Hand, 6/7 = Left Hand")
-    print("[Controls] Viewer:  Mouse (Ctrl+Drag) = Move/Rotate Mocaps, 8/9 = Right Hand, 6/7 = Left Hand")
-    print("[Controls] VR:      A = START episode, B = STOP/SAVE episode (hold B 1.5s to DISCARD), Y = RESET objects, Index Trigger = Gripper, Lower Trigger = Freeze")
+    print("[Controls] Console: 1 = START, 2 = STOP/SAVE, 3 = EXIT, h = HOME, n = RESET objects, "
+          "t = TOGGLE teleop, i = TOGGLE impedance, 8/9 = Right Hand, 6/7 = Left Hand")
+    if session.vr_enabled:
+        print("[Controls] VR: A = START episode, B = STOP/SAVE (hold B 1.5 s to DISCARD), Y = RESET objects, "
+              "Index trigger = hand, Lower trigger = clutch, X = help")
 
-    cmd_queue = []
-    def _console_reader():
-        while True:
-            try:
-                c = input().strip()
-                if c:
-                    cmd_queue.append(c)
-            except Exception:
-                break
-    threading.Thread(target=_console_reader, daemon=True).start()
+    commands = _console_commands()
+    recorded = 0
+    recording = False
+    frame_i = 0
+    episode_start = 0.0
+    n_eps = args.num_episodes
 
-    dt = 1.0 / args.fps
+    def _wait_status() -> None:
+        print(f"\n[Manual] Waiting START for episode {dataset.num_episodes}...", flush=True)
+        session.vr_status("EN ESPERA", f"Episodios grabados: {recorded}/{n_eps}", "A = grabar")
+
+    if dataset is not None:
+        _wait_status()
     try:
-        while episode_index < args.num_episodes or args.no_record:
+        while dataset is None or recorded < n_eps:
             loop_t0 = time.perf_counter()
-
-            if teleop.viewer is not None and not teleop.viewer.is_running():
-                print("[Viewer] Window closed by user. Exiting...")
+            if session.closed():
                 break
 
-            c_cmd = cmd_queue.pop(0) if cmd_queue else None
-            cmd_lower = c_cmd.strip().lower() if c_cmd else ""
-
-            if cmd_lower == "3":
+            cmd = commands.pop(0).lower() if commands else ""
+            if cmd == "3":
                 print("[Exit] Quitting...")
                 break
-
-            if cmd_lower in ("t", "teleop"):
-                new_state = robot.toggle_teleop()
-                print(f"\n[Teleop] Toggled teleoperation: {'ACTIVE' if new_state else 'IDLE (Paused)'}")
-
-            if cmd_lower in ("h", "home"):
-                print("\n[Teleop] Home requested (h): Resetting mocaps and moving robot smoothly to home...")
-                teleop._reset_mocaps_to_xml_pose(strict=True)
-                robot.go_home()
-
-            reset_scen = (cmd_lower in ("n", "reset")) or teleop.consume_world_reset_event()
-            if reset_scen:
-                print("\n[Teleop] Reset scenario (n): Re-randomizing scene objects...")
-                teleop._reset_scenario()
-                if robot.teleop_core and getattr(teleop, "_last_reset_poses", None):
-                    robot.teleop_core.set_object_poses(teleop._last_reset_poses)
-
-            if cmd_lower in ("i", "impedance"):
+            if cmd in ("t", "teleop"):
+                session.toggle_teleop()
+            elif cmd in ("h", "home"):
+                print("\n[Teleop] Home requested: moving the robot smoothly to home...")
+                session.go_home()
+            elif cmd in ("i", "impedance"):
                 robot.toggle_impedance()
+            elif cmd in ("8", "9", "6", "7"):
+                side, level = {"8": ("rh", 0.0), "9": ("rh", 1.0), "6": ("lh", 0.0), "7": ("lh", 1.0)}[cmd]
+                teleop.set_gripper(side, level)
+                print(f"[Console] {'Right' if side == 'rh' else 'Left'} hand: {'CLOSE' if level else 'OPEN'}")
+            session.poll_world_reset(cmd in ("n", "reset"))
 
-            if cmd_lower == "8":
-                teleop.set_gripper("rh", 0.0)
-                print("[Console] Right Gripper: OPEN")
-            elif cmd_lower == "9":
-                teleop.set_gripper("rh", 1.0)
-                print("[Console] Right Gripper: CLOSE")
-            elif cmd_lower == "6":
-                teleop.set_gripper("lh", 0.0)
-                print("[Console] Left Gripper: OPEN")
-            elif cmd_lower == "7":
-                teleop.set_gripper("lh", 1.0)
-                print("[Console] Left Gripper: CLOSE")
-
-            vr_start, vr_stop, vr_discard = robot.consume_vr_record_events()
-            if not vr_start and not vr_stop:
-                vr_start, vr_stop, vr_discard = teleop.consume_vr_record_events()
-
-            if (c_cmd == "1" or vr_start) and not is_recording and not args.no_record:
-                is_recording = True
-                ep_start_t = time.time()
-                print(f"\n[Record] Episode {episode_index} STARTED.")
-
-            if is_recording and (c_cmd == "2" or vr_stop):
-                is_recording = False
-                dataset.save_episode()
-                print(f"[Record] Episode {episode_index} SAVED ({dataset.num_frames} total frames).")
-                episode_index += 1
-                teleop._reset_scenario()
-                if robot.teleop_core and getattr(teleop, "_last_reset_poses", None):
-                    robot.teleop_core.set_object_poses(teleop._last_reset_poses)
-
-            if is_recording and vr_discard:
-                is_recording = False
-                _discard_episode(dataset)
-                print(f"[Record] Episode {episode_index} DISCARDED.")
-                teleop._reset_scenario()
-                if robot.teleop_core and getattr(teleop, "_last_reset_poses", None):
-                    robot.teleop_core.set_object_poses(teleop._last_reset_poses)
-
-            action = teleop.get_action()
-            robot.send_action(action)
+            fm.begin(recording=recording, episode=dataset.num_episodes if dataset is not None else 0)
             obs = robot.get_observation()
+            fm.mark("obs")
             teleop.send_feedback(obs)
+            act = teleop.get_action()
+            act_processed = teleop_action_processor((act, obs))
+            robot_action_to_send = robot_action_processor((act_processed, obs))
+            fm.mark("teleop")
+            sent_action = robot.send_action(robot_action_to_send)
+            fm.mark("send")
+            session.forward_vr_help()
+            recorded_action = session.recorded_action(sent_action, act_processed)
 
-            if is_recording and dataset is not None:
-                frame = build_dataset_frame(
-                    dataset_features,
-                    action=action,
-                    observation=obs,
-                    task=scene_task,
-                )
+            start_ev, stop_ev, discard_ev = session.vr_record_events()
+            if dataset is not None and recording:
+                obs_processed = robot_observation_processor(obs)
+                frame = {
+                    **build_dataset_frame(dataset.features, obs_processed, prefix=OBS_STR),
+                    **build_dataset_frame(dataset.features, recorded_action, prefix=ACTION),
+                    "task": scene_task,
+                }
                 dataset.add_frame(frame)
+                fm.mark("record")
+            fm.end(robot=robot, obs=obs, action=recorded_action)
 
-                if args.episode_time_s > 0 and (time.time() - ep_start_t) >= args.episode_time_s:
-                    is_recording = False
-                    dataset.save_episode()
-                    print(f"[Record] Episode {episode_index} reached time limit -> SAVED.")
-                    episode_index += 1
-                    teleop._reset_scenario()
-                    if robot.teleop_core and getattr(teleop, "_last_reset_poses", None):
-                        robot.teleop_core.set_object_poses(teleop._last_reset_poses)
+            if dataset is not None and recording:
+                frame_i += 1
+                if live_every and frame_i % live_every == 0:
+                    live = fm.live()
+                    if live:
+                        print("[Live] " + json.dumps(live), flush=True)
+                if args.episode_time_s > 0 and time.perf_counter() - episode_start >= args.episode_time_s:
+                    print(f"[Record] Episode {dataset.num_episodes} reached the time limit.")
+                    stop_ev = True
 
-            elapsed = time.perf_counter() - loop_t0
-            sleep_s = dt - elapsed
-            if sleep_s > 0:
-                time.sleep(sleep_s)
+                if discard_ev:
+                    print("[Manual] Episode DISCARDED (B held) - re-recording...", flush=True)
+                    fm.end_episode(dataset.num_episodes, saved=False, reason="discarded")
+                    _discard_episode(dataset)
+                    recording = False
+                    session.reset_world()
+                    _wait_status()
+                elif stop_ev or cmd == "2":
+                    session.vr_status("GUARDANDO...", f"Episodio {recorded + 1}/{n_eps}", push=True)
+                    ep_idx = dataset.num_episodes
+                    t_save = time.perf_counter()
+                    dataset.save_episode(**_SAVE_KWARGS)
+                    fm.end_episode(ep_idx, saved=True, save_ms=(time.perf_counter() - t_save) * 1000.0)
+                    recorded += 1
+                    recording = False
+                    print(f"[Manual] Episode saved ({recorded}/{n_eps})", flush=True)
+                    if recorded >= n_eps:
+                        session.vr_status("SESION COMPLETA", f"Episodios grabados: {recorded}/{n_eps}", push=True)
+                        break
+                    session.reset_world()
+                    _wait_status()
+            elif dataset is not None and (start_ev or cmd == "1"):
+                recording = True
+                frame_i = 0
+                episode_start = time.perf_counter()
+                session.on_episode_start()
+                print(f"[Manual] Recording episode {dataset.num_episodes}...", flush=True)
+                session.vr_status("GRABANDO", f"Episodio {recorded + 1}/{n_eps}",
+                                  f"Episodios grabados: {recorded}", "B = guardar")
 
+            precise_sleep(max(1.0 / args.fps - (time.perf_counter() - loop_t0), 0.0))
     finally:
-        if is_recording and dataset is not None:
-            dataset.save_episode()
+        fm.close()
+        if dataset is not None:
+            if recording:
+                # Unfinished episode (EXIT / window closed): not saved, like a discard
+                _discard_episode(dataset)
+            if recorded == 0:
+                import shutil
+                shutil.rmtree(dataset_root, ignore_errors=True)
+                print(f"[Manual] Nothing was recorded - folder removed: {dataset_root}")
+            else:
+                try:
+                    dataset.finalize()
+                except Exception:  # noqa: BLE001
+                    pass
+
+
+def _resolve_cameras(args, scene_cameras: list) -> list[str]:
+    if args.cameras:
+        return [c.strip() for c in args.cameras.split(",") if c.strip()]
+    return list(scene_cameras or [])
+
+
+def run_mujoco_teleop_loop(args, model_path: Path, scene_task: str, scene_objects: list,
+                           scene_joints: list, scene_cameras: list):
+    args.control_arms = _resolve_control_arms(args.control_arms, args.config)
+    from lerobot_robot_icub.config_icub_mujoco import iCubMuJoCoConfig
+    from lerobot_robot_icub.icub_mujoco import iCubMuJoCo
+    from lerobot_teleoperator_icubteleop.config_icubteleop import iCubTeleopConfig
+    from lerobot_teleoperator_icubteleop.icubteleop import iCubTeleop
+
+    robot_cfg = iCubMuJoCoConfig(
+        model_path=str(model_path),
+        config_path=str(args.config),
+        control_arms=args.control_arms,
+        controller_type=args.controller,
+        impedance_mode=args.impedance,
+        control_dt=1.0 / max(1, int(args.fps)),
+        vr_enabled=bool(args.vr or args.vr_ip),
+        vr_ip=args.vr_ip,
+        scene_objects=scene_objects,
+        scene_joints=scene_joints,
+    )
+    # Task cameras (cameras in scenes.yaml), e.g. the door: eyes + overhead
+    cameras = _resolve_cameras(args, scene_cameras)
+    if cameras:
+        robot_cfg.camera_names = cameras
+    teleop_cfg = iCubTeleopConfig(
+        model_path=str(model_path),
+        config_path=str(args.config),
+        control_arms=args.control_arms,
+        vr_enabled=False,  # the VR goes to the robot (MuJoCoTeleop core), the viewer only mirrors
+        scene_objects=scene_objects,
+        scene_joints=scene_joints,
+    )
+
+    robot = iCubMuJoCo(robot_cfg)
+    teleop = iCubTeleop(teleop_cfg)
+
+    print("\n=======================================================")
+    print(" Starting iCub Teleoperation (Backend: MuJoCo)")
+    print(f" Controller: {args.controller.upper()} {'(Impedance Mode)' if args.impedance else ''}")
+    print(f" Model:      {model_path.name}")
+    print(f" Control:    {args.control_arms} arm(s)")
+    print(f" Cameras:    {list(robot_cfg.camera_names)}")
+    print(f" Recording:  {'DISABLED (--no-record)' if args.no_record else 'ENABLED'}")
+    print("=======================================================\n")
+
+    # If a connection fails, release what was connected (the robot opens the VR and stream ports)
+    try:
+        robot.connect()
+        teleop.connect()
+    except BaseException:
+        for dev in (teleop, robot):
+            if dev.is_connected:
+                dev.disconnect()
+        raise
+
+    session = _MuJoCoSession(args, robot, teleop)
+    session.reset_world()
+    try:
+        _record_loop(args, session, scene_task=scene_task, cameras=list(robot_cfg.camera_names))
+    finally:
         if getattr(robot, "is_teleop_active", False) and hasattr(robot, "stop_teleop"):
             robot.stop_teleop()
-        try:
-            teleop.disconnect()
-        except Exception:
-            pass
-        try:
-            robot.disconnect()
-        except Exception:
-            pass
-        if getattr(args, "vr_cable", False):
+        for dev in (teleop, robot):
             try:
-                from interfaces.vr_usb import remove_reverse_ports
-                remove_reverse_ports()
-            except Exception:
+                dev.disconnect()
+            except Exception:  # noqa: BLE001
                 pass
         print("[Play] Session ended cleanly.")
 
 
-def run_yarp_teleop_loop(args, scene_task: str):
+def run_yarp_teleop_loop(args, model_path: Path, scene_task: str, scene_cameras: list):
     args.control_arms = _resolve_control_arms(args.control_arms, args.config)
     from lerobot_robot_icubrg.config_icub import iCubConfig
     from lerobot_robot_icubrg.icub import iCub
@@ -468,22 +671,34 @@ def run_yarp_teleop_loop(args, scene_task: str):
         impedance_mode=args.impedance,
         robot_model=args.robot_model,
     )
-    teleop_cfg = iCubTeleopConfig(
+    cameras = _resolve_cameras(args, scene_cameras)
+    if cameras:
+        # Task cameras (cameras in scenes.yaml): e.g. the door records the eyes and the overhead one
+        missing = robot_cfg.select_cameras(cameras)
+        if missing:
+            print(f"[play.py][warn] cameras not available on this robot, not recorded: {missing}")
+    teleop_kwargs = dict(
         config_path=str(args.config),
         control_arms=args.control_arms,
         vr_enabled=bool(args.vr or args.vr_ip),
         vr_ip=args.vr_ip,
     )
+    if args.model:
+        # MuJoCo mirror of the robot: the Hub passes the empty table (objects live in Gazebo / real world)
+        teleop_kwargs["model_path"] = str(model_path)
+    teleop_cfg = iCubTeleopConfig(**teleop_kwargs)
 
     robot = iCub(robot_cfg)
     teleop = iCubTeleop(teleop_cfg)
 
-    print(f"\n=======================================================")
+    print("\n=======================================================")
     print(f" Starting iCub Teleoperation (Backend: {args.backend.upper()})")
     print(f" Robot Name: {robot_name}")
+    print(f" Controller: {args.controller.upper()} {'(Impedance Mode)' if args.impedance else ''}")
     print(f" Control:    {args.control_arms} arm(s)")
+    print(f" Cameras:    {list(robot_cfg.camera_ports)}")
     print(f" Recording:  {'DISABLED (--no-record)' if args.no_record else 'ENABLED'}")
-    print(f"=======================================================\n")
+    print("=======================================================\n")
 
     # If teleop_module_sm is not running on YARP, launch it automatically in background
     import yarp
@@ -491,10 +706,9 @@ def run_yarp_teleop_loop(args, scene_task: str):
     teleop_proc = None
     if not yarp.Network.exists("/teleop/state:o"):
         print(f"[play.py] /teleop/state:o not found. Auto-launching teleop_module_sm.py ({args.controller.upper()})...")
-        teleop_script = repo_root / "src" / "interfaces" / "teleop_module_sm.py"
         teleop_cmd = [
             sys.executable,
-            str(teleop_script),
+            str(repo_root / "src" / "interfaces" / "teleop_module_sm.py"),
             "--robot", robot_name,
             "--controller", args.controller,
             "--control-arms", args.control_arms,
@@ -505,204 +719,40 @@ def run_yarp_teleop_loop(args, scene_task: str):
         print("[play.py] Waiting for /teleop/state:o to appear on YARP network...")
         for _ in range(40):
             if yarp.Network.exists("/teleop/state:o"):
-                print("[play.py] ✓ /teleop/state:o is ready.")
+                print("[play.py] /teleop/state:o is ready.")
                 break
             time.sleep(0.5)
         else:
             print("[play.py] Warning: Timeout waiting for /teleop/state:o. Proceeding to connect...")
 
-    robot.connect()
-    teleop.connect()
-
-    dataset = None
-    if not args.no_record:
-        from lerobot.datasets.lerobot_dataset import LeRobotDataset
-        from lerobot.datasets.pipeline_features import aggregate_pipeline_dataset_features, create_initial_features
-        try:
-            from lerobot.utils.feature_utils import build_dataset_frame, combine_feature_dicts
-        except ImportError:
-            from lerobot.datasets.feature_utils import build_dataset_frame, combine_feature_dicts
-        from lerobot.processor import make_default_processors
-
-        has_cameras = bool(getattr(robot.config, "camera_ports", None) or getattr(robot, "_cameras_ft", None))
-        teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
-        dataset_features = combine_feature_dicts(
-            aggregate_pipeline_dataset_features(
-                pipeline=teleop_action_processor,
-                initial_features=create_initial_features(action=robot.action_features),
-                use_videos=has_cameras,
-            ),
-            aggregate_pipeline_dataset_features(
-                pipeline=robot_observation_processor,
-                initial_features=create_initial_features(observation=robot.observation_features),
-                use_videos=has_cameras,
-            ),
-        )
-
-        dataset_root = args.dataset_root or str(Path(args.root) / f"{args.repo_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        dataset = LeRobotDataset.create(
-            args.repo_id,
-            args.fps,
-            root=dataset_root,
-            robot_type=robot.name,
-            features=dataset_features,
-            use_videos=has_cameras,
-        )
-        print(f"[Dataset] Recording to: {dataset_root}")
-
-    is_recording = False
-    episode_index = 0
-    ep_start_t = 0.0
-
-    print("[Controls] Console: 1 = START, 2 = STOP/SAVE, 3 = EXIT, h = HOME, n = RESET objects, t = TOGGLE teleop, i = TOGGLE impedance, 8/9 = Right Hand, 6/7 = Left Hand")
-    print("[Controls] Viewer:  Mouse (Ctrl+Drag) = Move/Rotate Mocaps, 8/9 = Right Hand, 6/7 = Left Hand")
-    print("[Controls] VR:      A = START episode, B = STOP/SAVE episode (hold B 1.5s to DISCARD), Y = RESET objects, Index Trigger = Gripper, Lower Trigger = Freeze")
-
-    cmd_queue = []
-    def _console_reader():
-        while True:
-            try:
-                c = input().strip()
-                if c:
-                    cmd_queue.append(c)
-            except Exception:
-                break
-    threading.Thread(target=_console_reader, daemon=True).start()
-
-    dt = 1.0 / args.fps
     try:
-        while episode_index < args.num_episodes or args.no_record:
-            loop_t0 = time.perf_counter()
+        robot.connect()
+        teleop.connect()
+        # The YARP module starts idle: start tracking the targets right away
+        time.sleep(0.5)
+        robot.start_teleop()
 
-            c_cmd = cmd_queue.pop(0) if cmd_queue else None
-            cmd_lower = c_cmd.strip().lower() if c_cmd else ""
-
-            if cmd_lower == "3":
-                print("[Exit] Quitting...")
-                break
-
-            if cmd_lower in ("t", "teleop"):
-                if robot.is_teleop_active:
-                    robot.stop_teleop()
-                    print("\n[Teleop] Status: STOPPED (Idle - holding current posture)\n")
-                else:
-                    robot.start_teleop()
-                    print("\n[Teleop] Status: ACTIVE (Tracking mocaps)\n")
-
-            if cmd_lower in ("h", "home"):
-                print("\n[Teleop] Home requested (h): Resetting mocaps and moving robot smoothly to home...")
-                teleop._reset_mocaps_to_xml_pose()
-                robot.go_home()
-                print("[Teleop] Status: IDLE (Robot at home pose - press 't' in console to resume teleoperation)\n")
-
-            world_reset = (
-                (cmd_lower in ("n", "reset"))
-                or teleop.consume_world_reset_event()
-            )
-            if world_reset:
-                if args.backend == "gazebo":
-                    print("\n[Gazebo] Reset requested (console 'n' / VR 'Y'): Resetting objects via reset_objects.sh...")
-                    reset_script = repo_root / "gazebo_sim" / "scripts" / "reset_objects.sh"
-                    if reset_script.exists():
-                        subprocess.run([str(reset_script)], check=False)
-                    else:
-                        print(f"[Gazebo] Warning: reset script not found at {reset_script}")
-
-            if cmd_lower in ("i", "impedance"):
-                robot.toggle_impedance()
-
-            if cmd_lower == "8":
-                teleop.set_gripper("rh", 0.0)
-                print("[Console] Right Gripper: OPEN")
-            elif cmd_lower == "9":
-                teleop.set_gripper("rh", 1.0)
-                print("[Console] Right Gripper: CLOSE")
-            elif cmd_lower == "6":
-                teleop.set_gripper("lh", 0.0)
-                print("[Console] Left Gripper: OPEN")
-            elif cmd_lower == "7":
-                teleop.set_gripper("lh", 1.0)
-                print("[Console] Left Gripper: CLOSE")
-
-            vr_start, vr_stop, vr_discard = teleop.consume_vr_record_events()
-
-            if (c_cmd == "1" or vr_start) and not is_recording and not args.no_record:
-                is_recording = True
-                ep_start_t = time.time()
-                robot.reset_command_state()
-                print(f"\n[Record] Episode {episode_index} STARTED.")
-
-            if is_recording and (c_cmd == "2" or vr_stop):
-                is_recording = False
-                dataset.save_episode()
-                print(f"[Record] Episode {episode_index} SAVED.")
-                episode_index += 1
-                if args.backend == "gazebo":
-                    subprocess.run([str(repo_root / "gazebo_sim" / "scripts" / "reset_objects.sh")], check=False)
-
-            if is_recording and vr_discard:
-                is_recording = False
-                _discard_episode(dataset)
-                print(f"[Record] Episode {episode_index} DISCARDED.")
-                if args.backend == "gazebo":
-                    subprocess.run([str(repo_root / "gazebo_sim" / "scripts" / "reset_objects.sh")], check=False)
-
-            action = teleop.get_action()
-            robot.send_action(action)
-            obs = robot.get_observation()
-            teleop.send_feedback(obs)
-
-            if is_recording and dataset is not None:
-                frame = build_dataset_frame(
-                    dataset_features,
-                    action=action,
-                    observation=obs,
-                    task=scene_task,
-                )
-                dataset.add_frame(frame)
-
-                if args.episode_time_s > 0 and (time.time() - ep_start_t) >= args.episode_time_s:
-                    is_recording = False
-                    dataset.save_episode()
-                    print(f"[Record] Episode {episode_index} reached time limit -> SAVED.")
-                    episode_index += 1
-                    if args.backend == "gazebo":
-                        subprocess.run([str(repo_root / "gazebo_sim" / "scripts" / "reset_objects.sh")], check=False)
-
-            elapsed = time.perf_counter() - loop_t0
-            sleep_s = dt - elapsed
-            if sleep_s > 0:
-                time.sleep(sleep_s)
-
+        session = _YarpSession(args, robot, teleop)
+        _record_loop(args, session, scene_task=scene_task, cameras=list(robot_cfg.camera_ports))
     finally:
-        if is_recording and dataset is not None:
-            dataset.save_episode()
         if getattr(robot, "is_teleop_active", False) and hasattr(robot, "stop_teleop"):
             try:
                 robot.stop_teleop()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
-        try:
-            teleop.disconnect()
-        except Exception:
-            pass
-        try:
-            robot.disconnect()
-        except Exception:
-            pass
+        for dev in (teleop, robot):
+            try:
+                if dev.is_connected:
+                    dev.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
         if teleop_proc is not None:
             print("[play.py] Terminating background teleop_module_sm...")
             teleop_proc.terminate()
             try:
                 teleop_proc.wait(timeout=3)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 teleop_proc.kill()
-        if getattr(args, "vr_cable", False):
-            try:
-                from interfaces.vr_usb import remove_reverse_ports
-                remove_reverse_ports()
-            except Exception:
-                pass
         print("[Play] Session ended cleanly.")
 
 
@@ -710,12 +760,12 @@ def main():
     args = parse_args()
     if args.vr_cable:
         from interfaces.vr_usb import connect_cable, CABLE_IP
-        print("[VR] Conectando visor Meta Quest por cable USB (ADB reverse)...")
+        print("[VR] Connecting the Meta Quest over USB (ADB reverse)...")
         if not connect_cable():
             raise SystemExit(
-                "\n[ERROR] Falló la conexión USB con el Meta Quest 2.\n"
-                "Verifica que el visor esté conectado por cable USB-C, encendido,\n"
-                "y que hayas aceptado el mensaje 'Permitir depuración USB' dentro del visor.\n"
+                "\n[ERROR] USB connection with the Meta Quest failed.\n"
+                "Check the headset is plugged in over USB-C and turned on, and that\n"
+                "'Allow USB debugging' was accepted inside the headset.\n"
             )
         args.vr_ip = CABLE_IP
         args.vr = True
@@ -724,19 +774,30 @@ def main():
     os.environ["ICUB_MUJOCO_VR_ENABLED"] = "1" if vr_enabled else "0"
     if args.vr_ip:
         os.environ["ICUB_MUJOCO_VR_IP"] = str(args.vr_ip)
+    if args.impedance and args.controller != "id":
+        print("[play.py] --impedance only applies to --controller id: ignored.")
+        args.impedance = False
 
-    model_path, scene_task, scene_objects, scene_joints = _resolve_scene(args.scene, controller=args.controller)
+    model_path, scene_task, scene_objects, scene_joints, scene_cameras = _resolve_scene(
+        args.scene, controller=args.controller, model_file=args.model)
     if args.model:
         model_path = Path(args.model)
     if args.single_task:
         scene_task = args.single_task
 
-    if args.backend == "mujoco":
-        run_mujoco_teleop_loop(args, model_path, scene_task, scene_objects, scene_joints)
-    else:
-        run_yarp_teleop_loop(args, scene_task)
+    try:
+        if args.backend == "mujoco":
+            run_mujoco_teleop_loop(args, model_path, scene_task, scene_objects, scene_joints, scene_cameras)
+        else:
+            run_yarp_teleop_loop(args, model_path, scene_task, scene_cameras)
+    finally:
+        if args.vr_cable:
+            try:
+                from interfaces.vr_usb import remove_reverse_ports
+                remove_reverse_ports()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 if __name__ == "__main__":
     main()
-

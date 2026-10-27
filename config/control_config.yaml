@@ -89,6 +89,7 @@ camera_shapes:
   left: [240, 320]
   right: [240, 320]
   front: [240, 320]
+  top: [240, 320]          # overhead camera (tasks that list it in scenes.yaml `cameras`)
 
 # Joint definitions by part
 # Note: The 20 upper-body joints (torso 3, neck 3, left_arm[0:7], right_arm[0:7]) are
@@ -173,9 +174,22 @@ hand_open_values:
 hand_close_values:
   - [0, 40, 40, 50, 75, 75, 75, 75, 0]
 hand_close_ratio: 0.5
-hand_close_time_s: 3.8
+# Duration of a full hand close [s], same in MuJoCo, Gazebo and the real robot: MuJoCo limits the
+# finger speed with it; Gazebo/real set each hand motor's reference speed to
+# |close - open| / hand_close_time_s. (3.8 s = the controller's default ~10 deg/s.)
+hand_close_time_s: 2.0
+# VR index (upper) trigger = hand closing fraction: below the first value open, above the second
+# closed, proportional in between. The lower (grip) trigger is the clutch (see README).
 vr_grip_deadband: [0.1, 0.9]
 vr_show_targets: true
+# VR help on the big screen: small "X: Help" in the bottom-right corner and, while the app is
+# paused (controllers silent for > 0.3 s) or after pressing X, a panel with the buttons.
+vr_help: true
+# Vertical FOV [deg] of the eye image sent to the headset (MuJoCo head_cam_vr, same pose as
+# head_cam). The real eye FOV (38.55 deg) looks too close in the lenses. Only what is seen in the
+# VR changes, not what is recorded. null = same as head_cam. Gazebo uses its own vr camera
+# (gazebo_sim/models/iCubGazeboV2_5_visuomanip_camada/vr_camera_nws.xml).
+vr_head_fovy: 60
 
 # Default fallback spawn range for objects if not specified in scenes.yaml
 cube_spawn:

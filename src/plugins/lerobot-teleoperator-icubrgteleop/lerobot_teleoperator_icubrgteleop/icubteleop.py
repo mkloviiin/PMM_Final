@@ -108,6 +108,12 @@ class iCubTeleop(Teleoperator):
         self.freeze_rh = False
         self.freeze_lh = False
         self.freeze_head = False
+        # Clutch (lower trigger): controller position when it was pressed, None = released
+        self._clutch_start = {"right": None, "left": None}
+        # Help panel on the big VR screen (teleop_module_sm draws it, RPC vr_help)
+        self._last_ctrl_recv_time = 0.0   # last controller message (0 = never)
+        self._vr_help_toggled = False      # panel opened with X (if BeaVR sends X to the PC)
+        self._vr_x_held = False
 
         self._vr_rec_start_event = False
         self._vr_rec_stop_event = False
@@ -312,6 +318,7 @@ class iCubTeleop(Teleoperator):
             mujoco.mju_quat2Mat(mat, quat_w)
             self._vr_home_rot[side] = mat.reshape(3, 3)
             self._prev_target_pos[side] = None
+            self._clutch_start[side] = None
             if side == "right":
                 self.calibrated_origin_rh = None
                 self.calibrated_quat_rh = None
@@ -520,16 +527,39 @@ class iCubTeleop(Teleoperator):
                         raw = sock.recv_string(flags=zmq.NOBLOCK)
                         if name == "rh":
                             self.latest_rh_data = self._parse_controller(raw)
+                            self._last_ctrl_recv_time = time.time()
                         elif name == "lh":
                             self.latest_lh_data = self._parse_controller(raw)
+                            self._last_ctrl_recv_time = time.time()
                         elif name == "btn":
                             parsed = self._parse_buttons(raw)
                             if parsed:
                                 self._ingest_buttons(parsed)
+                                self._ingest_help_button(parsed)
                             self._last_btn_recv_time = time.time()
                 except Exception:
                     pass
             time.sleep(0.001)
+
+    # No controller data for longer than this [s] = the BeaVR app is paused
+    VR_PAUSE_TIMEOUT_S = 0.3
+
+    def _ingest_help_button(self, b: dict) -> None:
+        """(VR thread) X opens/closes the help panel, if BeaVR sends it to the PC."""
+        if not any(k in b for k in ("BTN_ONE_LEFT", "X")):
+            return
+        pressed = b.get("BTN_ONE_LEFT", 0) > 0.5 or b.get("X", 0) > 0.8
+        if pressed and not self._vr_x_held:
+            self._vr_help_toggled = not self._vr_help_toggled
+        self._vr_x_held = pressed
+
+    def vr_help_active(self) -> bool:
+        """True = show the help panel: X pressed, or the controllers sent data and then stopped
+        for longer than VR_PAUSE_TIMEOUT_S (app paused). play.py forwards it to the YARP module."""
+        if self._vr_help_toggled:
+            return True
+        last = self._last_ctrl_recv_time
+        return last > 0 and time.time() - last > self.VR_PAUSE_TIMEOUT_S
 
     @staticmethod
     def _button_levels(b: dict) -> dict[str, bool]:
@@ -637,25 +667,50 @@ class iCubTeleop(Teleoperator):
         self._prev_target_pos[side] = filtered_pos
         target_pos = filtered_pos
 
-        target_quat = None
-        if "quat" in hand_data:
-            q_vr = hand_data["quat"]
-            q_world = unity_to_world_quat(q_vr)
-            if calib_quat is None:
-                calib_quat = PyQuaternion(q_world)
-            # Relative rotation in world frame from neutral calibration pose
-            q_rel = q_world * calib_quat.inverse
-            delta_R_world = q_rel.rotation_matrix
-            # Target orientation relative to robot home pose
-            R_target = delta_R_world @ home_rot
-            target_quat = _rotmat_to_quat_wxyz(R_target)
-        else:
-            target_quat = _rotmat_to_quat_wxyz(home_rot)
-
+        target_quat, calib_quat = self._vr_hand_quat(hand_data, calib_quat, home_rot)
         return target_pos, target_quat, calib_origin, calib_quat
 
+    @staticmethod
+    def _vr_hand_quat(hand_data, calib_quat, home_rot):
+        """Target orientation (wxyz) from the controller, relative to its calibration pose."""
+        if "quat" not in hand_data:
+            return _rotmat_to_quat_wxyz(home_rot), calib_quat
+        q_world = unity_to_world_quat(hand_data["quat"])
+        if calib_quat is None:
+            calib_quat = PyQuaternion(q_world)
+        # Relative rotation in world frame from neutral calibration pose
+        q_rel = q_world * calib_quat.inverse
+        return _rotmat_to_quat_wxyz(q_rel.rotation_matrix @ home_rot), calib_quat
+
+    def _clutch_hand(self, side: str, hand_data, engaged: bool) -> bool:
+        """Position clutch on the lower (grip) trigger: while pressed the target position does
+        not move (the operator repositions the controller); on release the origin shifts by
+        what the controller moved, so the target continues from where it stopped, without a
+        jump. Orientation has no clutch. True = position held this step."""
+        vr_pos = hand_data.get("pos")
+        if vr_pos is None or np.linalg.norm(vr_pos) < 0.001:
+            return engaged
+        if engaged:
+            if self._clutch_start[side] is None:
+                self._clutch_start[side] = vr_pos.copy()
+            return True
+        start = self._clutch_start[side]
+        if start is not None:
+            attr = "calibrated_origin_rh" if side == "right" else "calibrated_origin_lh"
+            origin = getattr(self, attr)
+            if origin is not None:
+                setattr(self, attr, origin + (vr_pos - start))
+            self._clutch_start[side] = None
+        return False
+
     def _process_vr_hands(self):
-        if not self.freeze_rh and self.latest_rh_data is not None and "right" in self.mocap_ids:
+        rh = self.latest_rh_data
+        if rh is not None and "right" in self.mocap_ids and self._clutch_hand("right", rh, self.freeze_rh):
+            if PyQuaternion is not None:
+                quat, self.calibrated_quat_rh = self._vr_hand_quat(
+                    rh, self.calibrated_quat_rh, self._vr_home_rot.get("right", np.eye(3)))
+                self.data.mocap_quat[self.mocap_ids["right"]] = quat
+        elif rh is not None and "right" in self.mocap_ids:
             home_pos_rh = self._vr_home.get("right", np.array([0.35, -0.15, 0.91]))
             home_rot_rh = self._vr_home_rot.get("right", np.eye(3))
             pos, quat, self.calibrated_origin_rh, self.calibrated_quat_rh = self._vr_hand_to_target(
@@ -675,7 +730,13 @@ class iCubTeleop(Teleoperator):
                 if quat is not None:
                     self.data.mocap_quat[mid] = quat
 
-        if not self.freeze_lh and self.latest_lh_data is not None and "left" in self.mocap_ids:
+        lh = self.latest_lh_data
+        if lh is not None and "left" in self.mocap_ids and self._clutch_hand("left", lh, self.freeze_lh):
+            if PyQuaternion is not None:
+                quat, self.calibrated_quat_lh = self._vr_hand_quat(
+                    lh, self.calibrated_quat_lh, self._vr_home_rot.get("left", np.eye(3)))
+                self.data.mocap_quat[self.mocap_ids["left"]] = quat
+        elif lh is not None and "left" in self.mocap_ids:
             home_pos_lh = self._vr_home.get("left", np.array([0.35, 0.15, 0.91]))
             home_rot_lh = self._vr_home_rot.get("left", np.eye(3))
             pos, quat, self.calibrated_origin_lh, self.calibrated_quat_lh = self._vr_hand_to_target(

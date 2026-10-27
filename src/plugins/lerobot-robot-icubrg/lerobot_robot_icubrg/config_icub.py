@@ -111,6 +111,14 @@ def _camera_ports_from_robot_name(robot_name: str, robot_model: str | None = Non
     }
 
 
+def _extra_camera_ports(robot_name: str) -> dict[str, str]:
+    """Cameras recorded only when the task asks for them (`cameras` in scenes.yaml), e.g. the
+    overhead camera of the door (gazebo_sim/models/top-camera-stand). Gazebo only."""
+    if robot_name.strip().lower() == "icubsim":
+        return {"top": f"/{robot_name}/cam/top/rgbImage:o"}
+    return {}
+
+
 def _scene_object_bodies() -> list[str]:
     scene_file = Path(os.environ.get("ICUB_SCENE_FILE", "/tmp/icub_lerobot_scene"))
     scenes_yaml = _project_root() / "mujoco_sim" / "assets" / "scenes" / "scenes.yaml"
@@ -152,21 +160,36 @@ class iCubConfig(RobotConfig):
     gripper_legacy: bool = False
 
     control_arms: str | None = None
-    controller_type: str = "ik"
-    impedance_mode: bool = False
+    controller_type: str | None = None   # "ik" | "id"; None = controller_type of the YAML
+    impedance_mode: bool | None = None   # None = impedance_mode of the YAML
     canonical_quats: bool = True
     robot_model: str | None = None
     use_gaze: bool | None = None
     actuators_to_use: dict[str, list[str]] = field(default_factory=dict)
     camera_ports: dict[str, str] = field(default_factory=dict)
     camera_shapes: dict[str, tuple[int, int]] = field(default_factory=dict)
+    camera_extra_ports: dict[str, str] = field(default_factory=dict)
+    camera_shape_overrides: dict[str, tuple[int, int]] = field(default_factory=dict)
+
+    def select_cameras(self, names: list[str]) -> list[str]:
+        """Record only the task cameras `names` (`cameras` in scenes.yaml), in that order,
+        including the extra ones (top). Returns the ones this robot lacks (e.g. top on the real one)."""
+        available = {**self.camera_extra_ports, **self.camera_ports}
+        self.camera_ports = {n: available[n] for n in names if n in available}
+        self.camera_shapes = {
+            n: tuple(self.camera_shape_overrides.get(n, (240, 320))) for n in self.camera_ports
+        }
+        return [n for n in names if n not in available]
 
     def __post_init__(self) -> None:
         cfg = load_control_config(self.config_path)
         robot_name = os.environ.get("ICUB_ROBOT_NAME") or cfg.get("robot_name", "icubSim")
         self.robot_model = _detect_robot_model(cfg, self.robot_model)
-        self.controller_type = cfg.get("controller_type", self.controller_type)
-        self.impedance_mode = bool(cfg.get("impedance_mode", self.impedance_mode))
+        # Explicit values (play.py --controller / --impedance, chosen in the Hub) win over the YAML
+        if self.controller_type is None:
+            self.controller_type = str(cfg.get("controller_type", "ik")).lower()
+        if self.impedance_mode is None:
+            self.impedance_mode = bool(cfg.get("impedance_mode", False))
         if self.control_arms is None:
             self.control_arms = _normalize_control_arms(cfg.get("control_arms", "right"))
         else:
@@ -193,6 +216,9 @@ class iCubConfig(RobotConfig):
             self.camera_ports = ports or {}
 
         yaml_shapes = cfg.get("camera_shapes") or {}
+        if show_cameras and not self.camera_extra_ports:
+            self.camera_extra_ports = _extra_camera_ports(robot_name)
+        self.camera_shape_overrides = {k: tuple(v) for k, v in yaml_shapes.items()}
         self.camera_shapes = {
             name: tuple(yaml_shapes.get(name, (240, 320)))
             for name in self.camera_ports

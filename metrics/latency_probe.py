@@ -28,7 +28,7 @@ Requisitos:
   * gazebo : start_sim.sh + teleop_module_sm.py --robot icubSim corriendo.
   * real   : yarp conf al robot + teleop_module_sm.py --robot icub corriendo.
 
-Salida (en hub_dataset/logs/metrics/): probe_<backend>_<fecha>_samples.csv (todas
+Salida (en src/hub_dataset/logs/metrics/): probe_<backend>_<fecha>_samples.csv (todas
 las muestras), probe_<backend>_<fecha>_trials.csv (una fila por escalón) y un
 resumen por consola. ``metrics_report.py`` los incluye en el informe.
 
@@ -51,8 +51,8 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-GZ_ROOT = ROOT / "icub-lerobot-gazebo"
-MJ_ROOT = ROOT / "icub-lerobot-mj"
+PLUGINS = ROOT / "src" / "plugins"
+CONFIG = ROOT / "config" / "control_config.yaml"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from frame_metrics import METRICS_DIR  # noqa: E402
 
@@ -113,11 +113,11 @@ class YarpAdapter(_Adapter):
     def __init__(self, args):
         super().__init__()
         os.environ["ICUB_ROBOT_NAME"] = "icub" if args.backend == "real" else "icubSim"
-        sys.path.insert(0, str(GZ_ROOT / "common" / "lerobot-robot-icubrg"))
+        sys.path.insert(0, str(PLUGINS / "lerobot-robot-icubrg"))
         from lerobot_robot_icubrg.config_icub import iCubConfig
         from lerobot_robot_icubrg.icub import iCub
 
-        cfg = iCubConfig(config_path=str(args.config or GZ_ROOT / "config" / "control_config.yaml"))
+        cfg = iCubConfig(config_path=str(args.config or CONFIG))
         cfg.camera_ports = {}   # sin cámaras: solo interesa el brazo
         cfg.use_gaze = False    # la mirada no se toca
         self.robot = iCub(cfg)
@@ -178,19 +178,19 @@ class MujocoAdapter(_Adapter):
         super().__init__()
         import yaml
         os.environ["ICUB_MUJOCO_VR_ENABLED"] = "0"
-        for p in (MJ_ROOT / "lerobot-robot-icub", MJ_ROOT):
+        for p in (PLUGINS / "lerobot-robot-icub", ROOT / "src"):
             sys.path.insert(0, str(p))
         from lerobot_robot_icub.config_icub_mujoco import iCubMuJoCoConfig
         from lerobot_robot_icub.icub_mujoco import iCubMuJoCo
 
-        scenes_dir = MJ_ROOT / "dependencies" / "assets" / "scenes"
+        scenes_dir = ROOT / "mujoco_sim" / "assets" / "scenes"
         model = args.model
         if model is None:
             entries = yaml.safe_load((scenes_dir / "scenes.yaml").read_text(encoding="utf-8")) or []
             model = scenes_dir / entries[0]["file"]
         cfg = iCubMuJoCoConfig(
             model_path=str(model),
-            config_path=str(args.config or MJ_ROOT / "utils" / "control_config.yaml"),
+            config_path=str(args.config or CONFIG),
             vr_enabled=False,
         )
         cfg.vr_enabled = False  # __post_init__ lo toma del YAML

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Informe de latencia, jitter y sincronización para MuJoCo, Gazebo y el robot real.
 
-Lee lo que dejan las sesiones en ``hub_dataset/logs/metrics/``:
+Lee lo que dejan las sesiones en ``src/hub_dataset/logs/metrics/``:
   * ``<dataset>.jsonl``              métricas por frame (frame_metrics.py, se generan al grabar)
   * ``probe_<backend>_*_trials.csv``  pruebas de escalón (latency_probe.py)
-y opcionalmente los logs del Hub (``hub_dataset/logs/hub_*.txt``) para el módulo YARP.
+y opcionalmente los logs del Hub (``src/hub_dataset/logs/hub_*.txt``) para el módulo YARP.
 
-Genera en ``--out`` (default ``hub_dataset/logs/metrics/report``):
+Genera en ``--out`` (default ``src/hub_dataset/logs/metrics/report``):
   resumen.md      tablas + definiciones, listo para copiar al informe
   tablas.tex      las mismas tablas en LaTeX (booktabs)
   resumen.json    todos los números
@@ -14,7 +14,7 @@ Genera en ``--out`` (default ``hub_dataset/logs/metrics/report``):
 
 Ejemplos:
   python metrics/metrics_report.py                       # todo lo que haya
-  python metrics/metrics_report.py --frames a.jsonl b.jsonl --logs hub_dataset/logs/hub_*.txt
+  python metrics/metrics_report.py --frames a.jsonl b.jsonl --logs src/hub_dataset/logs/hub_*.txt
   python metrics/metrics_report.py --include-waiting     # incluir frames fuera de grabación
 """
 
@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-METRICS_DIR = ROOT / "hub_dataset" / "logs" / "metrics"
+METRICS_DIR = ROOT / "src" / "hub_dataset" / "logs" / "metrics"
 
 BACKENDS = ["mujoco", "gazebo", "real"]
 LABEL = {"mujoco": "MuJoCo", "gazebo": "Gazebo", "real": "Real"}
@@ -733,7 +733,7 @@ def to_latex(T):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--frames", nargs="*", help="Archivos .jsonl (default: todos en hub_dataset/logs/metrics)")
+    ap.add_argument("--frames", nargs="*", help="Archivos .jsonl (default: todos en src/hub_dataset/logs/metrics)")
     ap.add_argument("--probes", nargs="*", help="Archivos probe_*_trials.csv (default: todos)")
     ap.add_argument("--logs", nargs="*", default=None, help="Logs del Hub hub_*.txt (default: ninguno)")
     ap.add_argument("--include-waiting", action="store_true", help="Incluir frames fuera de grabación")

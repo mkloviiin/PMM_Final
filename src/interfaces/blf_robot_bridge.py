@@ -411,6 +411,25 @@ stream_forcetorque_sensors             false
             ipos.positionMove(i + 7, float(target_deg[i]))
         return True
 
+    def set_hand_ref_speeds(self, arm: str, close_time_s: float) -> bool:
+        """
+        Reference speed [deg/s] of the 9 hand motors (the one positionMove uses) so that a full
+        open -> close stroke takes close_time_s, like MuJoCo's hand_close_time_s.
+        Motors that do not move between open and close keep the controller's speed.
+        """
+        num_total = self.aux_num_axes.get(arm, 0)
+        ipos = self.aux_pos_control.get(arm)
+        if num_total <= 7 or ipos is None or close_time_s <= 0:
+            return False
+        delta = np.abs(self.hand_close_deg - self.hand_open_deg)
+        if len(delta) != num_total - 7:
+            return False
+        ok = True
+        for i, d in enumerate(delta):
+            if d > 0:
+                ok = ipos.setRefSpeed(i + 7, float(d / close_time_s)) and ok
+        return ok
+
     def set_hand_closure(self, arm: str, closure_fraction: float) -> bool:
         """
         Set hand closure level in [0.0, 1.0] where 0.0 = hand_open_deg and 1.0 = hand_close_deg.

@@ -44,6 +44,8 @@ from controllers.whole_body_id import iCubWholeBodyID
 from interfaces.blf_robot_bridge import BLFRobotBridge
 
 from interfaces.zmq_image_publisher import ZMQCompressedImageTransmitter
+# VR help (RPC vr_help, forwarded by play.py when the BeaVR app pauses or X is pressed)
+from interfaces.vr_overlay import draw_help_hint, draw_help_panel
 
 CAMERA_RELAY_DEFAULT_HW = (240, 320)
 CONFIG_FILE = os.getenv(
@@ -228,6 +230,13 @@ class TeleopModuleSM(yarp.RFModule):
             ):
                 print("✗ ERROR: BLFRobotBridge failed to connect.")
                 return False
+            # Hand speed: a full close in hand_close_time_s, same as MuJoCo
+            close_time = self.cfg.get("hand_close_time_s")
+            if close_time:
+                for arm in ("left_arm", "right_arm"):
+                    if arm in self.actuators_to_use:
+                        ok = self.bridge.set_hand_ref_speeds(arm, float(close_time))
+                        print(f"  Hand {arm} close time {float(close_time):.1f} s -> {'ok' if ok else 'not set'}")
 
             # [3/7] Initialize Whole-Body Controller (iCubWholeBodyIK or iCubWholeBodyID)
             print(f"[3/7] Initializing Whole-Body Solver ({self.controller_type.upper()})...")
@@ -384,6 +393,22 @@ class TeleopModuleSM(yarp.RFModule):
             self._front_last_frame_t = 0.0
             self._front_fallback_warned = False
             self.vr_status_text = "EN ESPERA"
+            self.vr_help_enabled = bool(self.cfg.get("vr_help", True))
+            self.vr_help_panel = False
+
+            # Wider-FOV camera for the headset (Gazebo: vr_camera_nws.xml in the iCub model).
+            # Without frames (real robot) the VR shows the eye camera.
+            self.vr_cam_source_port = self.cfg.get("vr_camera_port", f"/{robot_name}/cam/vr/rgbImage:o")
+            self.vr_cam_local_port = "/teleop/vr_cam:i"
+            self.ports["vr_cam_in"] = yarp.BufferedPortImageRgb()
+            self.ports["vr_cam_in"].open(self.vr_cam_local_port)
+            self.vr_cam_buf = yarp.ImageRgb()
+            self.vr_cam_arr = None
+            self.vr_cam_bgr = None
+            self._vr_cam_last_try = 0.0
+            self._vr_cam_last_frame_t = 0.0
+            if self._connect_vr_camera():
+                print(f"  ✓ VR camera connected: {self.vr_cam_source_port}")
             self._status_img = None
             self._status_img_text = None
             self._status_last_send = 0.0
@@ -537,6 +562,10 @@ class TeleopModuleSM(yarp.RFModule):
 
             elif cmd == "vr_status":
                 self.vr_status_text = command.get(1).asString() if command.size() > 1 else ""
+                reply.addString("ok")
+
+            elif cmd == "vr_help":
+                self.vr_help_panel = command.size() > 1 and command.get(1).asInt32() != 0
                 reply.addString("ok")
 
             elif cmd == "reset_scenario":
@@ -718,9 +747,15 @@ class TeleopModuleSM(yarp.RFModule):
 
         img_view = self.r_img.copy() if self.r_img is not None else (self.l_img.copy() if self.l_img is not None else None)
         if img_view is not None:
-            img_vr = img_view
+            vr_src = self._read_vr_camera()
+            img_vr = vr_src.copy() if vr_src is not None else img_view.copy()
             if time.time() - self._front_last_frame_t <= 1.0:
-                img_vr = draw_status_corner(img_view.copy(), self.vr_status_text.split("|"))
+                img_vr = draw_status_corner(img_vr, self.vr_status_text.split("|"))
+            if self.vr_help_enabled:
+                if self.vr_help_panel:
+                    draw_help_panel(img_vr)
+                else:
+                    draw_help_hint(img_vr)
 
             if hasattr(self, "vr_pub") and self.vr_pub is not None:
                 try:
@@ -756,6 +791,34 @@ class TeleopModuleSM(yarp.RFModule):
             if stamp is not None:
                 port.setEnvelope(yarp.Stamp(*stamp))
             port.write()
+
+    def _connect_vr_camera(self) -> bool:
+        self._vr_cam_last_try = time.time()
+        if yarp.Network.isConnected(self.vr_cam_source_port, self.vr_cam_local_port):
+            return True
+        return (
+            yarp.Network.exists(self.vr_cam_source_port, True)
+            and yarp.Network.connect(self.vr_cam_source_port, self.vr_cam_local_port, "fast_tcp", True)
+        )
+
+    def _read_vr_camera(self) -> Optional[np.ndarray]:
+        """Last VR camera frame in BGR, or None if no frame for more than 1 s (real robot)."""
+        img = self.ports["vr_cam_in"].read(False)
+        now = time.time()
+        if img is None:
+            if now - self._vr_cam_last_frame_t > FRONT_RETRY_S and now - self._vr_cam_last_try > FRONT_RETRY_S:
+                if self._connect_vr_camera():
+                    print(f"  ✓ VR camera connected: {self.vr_cam_source_port}")
+        else:
+            w, h = img.width(), img.height()
+            if self.vr_cam_arr is None or self.vr_cam_arr.shape[:2] != (h, w):
+                self.vr_cam_arr = np.zeros((h, w, 3), dtype=np.uint8)
+                self.vr_cam_buf.resize(w, h)
+                self.vr_cam_buf.setExternal(self.vr_cam_arr.data, w, h)
+            self.vr_cam_buf.copy(img)
+            self.vr_cam_bgr = cv2.cvtColor(self.vr_cam_arr, cv2.COLOR_RGB2BGR)
+            self._vr_cam_last_frame_t = now
+        return self.vr_cam_bgr if now - self._vr_cam_last_frame_t <= 1.0 else None
 
     def _connect_front_camera(self) -> bool:
         self._front_last_try = time.time()

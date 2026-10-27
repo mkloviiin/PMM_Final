@@ -376,12 +376,11 @@ class iCub(Robot):
             return False
         reply = self.send_rpc_command("start_teleop")
         print(f"[iCub] Sent 'start_teleop' -> Reply: {reply}")
-        if self.config.impedance_mode or getattr(self.config, "controller_type", "ik") == "id":
-            imp_reply = self.send_rpc_command("set_impedance 1")
-            print(f"[iCub] Sent 'set_impedance 1' -> Reply: {imp_reply}")
-        else:
-            imp_reply = self.send_rpc_command("set_impedance 0")
-            print(f"[iCub] Sent 'set_impedance 0' -> Reply: {imp_reply}")
+        # Impedance only exists with the ID (torque) controller, and only when it was asked for
+        if getattr(self.config, "controller_type", "ik") == "id":
+            val = 1 if self.config.impedance_mode else 0
+            imp_reply = self.send_rpc_command(f"set_impedance {val}")
+            print(f"[iCub] Sent 'set_impedance {val}' -> Reply: {imp_reply}")
         self.is_teleop_active = True
         return True
 
