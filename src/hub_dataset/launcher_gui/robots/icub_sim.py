@@ -100,12 +100,12 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 value=30, label="Dataset FPS (Default: 30)",
                 precision=0, minimum=5, maximum=60,
             )
-
-        with gr.Column(scale=1):
             ep_time_sl = gr.Number(
                 value=0, label="Max episode duration (s)", placeholder="No limit",
                 precision=0, minimum=0, info="0 = no time limit"
             )
+
+        with gr.Column(scale=1):
             root_tb, _ = dir_textbox(
                 "Dataset root directory", str(REPO_ROOT / "data"),
                 title="Select the dataset root directory",
