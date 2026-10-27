@@ -310,8 +310,9 @@ def run_mujoco_teleop_loop(args, model_path: Path, scene_task: str, scene_object
     episode_index = 0
     ep_start_t = 0.0
 
-    print("[Controls] Console: 1 = START episode, 2 = STOP/SAVE episode, 3 = EXIT")
-    print("[Controls] VR:      A = START episode, B = STOP/SAVE episode (hold B 1.5s to DISCARD)")
+    print("[Controls] Console: 1 = START, 2 = STOP/SAVE, 3 = EXIT, h = HOME, n = RESET objects, t = TOGGLE teleop, i = TOGGLE impedance, 8/9 = Right Hand, 6/7 = Left Hand")
+    print("[Controls] Viewer:  Mouse (Ctrl+Drag) = Move/Rotate Mocaps, 8/9 = Right Hand, 6/7 = Left Hand")
+    print("[Controls] VR:      A = START episode, B = STOP/SAVE episode (hold B 1.5s to DISCARD), Y = RESET objects, Index Trigger = Gripper, Lower Trigger = Freeze")
 
     cmd_queue = []
     def _console_reader():
@@ -329,15 +330,48 @@ def run_mujoco_teleop_loop(args, model_path: Path, scene_task: str, scene_object
         while episode_index < args.num_episodes or args.no_record:
             loop_t0 = time.perf_counter()
 
+            if teleop.viewer is not None and not teleop.viewer.is_running():
+                print("[Viewer] Window closed by user. Exiting...")
+                break
+
             c_cmd = cmd_queue.pop(0) if cmd_queue else None
-            if c_cmd == "3":
+            cmd_lower = c_cmd.strip().lower() if c_cmd else ""
+
+            if cmd_lower == "3":
                 print("[Exit] Quitting...")
                 break
 
-            reset_home = teleop.consume_reset_home_event() or (c_cmd is not None and c_cmd.strip().lower() in ("h", "home"))
-            if reset_home:
-                print("\n[Teleop] Reset requested (SPACE): Moving robot smoothly to home...")
+            if cmd_lower in ("t", "teleop"):
+                new_state = robot.toggle_teleop()
+                print(f"\n[Teleop] Toggled teleoperation: {'ACTIVE' if new_state else 'IDLE (Paused)'}")
+
+            if cmd_lower in ("h", "home"):
+                print("\n[Teleop] Home requested (h): Resetting mocaps and moving robot smoothly to home...")
+                teleop._reset_mocaps_to_xml_pose(strict=True)
                 robot.go_home()
+
+            reset_scen = (cmd_lower in ("n", "reset")) or teleop.consume_world_reset_event()
+            if reset_scen:
+                print("\n[Teleop] Reset scenario (n): Re-randomizing scene objects...")
+                teleop._reset_scenario()
+                if robot.teleop_core and getattr(teleop, "_last_reset_poses", None):
+                    robot.teleop_core.set_object_poses(teleop._last_reset_poses)
+
+            if cmd_lower in ("i", "impedance"):
+                robot.toggle_impedance()
+
+            if cmd_lower == "8":
+                teleop.set_gripper("rh", 0.0)
+                print("[Console] Right Gripper: OPEN")
+            elif cmd_lower == "9":
+                teleop.set_gripper("rh", 1.0)
+                print("[Console] Right Gripper: CLOSE")
+            elif cmd_lower == "6":
+                teleop.set_gripper("lh", 0.0)
+                print("[Console] Left Gripper: OPEN")
+            elif cmd_lower == "7":
+                teleop.set_gripper("lh", 1.0)
+                print("[Console] Left Gripper: CLOSE")
 
             vr_start, vr_stop, vr_discard = robot.consume_vr_record_events()
             if not vr_start and not vr_stop:
@@ -396,13 +430,19 @@ def run_mujoco_teleop_loop(args, model_path: Path, scene_task: str, scene_object
     finally:
         if is_recording and dataset is not None:
             dataset.save_episode()
-        if getattr(robot, "is_teleop_active", False):
+        if getattr(robot, "is_teleop_active", False) and hasattr(robot, "stop_teleop"):
             robot.stop_teleop()
-        teleop.disconnect()
-        robot.disconnect()
+        try:
+            teleop.disconnect()
+        except Exception:
+            pass
+        try:
+            robot.disconnect()
+        except Exception:
+            pass
         if getattr(args, "vr_cable", False):
             try:
-                from mujoco_sim.vr_usb import remove_reverse_ports
+                from interfaces.vr_usb import remove_reverse_ports
                 remove_reverse_ports()
             except Exception:
                 pass
@@ -444,6 +484,32 @@ def run_yarp_teleop_loop(args, scene_task: str):
     print(f" Control:    {args.control_arms} arm(s)")
     print(f" Recording:  {'DISABLED (--no-record)' if args.no_record else 'ENABLED'}")
     print(f"=======================================================\n")
+
+    # If teleop_module_sm is not running on YARP, launch it automatically in background
+    import yarp
+    yarp.Network.init()
+    teleop_proc = None
+    if not yarp.Network.exists("/teleop/state:o"):
+        print(f"[play.py] /teleop/state:o not found. Auto-launching teleop_module_sm.py ({args.controller.upper()})...")
+        teleop_script = repo_root / "src" / "interfaces" / "teleop_module_sm.py"
+        teleop_cmd = [
+            sys.executable,
+            str(teleop_script),
+            "--robot", robot_name,
+            "--controller", args.controller,
+            "--control-arms", args.control_arms,
+        ]
+        if args.impedance:
+            teleop_cmd.append("--impedance")
+        teleop_proc = subprocess.Popen(teleop_cmd)
+        print("[play.py] Waiting for /teleop/state:o to appear on YARP network...")
+        for _ in range(40):
+            if yarp.Network.exists("/teleop/state:o"):
+                print("[play.py] ✓ /teleop/state:o is ready.")
+                break
+            time.sleep(0.5)
+        else:
+            print("[play.py] Warning: Timeout waiting for /teleop/state:o. Proceeding to connect...")
 
     robot.connect()
     teleop.connect()
@@ -488,9 +554,9 @@ def run_yarp_teleop_loop(args, scene_task: str):
     episode_index = 0
     ep_start_t = 0.0
 
-    print("[Controls] Viewer:  T = START/STOP teleoperation, SPACE = Smooth Return to Home, 8/9 = Right Hand, 6/7 = Left Hand")
-    print("[Controls] Console: 1 = START episode, 2 = STOP/SAVE episode, 3 = EXIT, T = TOGGLE teleoperation, H = GO HOME")
-    print("[Controls] VR:      A = START episode, B = STOP/SAVE episode (hold B 1.5s to DISCARD)")
+    print("[Controls] Console: 1 = START, 2 = STOP/SAVE, 3 = EXIT, h = HOME, n = RESET objects, t = TOGGLE teleop, i = TOGGLE impedance, 8/9 = Right Hand, 6/7 = Left Hand")
+    print("[Controls] Viewer:  Mouse (Ctrl+Drag) = Move/Rotate Mocaps, 8/9 = Right Hand, 6/7 = Left Hand")
+    print("[Controls] VR:      A = START episode, B = STOP/SAVE episode (hold B 1.5s to DISCARD), Y = RESET objects, Index Trigger = Gripper, Lower Trigger = Freeze")
 
     cmd_queue = []
     def _console_reader():
@@ -509,24 +575,54 @@ def run_yarp_teleop_loop(args, scene_task: str):
             loop_t0 = time.perf_counter()
 
             c_cmd = cmd_queue.pop(0) if cmd_queue else None
-            if c_cmd == "3":
+            cmd_lower = c_cmd.strip().lower() if c_cmd else ""
+
+            if cmd_lower == "3":
                 print("[Exit] Quitting...")
                 break
 
-            reset_home = teleop.consume_reset_home_event() or (c_cmd is not None and c_cmd.strip().lower() in ("h", "home"))
-            if reset_home:
-                print("\n[Teleop] Reset requested (SPACE): Moving robot smoothly to home...")
-                robot.go_home()
-                print("[Teleop] Status: IDLE (Robot at home pose - press 'T' to resume teleoperation)\n")
-
-            t_pressed = (c_cmd is not None and c_cmd.strip().lower() == "t") or teleop.consume_teleop_toggle_event()
-            if t_pressed:
+            if cmd_lower in ("t", "teleop"):
                 if robot.is_teleop_active:
                     robot.stop_teleop()
                     print("\n[Teleop] Status: STOPPED (Idle - holding current posture)\n")
                 else:
                     robot.start_teleop()
                     print("\n[Teleop] Status: ACTIVE (Tracking mocaps)\n")
+
+            if cmd_lower in ("h", "home"):
+                print("\n[Teleop] Home requested (h): Resetting mocaps and moving robot smoothly to home...")
+                teleop._reset_mocaps_to_xml_pose()
+                robot.go_home()
+                print("[Teleop] Status: IDLE (Robot at home pose - press 't' in console to resume teleoperation)\n")
+
+            world_reset = (
+                (cmd_lower in ("n", "reset"))
+                or teleop.consume_world_reset_event()
+            )
+            if world_reset:
+                if args.backend == "gazebo":
+                    print("\n[Gazebo] Reset requested (console 'n' / VR 'Y'): Resetting objects via reset_objects.sh...")
+                    reset_script = repo_root / "gazebo_sim" / "scripts" / "reset_objects.sh"
+                    if reset_script.exists():
+                        subprocess.run([str(reset_script)], check=False)
+                    else:
+                        print(f"[Gazebo] Warning: reset script not found at {reset_script}")
+
+            if cmd_lower in ("i", "impedance"):
+                robot.toggle_impedance()
+
+            if cmd_lower == "8":
+                teleop.set_gripper("rh", 0.0)
+                print("[Console] Right Gripper: OPEN")
+            elif cmd_lower == "9":
+                teleop.set_gripper("rh", 1.0)
+                print("[Console] Right Gripper: CLOSE")
+            elif cmd_lower == "6":
+                teleop.set_gripper("lh", 0.0)
+                print("[Console] Left Gripper: OPEN")
+            elif cmd_lower == "7":
+                teleop.set_gripper("lh", 1.0)
+                print("[Console] Left Gripper: CLOSE")
 
             vr_start, vr_stop, vr_discard = teleop.consume_vr_record_events()
 
@@ -542,14 +638,14 @@ def run_yarp_teleop_loop(args, scene_task: str):
                 print(f"[Record] Episode {episode_index} SAVED.")
                 episode_index += 1
                 if args.backend == "gazebo":
-                    subprocess.run([str(repo_root / "gazebo" / "scripts" / "reset_objects.sh")], check=False)
+                    subprocess.run([str(repo_root / "gazebo_sim" / "scripts" / "reset_objects.sh")], check=False)
 
             if is_recording and vr_discard:
                 is_recording = False
                 _discard_episode(dataset)
                 print(f"[Record] Episode {episode_index} DISCARDED.")
                 if args.backend == "gazebo":
-                    subprocess.run([str(repo_root / "gazebo" / "scripts" / "reset_objects.sh")], check=False)
+                    subprocess.run([str(repo_root / "gazebo_sim" / "scripts" / "reset_objects.sh")], check=False)
 
             action = teleop.get_action()
             robot.send_action(action)
@@ -571,7 +667,7 @@ def run_yarp_teleop_loop(args, scene_task: str):
                     print(f"[Record] Episode {episode_index} reached time limit -> SAVED.")
                     episode_index += 1
                     if args.backend == "gazebo":
-                        subprocess.run([str(repo_root / "gazebo" / "scripts" / "reset_objects.sh")], check=False)
+                        subprocess.run([str(repo_root / "gazebo_sim" / "scripts" / "reset_objects.sh")], check=False)
 
             elapsed = time.perf_counter() - loop_t0
             sleep_s = dt - elapsed
@@ -581,13 +677,29 @@ def run_yarp_teleop_loop(args, scene_task: str):
     finally:
         if is_recording and dataset is not None:
             dataset.save_episode()
-        if getattr(robot, "is_teleop_active", False):
-            robot.stop_teleop()
-        teleop.disconnect()
-        robot.disconnect()
+        if getattr(robot, "is_teleop_active", False) and hasattr(robot, "stop_teleop"):
+            try:
+                robot.stop_teleop()
+            except Exception:
+                pass
+        try:
+            teleop.disconnect()
+        except Exception:
+            pass
+        try:
+            robot.disconnect()
+        except Exception:
+            pass
+        if teleop_proc is not None:
+            print("[play.py] Terminating background teleop_module_sm...")
+            teleop_proc.terminate()
+            try:
+                teleop_proc.wait(timeout=3)
+            except Exception:
+                teleop_proc.kill()
         if getattr(args, "vr_cable", False):
             try:
-                from mujoco_sim.vr_usb import remove_reverse_ports
+                from interfaces.vr_usb import remove_reverse_ports
                 remove_reverse_ports()
             except Exception:
                 pass
@@ -597,7 +709,7 @@ def run_yarp_teleop_loop(args, scene_task: str):
 def main():
     args = parse_args()
     if args.vr_cable:
-        from mujoco_sim.vr_usb import connect_cable, CABLE_IP
+        from interfaces.vr_usb import connect_cable, CABLE_IP
         print("[VR] Conectando visor Meta Quest por cable USB (ADB reverse)...")
         if not connect_cable():
             raise SystemExit(

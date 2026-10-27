@@ -921,15 +921,15 @@ class MuJoCoTeleop:
         if b is None or not isinstance(b, dict):
             return
 
-        if "HAND_RIGHT" in b:
-            self._set_hand_level("right", self._trigger_to_level(b["HAND_RIGHT"]))
-        if "HAND_LEFT" in b:
-            self._set_hand_level("left", self._trigger_to_level(b["HAND_LEFT"]))
+        if "INDEX_RIGHT" in b:
+            self._set_hand_level("right", self._trigger_to_level(b["INDEX_RIGHT"]))
+        if "INDEX_LEFT" in b:
+            self._set_hand_level("left", self._trigger_to_level(b["INDEX_LEFT"]))
 
         if b.get("BTN_TWO_LEFT", 0) > 0.5 or b.get("Y", 0) > 0.8:
             self._reset_scenario()
 
-        any_active = any(b.get(k, 0) > 0.8 for k in ("INDEX_RIGHT", "INDEX_LEFT"))
+        any_active = any(b.get(k, 0) > 0.8 for k in ("HAND_RIGHT", "HAND_LEFT"))
         self.freeze_rh = any_active
         self.freeze_lh = any_active
         self.freeze_head = any_active

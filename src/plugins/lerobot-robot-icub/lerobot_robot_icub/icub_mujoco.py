@@ -441,7 +441,10 @@ class iCubMuJoCo(Robot):
         sim_steps_needed = max(1, int(round(self.config.control_dt / dt)))
         t_phys = time.perf_counter()
 
-        self.teleop_core._solve_whole_body()
+        if self.teleop_core.state == "going_home":
+            self.teleop_core._interpolate_home()
+        elif self.teleop_core.state == "teleop_active":
+            self.teleop_core._solve_whole_body()
         self.teleop_core._interpolate_hands()
 
         for _ in range(sim_steps_needed):
@@ -659,11 +662,48 @@ class iCubMuJoCo(Robot):
             self._obs_keys = set(self.observation_features)
         return {k: v for k, v in obs.items() if k in self._obs_keys}
 
+    @property
+    def is_teleop_active(self) -> bool:
+        if self.teleop_core is not None:
+            return self.teleop_core.state == "teleop_active"
+        return False
+
+    def toggle_teleop(self) -> bool:
+        if self.teleop_core is None:
+            return False
+        if self.teleop_core.state == "teleop_active":
+            self.stop_teleop()
+            return False
+        else:
+            self.start_teleop()
+            return True
+
+    def start_teleop(self) -> None:
+        if self.teleop_core is not None and self.teleop_core.state != "teleop_active":
+            self.teleop_core._snap_targets_to_ee()
+            self.teleop_core.state = "teleop_active"
+            print("[State] → teleop_active (resumed)")
+
+    def stop_teleop(self) -> None:
+        if self.teleop_core is not None and self.teleop_core.state == "teleop_active":
+            self.teleop_core._snap_targets_to_ee()
+            self.teleop_core.state = "idle"
+            print("[State] teleop → idle (paused)")
+
     def go_home(self) -> bool:
         if self.teleop_core is not None:
             self.teleop_core._start_go_home()
             return True
         return False
+
+    def toggle_impedance(self) -> bool:
+        if self.teleop_core is None or getattr(self.teleop_core, "controller_type", "") != "id":
+            print("[Teleop] Modo impedancia solo disponible con --controller id")
+            return False
+        new_mode = not getattr(self.teleop_core, "impedance_mode", False)
+        self.teleop_core.set_impedance_mode(new_mode)
+        print(f"[Teleop] Modo impedancia: {'ACTIVADO' if new_mode else 'DESACTIVADO'}")
+        return new_mode
 
     def disconnect(self) -> None:
         if not self._connected:

@@ -6,18 +6,21 @@ Web platform to **record, review, curate and publish robotics datasets** in
 [LeRobot](https://github.com/huggingface/lerobot) format. Designed for **any robot**:
 recording, episode review, curation and the upload to Hugging Face are shared, and each
 robot plugs in as an independent *backend*
-(see [How to add a robot](#how-to-add-a-robot)).
+(see [How to add a robot](#how-to-add-a-robot-pending-validation)).
 
 It currently has one integrated robot, the **iCub**, on three platforms: the **MuJoCo**
-simulation, the **Gazebo** simulation and the **real iCub**. All three are teleoperated
-with a virtual reality headset (Meta Quest 2), using a modified version of the **BeaVR**
-app.
+simulation, the **Gazebo** simulation and the **real iCub**. All three can be teleoperated
+with a virtual reality headset (Meta Quest 2) using BeaVR, or interactively using mouse and keyboard in the graphical viewer.
 
 - [Available platforms](#available-platforms)
-- [Installation and startup](#installation-and-startup)
+- [VR controls](#vr-controls)
+- [Viewer controls](#viewer-controls)
+- [Console controls](#console-controls)
+- [Installation](#installation)
 - [How to use it](#how-to-use-it)
 - [Architecture](#architecture)
-- [How to add a robot](#how-to-add-a-robot)
+- [Hub modules](#hub-modules)
+- [How to add a robot (Pending validation)](#how-to-add-a-robot-pending-validation)
 - [Recorded data](#recorded-data)
 - [Repository structure](#repository-structure)
 - [Related documentation](#related-documentation)
@@ -31,27 +34,92 @@ app.
 | **iCub Simulated MJ** | `robots/icub_sim.py` | Inside the Hub process (MuJoCo 3.3) | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
 | **iCub Real / Gazebo** | `robots/icub_rg.py` | Separate subprocess, connected to the robot through YARP | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
 
-- Tasks are declared once in
-  `icub-lerobot-mj/dependencies/assets/scenes/scenes.yaml`, and Gazebo uses the same file.
-- Both backends record **the same dataset**: same variables, in the same frame and with
-  the same cameras. A dataset from one platform therefore works for the other (see
-  [Recorded data](#recorded-data)).
+- Tasks are declared once in `mujoco_sim/assets/scenes/scenes.yaml`, and Gazebo uses the same file.
+- Both backends record **the same dataset**: same variables, in the same frame and with the same cameras. A dataset from one platform therefore works for the other (see [Recorded data](#recorded-data)).
 
-**Teleoperation:** with the BeaVR app on a Meta Quest (over Wi-Fi or USB) or **interactively using mouse and keyboard in the MuJoCo viewer**.
+---
 
-#### VR Controls (Meta Quest)
+## VR controls
 
-| VR control | Action |
+Teleoperation using Meta Quest 2 / Quest Pro with the BeaVR application:
+
+| VR Control | Action |
 |---|---|
-| Lower trigger (grip) | Gripper closure, gradual: 0 = open, 1 = closed |
-| Index trigger | Freezes arms and head (to reposition yourself) |
-| **A** | Start episode |
-| **B** | Stop and save episode (hold **B**: discard it) |
-| **Y** | Reposition the scene objects |
+| **Index trigger** | Proportional gripper closure: `0.0` = fully open, `1.0` = fully closed |
+| **Lower trigger (grip)** | Freeze tracking (arms and head) to reposition hands comfortably |
+| **A** | Start episode recording |
+| **B** | Stop and save episode (hold **B** for 1.5s to discard episode) |
+| **Y** | Reposition / re-randomize scene objects |
 
-#### Bimanual Teleoperation in MuJoCo with Mocaps (Mouse & Keyboard)
+---
 
-To teleoperate interactively in MuJoCo without a VR headset, manipulate the *mocap* targets (`r_hand_target`, `l_hand_target`, `head_target`) directly in the graphical viewer:
+## Viewer controls
+
+Interactive teleoperation via mouse and keyboard in the MuJoCo viewer (both MuJoCo and Gazebo backends):
+
+| Input | Action |
+|---|---|
+| **Double-left-click** | Select mocap target (`r_hand_target` or `l_hand_target`) |
+| **Ctrl + Right-Click Drag** | Translate mocap target position ($X, Y, Z$) |
+| **Ctrl + Left-Click Drag** | Rotate mocap target orientation ($SO(3)$) |
+| Key **8** | Open right hand gripper |
+| Key **9** | Close right hand gripper |
+| Key **6** | Open left hand gripper |
+| Key **7** | Close left hand gripper |
+
+*(Note: State controls such as homing, teleop pause/resume, and object reset are centralized in the console commands).*
+
+---
+
+## Console controls
+
+Interactive commands entered in the terminal running `play.py` (both MuJoCo and Gazebo backends):
+
+| Key / Command | Action |
+|---|---|
+| `1` | Start episode recording |
+| `2` | Stop and save episode |
+| `3` | Exit teleoperation cleanly |
+| `h` | Return robot to home posture and reset mocaps |
+| `n` | Reset tabletop object positions |
+| `t` | Toggle teleoperation tracking (Active / Idle pause) |
+| `i` | Toggle Cartesian impedance mode (when `--controller id` is used) |
+| `8` / `9` | Open / close right hand gripper |
+| `6` / `7` | Open / close left hand gripper |
+
+---
+
+## Installation
+
+### With Pixi (Recommended)
+
+The workspace is fully integrated with [Pixi](https://pixi.sh) to automatically manage all robotics, physics, and ML dependencies (MuJoCo, YARP, Gazebo Sim, BLF, LeRobot, PyTorch CUDA):
+
+```bash
+# 1. Install dependencies
+pixi install
+
+# 2. Launch the Experimentation Hub (Web GUI)
+pixi run hub            # http://localhost:7860
+```
+
+### With Docker
+
+A single image contains the Hub, MuJoCo, Gazebo and the YARP client for the real robot:
+
+```bash
+docker compose build                  # initial build or when code changes
+xhost +SI:localuser:$(id -un)         # authorize container to access X11 display
+docker compose up                     # starts the Hub on http://localhost:7860
+```
+
+---
+
+## How to use it
+
+### MuJoCo
+
+Launch interactive bimanual teleoperation in MuJoCo:
 
 ```bash
 # 1. With QP Inverse Kinematics (TSIK - iCubWholeBodyIK):
@@ -64,124 +132,61 @@ pixi run python play.py --backend mujoco --controller id --control-arms both --n
 pixi run python play.py --backend mujoco --controller id --impedance --control-arms both --no-record
 ```
 
-**Viewer Interaction:**
-- **Select an effector:** **Double-left-click** on the desired mocap target (`r_hand_target` or `l_hand_target`).
-- **Translate position ($X, Y, Z$):** Hold `Ctrl` and **drag with Right-Click**.
-- **Rotate orientation ($SO(3)$):** Hold `Ctrl` and **drag with Left-Click**.
-- **Gripper / Hand controls:**
-  - Right hand: key `8` (open) / key `9` (close).
-  - Left hand: key `6` (open) / key `7` (close).
-- **Simulation and posture controls:**
-  - `SPACE`: Reset mocaps to home and smoothly return the robot to the neutral posture (*minimum-jerk* 2.5s trajectory).
-  - `T`: Toggle teleoperation tracking / idle pause.
-  - `N`: Reset tabletop object positions.
-  - `I`: Toggle Cartesian impedance mode at runtime (when `--controller id` is used).
-- **Console commands (`play.py`):**
-  - `1`: Start recording an episode.
-  - `2`: Stop and save the episode.
-  - `h`: Request smooth return to home posture.
-  - `3`: Cleanly exit teleoperation.
+#### Arguments supported by `play.py`:
+
+| Option | Values / Default | Description |
+|---|---|---|
+| `--backend` | `mujoco`, `gazebo`, `real` (default: `mujoco`) | Target simulation or physical backend |
+| `--controller` | `ik`, `id` (default: `ik`) | Controller type: `ik` (TSIK kinematics) or `id` (TSID dynamics) |
+| `--impedance` | flag | Enable compliant Cartesian impedance mode (requires `--controller id`) |
+| `--control-arms` | `right`, `left`, `both` (default: `both`) | Active arm(s) to control |
+| `--no-record` | flag | Interactive teleoperation only without recording dataset |
+| `--vr` | flag | Enable Meta Quest VR teleoperation |
+| `--vr-cable` | flag | Automatically configure ADB reverse tethering over USB-C cable |
+| `--vr-ip` | IP string (e.g. `192.168.1.50`) | Connect to Meta Quest wirelessly over Wi-Fi |
+| `--scene` | int or label (e.g. `1` or `lift`) | Select predefined task scene from `scenes.yaml` |
+| `--single-task` | string | Natural language task description string |
+| `--fps` | int (default: `30`) | Target control loop and dataset recording FPS |
+| `--num-episodes` | int (default: `50`) | Number of episodes to record before auto-stopping |
+| `--episode-time-s` | float (default: `0.0`) | Maximum duration per episode in seconds (`0` = manual) |
+| `--repo-id` | string | LeRobot dataset repository identifier |
+| `--root` | directory path | Output directory for recorded dataset |
 
 ---
 
-## Installation and startup
+### Gazebo / Real
 
-### With Pixi (Recommended for local development)
+To teleoperate the iCub in Gazebo Sim with both arms:
 
-The workspace is fully integrated with [Pixi](https://pixi.sh) to automatically manage all robotics, physics, and ML dependencies (MuJoCo, YARP, BLF, LeRobot, PyTorch CUDA):
-
-```bash
-# 1. Install dependencies
-pixi install
-
-# 2. Launch the Experimentation Hub (Web GUI)
-pixi run hub            # http://localhost:7860
-
-# 3. Or launch unified teleoperation directly via terminal
-pixi run play-mj        # MuJoCo interactive teleop (BLF TSIK)
-pixi run play-gz        # Gazebo Sim teleop
-```
-
-### With Docker
-
-A single image contains the Hub, MuJoCo, Gazebo and the YARP client for the real robot.
-It requires Linux with X11, an NVIDIA GPU with the NVIDIA Container Toolkit and about
-25 GB of free space.
+#### Paso 1: Launch Gazebo Sim (Terminal 1)
 
 ```bash
-docker compose build                  # the first time; afterwards only when the code changes
-xhost +SI:localuser:$(id -un)         # lets the container open windows
-docker compose up                     # starts the Hub
+./gazebo_sim/scripts/launch_sim.sh --world manip
 ```
 
-Then open <http://localhost:7860>. Datasets are saved in the host's `./data` and
-`./data_curated`. Details (volumes, real robot, VR ports, updating the environment) in
-[docker/README.md](docker/README.md).
+##### Arguments supported by `launch_sim.sh`:
 
-### Without Docker (Legacy Conda)
+| Option | Values / Default | Description |
+|---|---|---|
+| `-w, --world` | `manip`, `empty` (default: `manip`) | Simulation world: `manip` (table arena with objects and camera) or `empty` |
+| `-m, --model` | model name | iCub model: `iCubGazeboV2_5_visuomanip` (default for manip), `iCubGazeboV2_5_fixed`, `iCubGazeboV2_7_fixed`, `iCubGazeboV2_5`, `iCubGazeboV2_7` |
+| `--stop`, `--kill` | flag | Stop and cleanup any running Gazebo Sim (`gz sim`) and YARP (`yarpserver`) processes |
+| `-h, --help` | flag | Show usage help and exit |
 
-The environment is `icubenv`, with Python 3.12, YARP 3.12, gz-sim 10, MuJoCo 3.3,
-torch 2.7 and LeRobot v0.5.0+18:
+#### Paso 2: Launch Teleoperation (Terminal 2)
 
 ```bash
-conda create -n icubenv --file docker/conda-linux-64.lock
-conda activate icubenv
-pip install --no-deps --ignore-installed -r docker/requirements.lock.txt
-pip install --no-deps "lerobot @ git+https://github.com/huggingface/lerobot.git@017ff73fbfe46bf9a673cd9b402988dcb79151f7"
-pixi run hub
+# 1. With QP Inverse Kinematics (TSIK - iCubWholeBodyIK):
+pixi run python play.py --backend gazebo --controller ik --control-arms both --no-record
+
+# 2. With QP Task-Space Inverse Dynamics (TSID - iCubWholeBodyID):
+pixi run python play.py --backend gazebo --controller id --control-arms both --no-record
+
+# 3. With TSID + Compliant Cartesian Impedance Mode:
+pixi run python play.py --backend gazebo --controller id --impedance --control-arms both --no-record
 ```
-The patched Gazebo controlboard (`icub-lerobot-gazebo/gazebo/plugins/*.so`) comes already
-compiled for this environment. If it does not load, rebuild it with
-`bash icub-lerobot-gazebo/gazebo/plugins/build_controlboard.sh`.
 
----
-
-## How to use it
-
-The Hub follows the order of its tabs, which are numbered.
-
-**Welcome screen.** Choose the platform: *iCub Simulated MJ* or *iCub Real / Gazebo*.
-
-**1. Configuration**
-
-- *1. Session settings*. Set:
-  - the task and the `Repo ID` (dataset name);
-  - the number of episodes, the FPS and the maximum duration of each episode (0 = no limit);
-  - the folder where the dataset is saved and the arms to control;
-  - the VR: over USB cable or through the Quest's IP.
-- *Gazebo / real only*: *2. Robot stack*. Start, in order:
-  1. the Gazebo simulation (or the connection to the real robot);
-  2. the YARP module.
-- **Launch the session**: *LAUNCH SESSION* in MuJoCo or *LAUNCH TELEOP / RECORDING* in Gazebo/real.
-
-**2. Episode Control**
-
-- Session status and progress (saved episodes out of the planned ones).
-- *RECORD episode*, *STOP episode* and *End session* buttons. They do the same as A and B on the VR.
-- *Logbook*: notes about the current episode, saved with its number.
-- Live metrics (FPS, latency, dataset size) and per-episode metrics.
-- Live log. The full log is kept in `hub_dataset/logs/`.
-
-**3. Visualize & Curate**
-
-1. *Dataset*: choose, load or delete a dataset. Deleting sends it to the system trash.
-2. *Episodes*: browse the episodes with their three synchronized cameras and mark the ones
-   excluded from the final dataset.
-3. *Signal plots*: plot any dimension of `action` or `observation.state` over the video.
-   Plots can be exported to HTML or PDF.
-4. *Signals to include*: remove whole features or individual dimensions.
-5. *Language instruction*: edit the task instruction for the whole dataset.
-6. *Packaging*: generates the curated dataset in `data_curated/`. The original is not modified.
-7. *Upload to Hugging Face Hub*: uploads the packaged dataset if there is one; otherwise,
-   the original as recorded.
-   - The *Will upload* line shows which of the two will be uploaded.
-   - If there are curation changes that are not packaged, the upload is blocked.
-   - Only `data/`, `meta/` and `videos/` are uploaded.
-
-Each dataset is saved in `data/<repo_id>_<date>/` and includes a `hub_session/` subfolder with:
-
-- `episode_metrics.json/.csv/.png`: FPS, latency, duration and size of each episode;
-- `logbook.json/.txt`: the logbook notes.
+*(Note: If `teleop_module_sm.py` is not already running on YARP, `play.py` automatically launches it in the background with the selected solver).*
 
 ---
 
@@ -189,32 +194,36 @@ Each dataset is saved in `data/<repo_id>_<date>/` and includes a `hub_session/` 
 
 ```mermaid
 flowchart LR
-    U[Browser<br/>localhost:7860] --> APP
+    U["Browser<br/>localhost:7860"] --> APP
 
     subgraph HUB["hub_dataset/launcher_gui (Gradio)"]
-        APP[app.py<br/>welcome + tabs] --> REG[robots/registry.py]
-        APP --> SES[session.py<br/>recording session]
-        APP --> CUR[curation.py<br/>visualize and curate]
-        APP --> PUSH[hub_push.py<br/>upload to Hugging Face]
-        REG --> SIM[robots/icub_sim.py]
-        REG --> RG[robots/icub_rg.py]
+        APP["app.py<br/>welcome + tabs"] --> REG["robots/registry.py"]
+        APP --> SES["session.py<br/>recording session"]
+        APP --> CUR["curation.py<br/>visualize and curate"]
+        APP --> PUSH["hub_push.py<br/>upload to Hugging Face"]
+        REG --> SIM["robots/icub_sim.py"]
+        REG --> RG["robots/icub_rg.py"]
     end
 
-    SIM -- "record_fn (same process)" --> PMJ[icub-lerobot-mj/play_mujoco.py<br/>MuJoCo + iKin IK]
-    RG -- "record_fn → subprocess" --> PGZ[icub-lerobot-gazebo/play_gazebo.py]
-    PGZ <-->|YARP| YM[teleop_module_sm.py<br/>YARP module]
-    YM <--> ROBOT[Gazebo / real iCub]
-    VR[Meta Quest + BeaVR] -. ZMQ .-> PMJ
+    SIM -- "record_fn (same process)" --> PMJ["play.py (--backend mujoco)<br/>MuJoCo + BLF"]
+    RG -- "record_fn → subprocess" --> PGZ["play.py (--backend gazebo)<br/>YARP + BLF"]
+    PGZ <-->|YARP| YM["teleop_module_sm.py<br/>Whole-Body Solver"]
+    YM <--> ROBOT["Gazebo / Real iCub"]
+    VR["Meta Quest + BeaVR"] -. ZMQ .-> PMJ
     VR -. ZMQ .-> PGZ
 
-    PMJ --> DS[(LeRobot dataset<br/>data/)]
+    PMJ --> DS[("LeRobot dataset<br/>data/")]
     PGZ --> DS
-    DS --> CUR --> DC[(Curated dataset<br/>data_curated/)]
+    DS --> CUR --> DC[("Curated dataset<br/>data_curated/")]
     DS --> PUSH
-    DC --> PUSH --> HF[(Hugging Face Hub)]
+    DC --> PUSH --> HF[("Hugging Face Hub")]
 ```
 
-### Hub modules (`hub_dataset/launcher_gui/`)
+---
+
+## Hub modules
+
+Modules located in `hub_dataset/launcher_gui/`:
 
 | Module | What it does |
 |---|---|
@@ -226,48 +235,41 @@ flowchart LR
 | `curation.py` | Dataset loading, episode navigation, plots, deletion and packaging |
 | `hub_push.py` | Upload to Hugging Face Hub |
 | `video_sync.py` | Player for the three cameras, synchronized with the plots |
-| `procman.py` | Long-lived external processes (e.g. the YARP module) and scripts (`start_sim.sh`) |
+| `procman.py` | Long-lived external processes (e.g. the YARP module) and scripts (`launch_sim.sh`) |
 | `ports.py` | Checks and frees the VR ports before launching a session |
 | `state.py` | State shared between modules |
 | `ui/` | Construction of each tab, folder picker and numeric field filters |
 
-Only **one recording session can be active at a time**.
-
 ---
 
-## How to add a robot
+## How to add a robot (Work in progress)
 
-The shared tabs do not need to be touched. A new file in `robots/` and one line in the
-registry are enough.
+> [!NOTE]
+> This capability represents the multi-robot architectural blueprint; it has not yet been experimentally verified with a second physical or simulated robot platform.
+
+To add a new robot, create its backend form and register it:
 
 **1. Create `hub_dataset/launcher_gui/robots/my_robot.py`:**
 
 ```python
 from datetime import datetime
 from pathlib import Path
-
 import gradio as gr
-
 from .. import session
 from ..paths import ASSETS_DIR, HUB_ROOT
 from .base import RobotBackend
 
-
 def build_config_form() -> dict[str, gr.components.Component]:
-    """Components of the Configuration tab (already inside a gr.Column)."""
     gr.Markdown("### 1. Session settings")
     repo_id = gr.Textbox(value="local/my_robot_demo", label="Repo ID")
     num_eps = gr.Number(value=50, label="Number of episodes", precision=0, minimum=1)
     gr.Markdown("### 2. Launch session")
     launch_btn = gr.Button("LAUNCH SESSION", variant="primary", size="lg")
     launch_status = gr.Textbox(label="Launch status", interactive=False)
-    # num_eps, launch_btn and launch_status are required: app.py uses them by name
     return dict(repo_id=repo_id, num_eps=num_eps,
                 launch_btn=launch_btn, launch_status=launch_status)
 
-
 def launch(repo_id, num_eps) -> str:
-    """Receives the form values in the order of config_input_order."""
     if session.state.running:
         return "A session is already running."
     rid = repo_id.strip() if "/" in repo_id else f"local/{repo_id.strip()}"
@@ -275,28 +277,23 @@ def launch(repo_id, num_eps) -> str:
     dataset_root = HUB_ROOT.parent / "data" / f"{rid.replace('/', '_')}_{stamp}"
 
     def record_fn(cmd_source, on_status):
-        # Connect the robot, create the LeRobotDataset in dataset_root and, in a loop:
-        #   cmd = cmd_source()   -> "1" start, "2" save, "3" exit, None
-        #   on_status("waiting") / on_status("recording") / on_status(f"saved:{n}")
-        #   on_status({"metrics": {"fps": ..., "latency_ms": ..., "size_mb": ...}})
         ...
 
     return session.start_session(record_fn, repo_id=rid, dataset_root=dataset_root,
                                  num_episodes=int(num_eps))
 
-
 BACKEND = RobotBackend(
     id="my_robot",
-    label="My Robot",                       # button text on the welcome screen
-    image=ASSETS_DIR / "my_robot.png",      # button image
-    available=True,                         # False: the button only says "not yet available"
+    label="My Robot",
+    image=ASSETS_DIR / "my_robot.png",
+    available=True,
     build_config_form=build_config_form,
     launch=launch,
-    config_input_order=["repo_id", "num_eps"],  # form keys, in the order of launch()
+    config_input_order=["repo_id", "num_eps"],
 )
 ```
 
-**2. Register it** in [robots/registry.py](hub_dataset/launcher_gui/robots/registry.py):
+**2. Register it in `hub_dataset/launcher_gui/robots/registry.py`:**
 
 ```python
 from . import icub_rg, icub_sim, my_robot
@@ -304,51 +301,20 @@ from . import icub_rg, icub_sim, my_robot
 REGISTRY = [icub_sim.BACKEND, icub_rg.BACKEND, my_robot.BACKEND]
 ```
 
-**3. Add its image** to `hub_dataset/assets/` and, if its code lives in a sibling project
-(like `icub-lerobot-mj/`), its path in [paths.py](hub_dataset/launcher_gui/paths.py).
-
-With that, the platform shows up on the welcome screen, has its form in *Configuration*,
-and *Episode Control*, *Visualize & Curate* and the upload work unchanged.
-
-**Recommendations:**
-
-- **Choose the execution pattern.**
-  - If the robot's dependencies can coexist with the Hub's, `record_fn` can run in the
-    same process (like `icub_sim`).
-  - Otherwise, use a subprocess with an input/output bridge, like `_bridge_play` in
-    `icub_rg.py`.
-- **Long-lived auxiliary processes** (drivers, servers): launch them with `procman.py`, so
-  their output shows up in the Hub log.
-- **Datasets interchangeable with the iCub ones:** use the same variable names, frames and
-  cameras (see [Recorded data](#recorded-data)).
-- **Docker:** if the robot needs new packages, install them in `icubenv`, regenerate the
-  lockfiles with `docker/freeze_env.sh` and rebuild the image.
-
 ---
 
 ## Recorded data
 
-Both iCub backends record the same variables, so a MuJoCo dataset and a Gazebo dataset
-are interchangeable:
+Both iCub backends record identical variables, ensuring datasets are interchangeable:
 
-- **Action.** Target pose of each hand: position and quaternion, in the iCub *root* frame.
-  Plus the gripper closure (from 0 to 1) and the gaze point.
-- **State.**
-  - joints: position, velocity and torque;
-  - end-effector pose and last command sent (target pose, gripper and gaze);
-  - touch on the thumb, index and middle fingers;
-  - pose of the scene objects: simulator *ground truth*, not available on the real robot.
-- **Cameras.** `left` and `right` are the iCub's eyes; `front` is an external camera.
-  All of them record at 320×240.
-- **Only the arm chosen** in *Control arms* is recorded.
-- **Quaternions with a fixed sign.** Hand with `quat_y ≤ 0` and objects with `quat_w ≥ 0`,
-  in both simulators. This avoids jumps between `q` and `−q`.
-- **Difference between platforms.** Gazebo and the real robot also record the eyes
-  (`eyes_*`), which MuJoCo does not model.
-
-The full contract, including the differences that remain between simulators, is in the
-*Sim-to-sim* section of [icub-lerobot-gazebo/README.md](icub-lerobot-gazebo/README.md)
-(in Spanish).
+- **Action:** Target pose of each hand (Cartesian position $[x, y, z]$ and unit quaternion $[w, x, y, z]$ in robot root frame), gripper closure level ($[0.0, 1.0]$), and head orientation quaternion.
+- **State:**
+  - Joint positions, velocities, and motor torques.
+  - End-effector Cartesian poses and last commanded poses.
+  - Scene object ground-truth poses from simulation.
+- **Cameras:** `left` and `right` (iCub eyes) and `front` (external table camera), standard $320 \times 240$ RGB.
+- **Arm selection:** Only the arm(s) chosen in `--control-arms` are populated.
+- **Quaternion canonicalization:** Positive scalar part ($q_w \geq 0$) to eliminate sign ambiguity jumps.
 
 ---
 
@@ -370,7 +336,7 @@ PMM_Final/
 │   ├── plugins/                 # LeRobot plugins (icub_mujoco, icub_remote, icubteleop)
 │   ├── hub_dataset/             # Experimentation Hub (Gradio web app, live metrics, curation, HF upload)
 │   ├── trajectories/            # Analytical trajectory generator routines
-│   └── tools/                   # Quaternion canonicalization (canonicalize_quats.py), offsets, etc.
+│   └── tools/                   # Quaternion canonicalization, offsets, etc.
 ├── mujoco_sim/                  # MuJoCo simulation assets (scenes XML, OBJ meshes, textures)
 ├── gazebo_sim/                  # Gazebo simulation assets (worlds SDF, models, plugins, scripts)
 ├── metrics/                     # Latency, jitter and teleoperation frame metrics
@@ -386,7 +352,5 @@ PMM_Final/
 | Document | Contents |
 |---|---|
 | [docker/README.md](docker/README.md) | Docker image: requirements, volumes, real robot, VR ports, updating the environment |
-| [icub-lerobot-gazebo/README.md](icub-lerobot-gazebo/README.md) | Gazebo / real robot stack (YARP), configuration and *sim-to-sim* data contract |
-| [icub-lerobot-gazebo/gazebo/README.md](icub-lerobot-gazebo/gazebo/README.md) | Scripts to start and stop the Gazebo simulation |
-| [icub-lerobot-mj/lerobot-robot-icub/README.md](icub-lerobot-mj/lerobot-robot-icub/README.md) | LeRobot plugin for the iCub in MuJoCo |
-| [metrics/README.md](metrics/README.md) | How to measure latency, jitter and synchronization of the recordings |
+| [gazebo_sim/README.md](gazebo_sim/README.md) | Gazebo simulation assets and environment setup |
+| [metrics/README.md](metrics/README.md) | How to measure latency, jitter and synchronization of recordings |

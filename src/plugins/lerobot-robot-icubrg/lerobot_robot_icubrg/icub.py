@@ -401,6 +401,18 @@ class iCub(Robot):
         print(f"[iCub] Sent 'go_home' -> Reply: {reply}")
         return True
 
+    def toggle_impedance(self) -> bool:
+        if not self._connected or not self._rpc_enabled:
+            return False
+        if getattr(self.config, "controller_type", "ik") != "id":
+            print("[Teleop] Modo impedancia solo disponible con --controller id")
+            return False
+        self.config.impedance_mode = not getattr(self.config, "impedance_mode", False)
+        val = "1" if self.config.impedance_mode else "0"
+        reply = self.send_rpc_command(f"set_impedance {val}")
+        print(f"[iCub] Modo impedancia: {'ACTIVADO' if self.config.impedance_mode else 'DESACTIVADO'} -> {reply}")
+        return self.config.impedance_mode
+
     def get_observation(self) -> dict[str, Any]:
         if not self.is_connected:
             raise DeviceNotConnectedError("iCub robot is not connected.")

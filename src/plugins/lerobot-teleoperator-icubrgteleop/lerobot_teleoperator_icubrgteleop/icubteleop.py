@@ -231,8 +231,8 @@ class iCubTeleop(Teleoperator):
 
         if can_render:
             try:
-                print("Launching MuJoCo Viewer... (keys: 8/9 open/close right hand, 6/7 left hand, N reset)")
-                print("Mouse: Ctrl + Right-click drag to move mocap targets")
+                print("Launching MuJoCo Viewer... (keys: 8/9 open/close right hand, 6/7 left hand)")
+                print("Mouse: Ctrl + Right-click drag to translate, Ctrl + Left-click drag to rotate")
                 self.viewer = mujoco.viewer.launch_passive(
                     self.model,
                     self.data,
@@ -376,10 +376,7 @@ class iCubTeleop(Teleoperator):
         if self._pending_visual_reset:
             self._reset_scenario()
             self._pending_visual_reset = False
-            now = time.time()
-            if now - self._last_world_reset_t > 2.0:
-                self._world_reset_event = True
-                self._last_world_reset_t = now
+            self._world_reset_event = True
 
         if self.config.control_arms in ["right", "both"]:
             mid = self.mocap_ids["right"]
@@ -537,7 +534,7 @@ class iCubTeleop(Teleoperator):
     @staticmethod
     def _button_levels(b: dict) -> dict[str, bool]:
         return {
-            "freeze": b.get("INDEX_RIGHT", 0) > 0.8 or b.get("INDEX_LEFT", 0) > 0.8,
+            "freeze": b.get("HAND_RIGHT", 0) > 0.8 or b.get("HAND_LEFT", 0) > 0.8,
             "reset": b.get("BTN_TWO_LEFT", 0) > 0.5 or b.get("Y", 0) > 0.8,
             "rec_a": b.get("BTN_ONE_RIGHT", 0) > 0.5 or b.get("A", 0) > 0.8,
             "rec_b": b.get("BTN_TWO_RIGHT", 0) > 0.5 or b.get("B", 0) > 0.8,
@@ -760,7 +757,7 @@ class iCubTeleop(Teleoperator):
             levels = dict(self._btn_pressed)
             state = dict(self._btn_state)
 
-        for side, key in (("rh", "HAND_RIGHT"), ("lh", "HAND_LEFT")):
+        for side, key in (("rh", "INDEX_RIGHT"), ("lh", "INDEX_LEFT")):
             if key in state:
                 level = self._trigger_to_level(state[key])
                 if abs(level - getattr(self, f"{side}_grip_state")) > 1e-3:
@@ -770,6 +767,7 @@ class iCubTeleop(Teleoperator):
             if kind == "press":
                 if name == "reset":
                     self._pending_visual_reset = True
+                    self._world_reset_event = True
                 elif name == "rec_a":
                     self._vr_rec_start_event = True
                 elif name == "rec_b":
@@ -818,6 +816,8 @@ class iCubTeleop(Teleoperator):
         return -1
 
     def _reset_mocaps_to_xml_pose(self):
+        if self.model is None or self.data is None:
+            return
         body_by_side = {
             "right": "r_hand_target",
             "left": "l_hand_target",
@@ -894,8 +894,8 @@ class iCubTeleop(Teleoperator):
                 reset_poses[body_name] = (pos_arr, quat_arr)
                 any_reset = True
                 print(f"[Teleop] Reset {body_name} → ({pos_arr[0]:.2f}, {pos_arr[1]:.2f}, {pos_arr[2]:.2f})")
-            except Exception as e:
-                print(f"[Teleop] Reset skip '{body_name}': {e}")
+            except Exception:
+                pass
 
         if any_reset:
             self._last_reset_poses = reset_poses
@@ -923,6 +923,9 @@ class iCubTeleop(Teleoperator):
         setattr(self, f"{side}_grip_state", level)
         self._grip_pending[side] = level
 
+    def set_gripper(self, side: str, level: float) -> None:
+        self._set_grip(side, level)
+
     def _trigger_to_level(self, value) -> float:
         lo, hi = self.config.vr_grip_deadband
         return float(np.clip((float(value) - lo) / max(hi - lo, 1e-6), 0.0, 1.0))
@@ -939,6 +942,15 @@ class iCubTeleop(Teleoperator):
             return True
         return False
 
+    def consume_world_reset_event(self) -> bool:
+        if getattr(self, "_world_reset_event", False):
+            self._world_reset_event = False
+            return True
+        return False
+
+    def consume_reset_scenario_event(self) -> bool:
+        return self.consume_world_reset_event()
+
     def _key_callback(self, keycode):
         if keycode == glfw.KEY_8:
             self._set_grip("rh", 0.0)
@@ -946,27 +958,10 @@ class iCubTeleop(Teleoperator):
         elif keycode == glfw.KEY_9:
             self._set_grip("rh", 1.0)
             print("Right Gripper: CLOSE")
-        elif keycode == glfw.KEY_N:
-            self._pending_visual_reset = True
         elif keycode == glfw.KEY_6:
             self._set_grip("lh", 0.0)
             print("Left Gripper: OPEN")
         elif keycode == glfw.KEY_7:
             self._set_grip("lh", 1.0)
             print("Left Gripper: CLOSE")
-        elif keycode == glfw.KEY_T:
-            self._teleop_toggle_requested = True
-            print("[Teleop] Toggle teleoperation requested via viewer 'T' key.")
-        elif keycode == glfw.KEY_SPACE:
-            self._reset_mocaps_to_xml_pose()
-            self._reset_home_requested = True
-            print("[Teleop] SPACE pressed: Mocaps reset to XML home. Requesting smooth robot homing...")
-        elif keycode == glfw.KEY_C:
-            self.calibrated_origin_rh = None
-            self.calibrated_origin_lh = None
-            self.calibrated_quat_rh = None
-            self.calibrated_quat_lh = None
-            self.calibrated_quat_head = None
-            self._prev_target_pos = {"right": None, "left": None}
-            print("[Teleop] VR recalibration requested via viewer 'C' key.")
 

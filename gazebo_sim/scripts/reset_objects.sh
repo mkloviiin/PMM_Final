@@ -9,13 +9,25 @@
 # Cada objeto del yaml necesita su modelo en gazebo/models/<body>/model.sdf; si falta, avisa y lo salta.
 # Necesita 'gz' y python3 con yaml: se antepone el entorno icubenv (ICUBENV_PREFIX en Docker)
 # al PATH, igual que hacia el script original. Requiere la simulacion corriendo.
-export PATH="${ICUBENV_PREFIX:-$HOME/miniconda3/envs/icubenv}/bin:$PATH"
-
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MODELS_DIR="$(dirname "$SCRIPT_DIR")/models"
-SCENES_YAML="$(dirname "$(dirname "$SCRIPT_DIR")")/mujoco/assets/scenes/scenes.yaml"
-SCENE_FILE="${ICUB_SCENE_FILE:-/tmp/icub_lerobot_scene}"
 FIXTURES_YAML="$(dirname "$SCRIPT_DIR")/scene_fixtures.yaml"
+SCENE_FILE="${ICUB_SCENE_FILE:-/tmp/icub_lerobot_scene}"
+
+PIXI_ENV="${PROJECT_ROOT}/.pixi/envs/default"
+if [ -d "${PIXI_ENV}/bin" ]; then
+    export PATH="${PIXI_ENV}/bin:$PATH"
+    export LD_LIBRARY_PATH="${PIXI_ENV}/lib:${LD_LIBRARY_PATH:-}"
+elif [ -d "${ICUBENV_PREFIX:-$HOME/miniconda3/envs/icubenv}/bin" ]; then
+    export PATH="${ICUBENV_PREFIX:-$HOME/miniconda3/envs/icubenv}/bin:$PATH"
+fi
+
+if [ -f "${PROJECT_ROOT}/mujoco_sim/assets/scenes/scenes.yaml" ]; then
+    SCENES_YAML="${PROJECT_ROOT}/mujoco_sim/assets/scenes/scenes.yaml"
+else
+    SCENES_YAML="${PROJECT_ROOT}/mujoco/assets/scenes/scenes.yaml"
+fi
 
 PLAN=$(python3 - "$SCENES_YAML" "$SCENE_FILE" "$FIXTURES_YAML" <<'PYEOF'
 import os, random, sys

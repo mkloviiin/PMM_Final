@@ -151,6 +151,8 @@ class TeleopModuleSM(yarp.RFModule):
                 control_arms = rf.find("control_arms").asString()
             elif rf.check("control"):
                 control_arms = rf.find("control").asString()
+            elif rf.check("arms"):
+                control_arms = rf.find("arms").asString()
             else:
                 control_arms = self.cfg.get("control_arms", "right")
             self.control_arms = str(control_arms).strip().lower()
