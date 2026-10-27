@@ -3,15 +3,16 @@
   <model name="blue-cube">
     <link name="link">
       <inertial>
-        <mass>0.1</mass>
-        <!-- Cubo sólido: I = m*a^2/6 -->
+        <mass>0.028</mass>
+        <!-- Cubo sólido: I = m*a^2/6. Masa del cubo de Block Lifting medido el 20-10-2026 (parametros_fisicos_objetos.txt), antes 0.1 kg.
+             Block Stacking usa el mismo modelo (sus cubos impresos pesan 0.027 kg) -->
         <inertia>
-          <ixx>4.1667e-05</ixx>
+          <ixx>1.1667e-05</ixx>
           <ixy>0</ixy>
           <ixz>0</ixz>
-          <iyy>4.1667e-05</iyy>
+          <iyy>1.1667e-05</iyy>
           <iyz>0</iyz>
-          <izz>4.1667e-05</izz>
+          <izz>1.1667e-05</izz>
         </inertia>
       </inertial>
       
@@ -22,7 +23,7 @@
           </box>
         </geometry>
         <!-- Igual que las yemas del iCub (mu=5): sin esto el cubo usa el default (1)
-             y DART toma el mínimo de ambas superficies, así que resbalaba al agarrar. -->
+             y DART toma el mínimo de ambas superficies, así que resbala al agarrar. -->
         <surface>
           <friction>
             <ode>

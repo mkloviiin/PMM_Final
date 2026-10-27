@@ -2,10 +2,22 @@
 <sdf version="1.7">
   <!-- place-bin de Pick-and-Place (scene_icub_pickplace.xml): base 12x12 cm y paredes de 4 cm.
        Simetrico respecto de su origen, asi que el giro de 180 grados MuJoCo->Gazebo no lo cambia.
-       Se coloca con el origen en z=0.72 (cara superior de la mesa). -->
+       Suelta sobre la mesa: reset_objects.sh la crea con el origen en z=0.7225 (tapa 0.72 + media
+       altura de la base), en el rango de scenes.yaml.
+       Masa medida el 20-10-2026 (parametros_fisicos_objetos.txt): 0.073 kg. La inercia es la que
+       calcula MuJoCo con density="434" en cada geom (pieza hueca). -->
   <model name="place-bin">
-    <static>true</static>
+    <static>false</static>
     <link name="link">
+      <inertial>
+        <pose>0 0 0.011429 0 0 0</pose>
+        <mass>0.0729</mass>
+        <inertia>
+          <ixx>1.4418e-04</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>1.4418e-04</iyy><iyz>0</iyz>
+          <izz>2.6283e-04</izz>
+        </inertia>
+      </inertial>
       <collision name="base_col"><pose>0 0 0 0 0 0</pose><geometry><box><size>0.12 0.12 0.005</size></box></geometry></collision>
       <visual name="base_vis"><pose>0 0 0 0 0 0</pose>
         <geometry><box><size>0.12 0.12 0.005</size></box></geometry>
@@ -32,5 +44,13 @@
         <material><ambient>0.2 0.6 0.3 1</ambient><diffuse>0.2 0.6 0.3 1</diffuse></material>
       </visual>
     </link>
+    <!-- Pose del modelo en /model/<nombre>/pose (gz.msgs.Pose, mundo Gazebo) a 30 Hz:
+         la lee el plugin lerobot_robot_icubrg (use_object_pose) como obj{i}_* del dataset. -->
+    <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+      <publish_link_pose>false</publish_link_pose>
+      <publish_model_pose>true</publish_model_pose>
+      <use_pose_vector_msg>false</use_pose_vector_msg>
+      <update_frequency>30</update_frequency>
+    </plugin>
   </model>
 </sdf>

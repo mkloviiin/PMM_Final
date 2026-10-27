@@ -63,8 +63,8 @@
         <geometry><box><size>0.5 0.5 2.5</size></box></geometry>
         <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse><emissive>0.3 0.3 0.3 1</emissive></material>
       </visual>
-      <!-- Puertas en los 3 vanos de 913.57 mm del muro de abajo, como la puerta de la arena
-           anterior de MuJoCo (door_gray 0.5, 2.0 m de alto, manilla de laton); sobre cada una,
+      <!-- Puertas en los 3 vanos de 913.57 mm del muro de abajo, como en icub_room_arena.xml
+           de MuJoCo (door_gray 0.5, 2.0 m de alto, manilla de laton); sobre cada una,
            un dintel naranja hasta el alto del muro. Manilla hacia el interior del cuarto (+y). -->
       <visual name="door1">
         <pose>-1.6102 -0.74 1.0 0 0 0</pose>
@@ -118,7 +118,7 @@
           <!-- Sin iluminación: el mural muestra solo su imagen (emissive_map), con los mismos
                colores que gazebo/wall.png sin importar el sol ni el ángulo de vista. Verificado con
                un render de prueba: naranja (239, 123, 31) igual al de la imagen. Con albedo + luz
-               salía café de frente (la cara del mural mira en contra del sol). -->
+               se ve café de frente (la cara del mural mira en contra del sol). -->
           <ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse><specular>0 0 0 1</specular>
           <emissive>1 1 1 1</emissive>
           <pbr><metal>

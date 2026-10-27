@@ -1,0 +1,120 @@
+PARÁMETROS FÍSICOS MEDIDOS DE LOS OBJETOS IMPRESOS
+Hub de Experimentación Multimodal · para MuJoCo y Gazebo
+Mediciones del 20-10-2026. Rugosidad con rugosímetro Mitutoyo Surftest SJ-301
+(longitud de evaluación 8 mm, cutoff 8 mm). Masa con balanza.
+
+Unidades en SI, tal como las usan los simuladores (kg, m, kg·m²).
+La inercia se calculó suponiendo una pieza de densidad uniforme. Las piezas impresas
+tienen relleno parcial, así que es una aproximación razonable para objetos pequeños.
+
+
+======================================================================
+1. OBJETOS MEDIDOS
+======================================================================
+
+Cubo de levantamiento (azul)
+  Dimensiones        0.05 x 0.05 x 0.05 m
+  Masa               0.028 kg        (antes en simulación: 0.100 kg)
+  Densidad efectiva  224 kg/m³
+  Inercia            Ixx = Iyy = Izz = 1.1667e-05 kg·m²
+  Rugosidad          Ra = 16.24 µm   Rz = 118.2 µm
+
+Cubos de apilado (rojos, 2 unidades, valores por cubo)
+  Dimensiones        0.05 x 0.05 x 0.05 m
+  Masa               0.027 kg        (antes en simulación: 0.100 kg)
+  Densidad efectiva  216 kg/m³
+  Inercia            Ixx = Iyy = Izz = 1.1250e-05 kg·m²
+  Rugosidad          Ra = 19.84 µm   Rz = 128.4 µm
+
+Cubo de pick-and-place (negro chico)
+  Dimensiones        0.04 x 0.04 x 0.04 m
+  Masa               0.012 kg        (antes en simulación: 0.080 kg)
+  Densidad efectiva  187 kg/m³
+  Inercia            Ixx = Iyy = Izz = 3.2000e-06 kg·m²
+  Rugosidad          Ra = 13.20 µm   Rz = 71.37 µm
+
+Bandeja de pick-and-place
+  Dimensiones        exterior 0.12 x 0.12 x 0.045 m (base de 0.005 m, paredes de 0.005 m)
+  Masa               0.073 kg        (antes en simulación: no definida)
+  Densidad efectiva  434 kg/m³       (masa total dividida por el volumen de base y paredes)
+  Inercia            dejar que el simulador la calcule a partir de las geometrías (ver nota B)
+  Rugosidad          Ra = 12.89 µm   Rz = 71.63 µm
+
+Clavija cilíndrica (peg-in-hole)
+  Dimensiones        radio 0.02 m, longitud 0.13 m
+  Masa               0.027 kg        (antes en simulación: 0.120 kg)
+  Densidad efectiva  165 kg/m³
+  Inercia            Ixx = Iyy = 4.0725e-05 kg·m² (ejes perpendiculares)
+                     Izz = 5.4000e-06 kg·m² (eje del cilindro)
+  Rugosidad          Ra = 14.92 µm   Rz = 75.90 µm
+
+Soportes de la clavija (2 unidades, valores por soporte)
+  Dimensiones        0.14 x 0.01 x 0.03 m
+  Masa               0.013 kg        (antes en simulación: no definida)
+  Densidad efectiva  310 kg/m³
+  Inercia            Ixx = 1.0833e-06   Iyy = 2.2208e-05   Izz = 2.1342e-05 kg·m²
+                     (x a lo largo de los 0.14 m, y en los 0.01 m, z en los 0.03 m)
+  Rugosidad          Ra = 12.53 µm   Rz = 64.57 µm
+
+
+======================================================================
+2. OBJETOS PENDIENTES (mantener los valores actuales de simulación)
+======================================================================
+
+Tablero de la clavija        sin fabricar
+Olla bimanual                sin fabricar, simulación actual 1.500 kg
+Puerta articulada            modelo en desarrollo, simulación actual 1.730 kg en total
+Cubo de masa intercambiable  sin fabricar, la masa dependerá de los pesos insertados
+                             (hasta 0.050 kg por cavidad, repartidos por igual)
+
+
+======================================================================
+3. CÓMO CARGARLOS
+======================================================================
+
+MuJoCo (MJCF), cuerpo de un solo geom, por ejemplo el cubo de levantamiento
+  <geom type="box" size="0.025 0.025 0.025" mass="0.028" friction="5 0.005 0.0001"/>
+  Recordar que size en MuJoCo usa semiejes (la mitad de cada dimensión).
+  Si se indica mass en el geom, MuJoCo calcula la inercia automáticamente.
+
+MuJoCo, cuerpo con varios geoms (bandeja)
+  Usar density="434" en cada geom en lugar de mass, así la masa total
+  queda cerca de 0.073 kg y la inercia sale de la geometría.
+
+Gazebo (SDF), por ejemplo el cubo de levantamiento
+  <inertial>
+    <mass>0.028</mass>
+    <inertia>
+      <ixx>1.1667e-05</ixx><iyy>1.1667e-05</iyy><izz>1.1667e-05</izz>
+      <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+    </inertia>
+  </inertial>
+
+
+======================================================================
+4. NOTAS
+======================================================================
+
+A. Fricción. La rugosidad (Ra) no se traduce de forma directa en el coeficiente de
+   fricción que usan MuJoCo y Gazebo. Mientras no se calibre, conviene mantener el
+   valor empírico actual (5) y usar Ra solo como dato de referencia.
+   Una forma simple de calibrarlo es la prueba del plano inclinado. Se apoya la pieza
+   sobre una superficie del mismo material que el contacto real (idealmente, el material
+   de las yemas del iCub), se inclina poco a poco y se anota el ángulo θ en que la pieza
+   empieza a deslizar. El coeficiente de fricción estática es μ = tan(θ).
+   Cada motor combina de forma distinta los coeficientes de las dos superficies en
+   contacto (MuJoCo usa el máximo por defecto), así que conviene revisarlo en cada
+   simulador antes de fijar el valor.
+
+B. Inercia de la bandeja. Al ser una pieza hueca, su inercia no corresponde a la de una
+   caja sólida. Por eso es mejor asignar densidad a cada geom y dejar que el simulador
+   la calcule.
+
+C. Masa más baja. Las piezas reales pesan entre tres y siete veces menos que los valores
+   anteriores. Con masas tan bajas, revisar después del cambio que los objetos no
+   "vibren" o salten al contacto. Si pasa, suele resolverse bajando el paso de
+   simulación o ajustando los parámetros de contacto (solref/solimp en MuJoCo).
+
+D. Grabar datasets nuevos. Los datasets de esta entrega se grabaron con las masas
+   anteriores. Si se actualizan los parámetros, conviene grabar datasets nuevos e
+   indicar en su descripción qué valores físicos se usaron.

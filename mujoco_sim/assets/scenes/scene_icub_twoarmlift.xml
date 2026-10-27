@@ -14,19 +14,22 @@
   </visual>
 
   <worldbody>
-    <body name="lift-pot" pos="0.4 0 0.795">
-      <inertial pos="0 0 0" mass="1.5" diaginertia="0.006 0.006 0.004" />
-      <geom type="box" pos="0 0 -0.065" size="0.07 0.07 0.005" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" name="pot_base" />
-      <geom type="box" pos="0 -0.065 0" quat="0.7071 0 0 0.7071" size="0.005 0.07 0.07" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" />
-      <geom type="box" pos="-0.065 0 0" quat="1 0 0 0" size="0.005 0.07 0.07" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" />
-      <geom type="box" pos="0 0.065 0" quat="0.7071 0 0 -0.7071" size="0.005 0.07 0.07" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" />
-      <geom type="box" pos="0.065 0 0" quat="0 0 0 1" size="0.005 0.07 0.07" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" />
-      <geom type="box" pos="0 0.16 0.06" size="0.055 0.01 0.01" density="1000" group="1" rgba="0.2 0.7 0.2 1" friction="1.0 0.005 0.0001" condim="4" name="handle0" />
-      <geom type="box" pos="-0.045 0.115 0.06" size="0.01 0.045 0.01" density="1000" group="1" rgba="0.2 0.7 0.2 1" friction="1.0 0.005 0.0001" condim="4" />
-      <geom type="box" pos="0.045 0.115 0.06" size="0.01 0.045 0.01" density="1000" group="1" rgba="0.2 0.7 0.2 1" friction="1.0 0.005 0.0001" condim="4" />
-      <geom type="box" pos="0 -0.16 0.06" size="0.055 0.01 0.01" density="1000" group="1" rgba="0.2 0.2 0.75 1" friction="1.0 0.005 0.0001" condim="4" name="handle1" />
-      <geom type="box" pos="-0.045 -0.115 0.06" size="0.01 0.045 0.01" density="1000" group="1" rgba="0.2 0.2 0.75 1" friction="1.0 0.005 0.0001" condim="4" />
-      <geom type="box" pos="0.045 -0.115 0.06" size="0.01 0.045 0.01" density="1000" group="1" rgba="0.2 0.2 0.75 1" friction="1.0 0.005 0.0001" condim="4" />
+    <!-- Olla más cerca del robot y más liviana que la de robosuite (x=0.40, 1.5 kg): el brazo
+         izquierdo no tiene torso (es del derecho) y así no alcanza a tomarla bien. 12 cm de alto
+         (14 cm hasta el 2026-10-26), asas 1 cm bajo el borde como antes. -->
+    <body name="lift-pot" pos="0.36 0 0.785" quat="0 0 0 1">
+      <inertial pos="0 0 0" mass="0.4" diaginertia="0.0016 0.0016 0.0011" />
+      <geom type="box" pos="0 0 -0.055" size="0.07 0.07 0.005" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" name="pot_base" />
+      <geom type="box" pos="0 -0.065 0" quat="0.7071 0 0 0.7071" size="0.005 0.07 0.06" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" />
+      <geom type="box" pos="-0.065 0 0" quat="1 0 0 0" size="0.005 0.07 0.06" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" />
+      <geom type="box" pos="0 0.065 0" quat="0.7071 0 0 -0.7071" size="0.005 0.07 0.06" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" />
+      <geom type="box" pos="0.065 0 0" quat="0 0 0 1" size="0.005 0.07 0.06" density="1000" group="1" rgba="0.75 0.2 0.2 1" friction="0.9 0.005 0.0001" condim="4" />
+      <geom type="box" pos="0 0.16 0.05" size="0.055 0.01 0.01" density="1000" group="1" rgba="0.2 0.7 0.2 1" friction="1.0 0.005 0.0001" condim="4" name="handle0" />
+      <geom type="box" pos="-0.045 0.115 0.05" size="0.01 0.045 0.01" density="1000" group="1" rgba="0.2 0.7 0.2 1" friction="1.0 0.005 0.0001" condim="4" />
+      <geom type="box" pos="0.045 0.115 0.05" size="0.01 0.045 0.01" density="1000" group="1" rgba="0.2 0.7 0.2 1" friction="1.0 0.005 0.0001" condim="4" />
+      <geom type="box" pos="0 -0.16 0.05" size="0.055 0.01 0.01" density="1000" group="1" rgba="0.2 0.2 0.75 1" friction="1.0 0.005 0.0001" condim="4" name="handle1" />
+      <geom type="box" pos="-0.045 -0.115 0.05" size="0.01 0.045 0.01" density="1000" group="1" rgba="0.2 0.2 0.75 1" friction="1.0 0.005 0.0001" condim="4" />
+      <geom type="box" pos="0.045 -0.115 0.05" size="0.01 0.045 0.01" density="1000" group="1" rgba="0.2 0.2 0.75 1" friction="1.0 0.005 0.0001" condim="4" />
       <freejoint />
     </body>
   </worldbody>

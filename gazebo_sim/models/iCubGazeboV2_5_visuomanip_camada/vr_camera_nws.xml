@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE robot PUBLIC "-//YARP//DTD yarprobotinterface 3.0//EN" "http://www.yarp.it/DTD/yarprobotinterfaceV3.0.dtd">
+
+<!-- Cámara solo para los lentes VR (vr_camera_rgb en model.urdf): la publica en
+     /icubSim/cam/vr/rgbImage:o, mismo esquema que los ojos y que models/camera-stand.
+     La lee teleop_module_sm.py (pantalla grande del VR); no se graba. -->
+<robot name="icub_vr_camera" build="1" portprefix="/icubSim">
+    <devices>
+        <device name="icub_vr_camera_rgb_nws_yarp" type="frameGrabber_nws_yarp">
+            <param name="period">0.033</param>
+            <param name="name"> ${portprefix}/cam/vr/rgbImage:o </param>
+            <action phase="startup" level="5" type="attach">
+                <paramlist name="networks">
+                    <elem name="the_device"> icub_vr_camera_rgb </elem>
+                </paramlist>
+            </action>
+            <action phase="shutdown" level="5" type="detach" />
+        </device>
+    </devices>
+</robot>

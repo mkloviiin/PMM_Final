@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <mujoco model="icub_standard_table">
   <!-- Mesa de 100 (ancho, y) x 60 (largo, x) x 72 (alto) cm, cubierta de 3 cm, borde cercano a
-       0.20 m del robot (x de 0.20 a 0.80). Idéntica a gazebo/models/table en icub_world.sdf
+       0.20 m del robot (x de 0.20 a 0.80). Idéntica a gazebo_sim/models/table en icub_world.sdf
        (allí espejada: x -> -x). Patas a 5 cm de los bordes. -->
   <worldbody>
     <body name="table" pos="0.5 0 0.705">

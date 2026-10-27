@@ -17,11 +17,12 @@
   </visual>
 
   <worldbody>
-    <!-- Igual que gazebo/models/blue-cube: 5 cm, 0.1 kg, inercia m*a^2/6 y fricción 5 (antes
-         1 y una inercia ~15 veces mayor). quat 180 deg en z = identidad en el frame root,
-         como el cubo de Gazebo (ver scenes.yaml). -->
+    <!-- Igual que gazebo_sim/models/blue-cube: 5 cm, 0.028 kg (cubo impreso medido el 20-10-2026,
+         parametros_fisicos_objetos.txt; antes 0.1 kg), inercia m*a^2/6 y fricción 5 (empírica;
+         rugosidad medida Ra = 16.24 µm, solo de referencia).
+         quat 180 deg en z = identidad en el frame root, como el cubo de Gazebo (ver scenes.yaml). -->
     <body name="blue-cube" pos="0.4 -0.1 0.745" quat="0 0 0 1">
-      <inertial pos="0 0 0" mass="0.1" diaginertia="4.1667e-05 4.1667e-05 4.1667e-05" />
+      <inertial pos="0 0 0" mass="0.028" diaginertia="1.1667e-05 1.1667e-05 1.1667e-05" />
       <geom type="box" size="0.025 0.025 0.025" group="0" name="blue_cube_collision" friction="5 0.005 0.0001" />
       <geom type="box" size="0.025 0.025 0.025" conaffinity="0" contype="0" group="1" name="blue_cube_visual" material="blue" />
       <site pos="0 0 0.026" name="blue_cube_top" size="0.002 0.002 0.002" rgba="1 0 0 0" />

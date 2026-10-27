@@ -2802,6 +2802,16 @@
     <yarpRobotInterfaceConfigurationFile>model://iCub/conf_manual/iCubGazeboV2_5_visuomanip/icub_gz-sim.xml</yarpRobotInterfaceConfigurationFile>
   </plugin>
 </gazebo>
+<!-- Cámara solo para los lentes VR (vr_camera_rgb, en l_eye): device YARP y su publicador
+     /icubSim/cam/vr/rgbImage:o (vr_camera_nws.xml, como models/camera-stand). -->
+<gazebo>
+  <plugin name="gzyarp::Camera" filename="gz-sim-yarp-camera-system">
+    <yarpConfigurationString>(yarpDeviceName icub_vr_camera_rgb) (parentLinkName l_eye) (sensorName vr_camera_rgb) (framerate 30) (stamp 1)</yarpConfigurationString>
+  </plugin>
+  <plugin name="gzyarp::RobotInterface" filename="gz-sim-yarp-robotinterface-system">
+    <yarpRobotInterfaceConfigurationFile>model://iCubGazeboV2_5_visuomanip_camada/vr_camera_nws.xml</yarpRobotInterfaceConfigurationFile>
+  </plugin>
+</gazebo>
 <gazebo reference="r_hip_pitch">
    <implicitSpringDamper>1</implicitSpringDamper>
 </gazebo>
@@ -3086,12 +3096,36 @@
     </plugin>
   </sensor>
 </gazebo>
+<!-- Solo para los lentes VR (no se graba): misma pose que el ojo izquierdo, pero a 640x480 (los
+     ojos renderizan a 320x240 y en los lentes se ven pixelados) y con FOV más abierto (los 50° del
+     ojo real se ven demasiado cerca). 1.3121 rad = fovy 60° con aspecto 4:3, como head_cam_vr de
+     MuJoCo (vr_head_fovy en config/control_config.yaml). -->
+<gazebo reference="l_eye">
+  <sensor name="vr_camera_rgb" type="camera">
+    <pose>0.0 0.0 0.0 0.0 -1.57 1.57</pose>
+    <camera>
+      <horizontal_fov>1.3121</horizontal_fov>
+      <image>
+        <width>640</width>
+        <height>480</height>
+        <format>R8G8B8</format>
+      </image>
+      <clip>
+        <near>0.1</near>
+        <far>100</far>
+      </clip>
+    </camera>
+    <always_on>1</always_on>
+    <update_rate>30</update_rate>
+    <visualize>false</visualize>
+  </sensor>
+</gazebo>
 <gazebo>
   <pose>0.0 0.0 0.63 0.0 0.0 3.14159265359</pose>
 </gazebo>
 
 <!-- Tacto en las puntas (última falange) de pulgar, índice y medio, como rh/lh_touch_* de
-     MuJoCo (icub-lerobot-mj, icub_mujoco.py: cualquier contacto en {r,l}_hand_*_3). El iCub
+     MuJoCo (src/plugins/lerobot-robot-icub, icub_mujoco.py: cualquier contacto en {r,l}_hand_*_3). El iCub
      de Gazebo no tiene piel; estos sensores publican gz.msgs.Contacts en /icub/touch/<side>_<finger>
      mientras hay contacto, y los lee lerobot_robot_icubrg (use_tactile). Requiere el sistema
      gz-sim-contact-system en el mundo (gazebo/worlds/icub_world.sdf). -->

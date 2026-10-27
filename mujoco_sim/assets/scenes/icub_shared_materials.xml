@@ -17,12 +17,12 @@
     <material name="door_wood" reflectance="0.0" shininess="0.1" specular="0.4" texrepeat="2 2" texture="tex-door-wood" />
     <texture file="../textures/brass-ambra.png" type="cube" name="tex-door-handle" />
     <material name="door_handle_metal" reflectance="0.8" shininess="0.3" specular="1" texture="tex-door-handle" />
-    <!-- Naranja AC3E #ed7b1d. La pared de las puertas casi no recibe luz (luz+headlight ~0.11 en
-         frontview/head_cam): emission 0.89 completa ~1, así se ve el color tal cual (igual que en Gazebo). -->
-    <material name="wall_orange" rgba="0.9294 0.4824 0.1137 1" specular="0" shininess="0" emission="0.89" />
+    <!-- Naranja AC3E #ed7b1d. La pared de las puertas recibe ~0.36 de luz (ambiente 0.3 + sol):
+         emission 0.64 completa ~1, así se ve el color tal cual (igual que en Gazebo, emisivo). -->
+    <material name="wall_orange" rgba="0.9294 0.4824 0.1137 1" specular="0" shininess="0" emission="0.64" />
     <material name="wall_white" rgba="1 1 1 1" specular="0.1" shininess="0.1" emission="0.3" />
-    <!-- Puertas: misma cara que la pared naranja (casi sin luz); emission 0.89 para verse gris 0.5 -->
-    <material name="door_gray" rgba="0.5 0.5 0.5 1" specular="0" shininess="0" emission="0.89" />
+    <!-- Puertas: misma cara que la pared naranja; emission 0.64 para verse gris 0.5 -->
+    <material name="door_gray" rgba="0.5 0.5 0.5 1" specular="0" shininess="0" emission="0.64" />
     <texture file="../textures/red-wood.png" type="cube" name="tex-red-wood" />
     <material name="plate_mat" texture="tex-red-wood" texrepeat="3 3" specular="0.4" shininess="0.1" />
   </asset>

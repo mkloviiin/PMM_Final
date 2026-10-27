@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Copia un dataset pasando sus cuaterniones al hemisferio común de MuJoCo y Gazebo.
 
-q y -q son la misma orientación, pero para una política son valores opuestos. Hasta el
-2026-10-21 cada fuente elegía un signo distinto (en Gazebo rh_ee_quat salía con w >= 0 y
-rh_target_quat / la acción con w < 0: opuestos en el 92 % de los frames). Desde entonces ambos
-grabadores usan QUAT_HEMISPHERE (lerobot_robot_icubrg.icub / lerobot_robot_icub.icub_mujoco):
+q y -q son la misma orientación, pero para una política son valores opuestos. Con el signo
+crudo cada fuente elige uno distinto (en Gazebo rh_ee_quat sale con w >= 0 y rh_target_quat /
+la acción con w < 0: opuestos en el 92 % de los frames). Los grabadores usan QUAT_HEMISPHERE (lerobot_robot_icubrg.icub / lerobot_robot_icub.icub_mujoco):
 manos (ee, target y acción) con quat_y <= 0 y objetos con quat_w >= 0. Este script deja un
-dataset anterior igual que uno grabado ahora: cambia el signo frame a frame (sin pérdida) en
+dataset con el signo crudo igual que uno grabado ahora: cambia el signo frame a frame (sin pérdida) en
 observation.state y action y recalcula las estadísticas (meta/stats.json y las de cada
-episodio). El original no se toca. Solo para datasets en el frame root (desde el 2026-10-20).
+episodio). El original no se toca. Solo para datasets en el frame root.
 
 Uso:
     python tools/canonicalize_quats.py ../data/local_final_gazebo_2026-10-20_15-25-43 \\
