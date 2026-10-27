@@ -82,9 +82,10 @@ def _make_metrics(**kwargs):
 def _discard_episode(dataset) -> None:
     """Drop the episode being recorded (B held on the VR) so it can be recorded again.
 
-    clear_episode_buffer() only removes the temporary PNGs of 'image' cameras, but 'video'
-    cameras are also written as PNGs in images/<cam>/episode-N before encoding; without
-    removing them, re-recording the same episode mixes frames of the discarded attempt.
+    LeRobot >= 0.6: clear_episode_buffer() removes the temporary frames of every camera
+    (image and video) and cancels the streaming encoder. LeRobot 0.5 only removed the 'image'
+    cameras' PNGs: the 'video' ones (images/<cam>/episode-N, written before encoding) are
+    removed here, otherwise re-recording the same episode mixes frames of the discarded attempt.
     """
     import shutil
 
@@ -98,10 +99,12 @@ def _discard_episode(dataset) -> None:
         ep = ep.item() if ep.size == 1 else ep[0]
     dataset.clear_episode_buffer()
 
-    for key in getattr(dataset.meta, "video_keys", []):
-        img_dir = dataset._get_image_file_dir(int(ep), key)
-        if img_dir.is_dir():
-            shutil.rmtree(img_dir)
+    image_dir = getattr(dataset, "_get_image_file_dir", None)  # LeRobot 0.5 only
+    if image_dir is not None:
+        for key in getattr(dataset.meta, "video_keys", []):
+            img_dir = image_dir(int(ep), key)
+            if img_dir.is_dir():
+                shutil.rmtree(img_dir)
 
 
 def _load_scene_entries() -> list[dict]:

@@ -260,6 +260,10 @@ def _bridge_play(argv, *, cmd_source, on_status, dataset_root: Path | None = Non
                 except Exception:  # noqa: BLE001
                     proc.kill()
         print(f"[play] play.py finished (rc={proc.poll()})")
+    # Un error de play.py (traceback arriba en el log) es un error de la sesión, no un fin normal
+    rc = proc.poll()
+    if rc not in (0, None):
+        raise RuntimeError(f"play.py exited with an error (rc={rc}); see the traceback above in the log.")
 
 
 # ── Formulario de configuración ──────────────────────────────────────────────
