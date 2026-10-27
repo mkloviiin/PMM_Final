@@ -1,14 +1,16 @@
 #!/bin/bash
 # Reset de los objetos de la escena en Gazebo.
 #
-# Escena: etiqueta de scenes.yaml guardada en $ICUB_SCENE_FILE (por defecto /tmp/icub_lerobot_scene);
-#   la escribe el dashboard al lanzar la sesion. Sin ese archivo se comporta como antes:
-#   Block Lifting con el cubo azul en el area original de este script.
+# Escena: etiqueta de mujoco_sim/assets/scenes/scenes.yaml (el manifiesto único de MuJoCo y Gazebo)
+#   guardada en $ICUB_SCENE_FILE (por defecto /tmp/icub_lerobot_scene); la escribe el Hub al lanzar
+#   la sesion. Sin ese archivo: Block Lifting con el cubo azul en x [-0.5, -0.3], y [-0.1, 0.2]
+#   (marco Gazebo).
 # Posiciones: al azar dentro de los rangos de scenes.yaml (marco MuJoCo: x hacia adelante, y a la
 #   izquierda del robot), convertidas al marco de Gazebo, donde el iCub mira hacia -x: (x, y) -> (-x, -y).
-# Cada objeto del yaml necesita su modelo en gazebo/models/<body>/model.sdf; si falta, avisa y lo salta.
-# Necesita 'gz' y python3 con yaml: se antepone el entorno icubenv (ICUBENV_PREFIX en Docker)
-# al PATH, igual que hacia el script original. Requiere la simulacion corriendo.
+# Cada objeto del yaml necesita su modelo en gazebo_sim/models/<body>/model.sdf; si falta, avisa y lo
+#   salta. Las piezas fijas (la puerta) estan en gazebo_sim/scene_fixtures.yaml.
+# Necesita 'gz' y python3 con yaml: usa el entorno Pixi del proyecto (o icubenv / ICUBENV_PREFIX).
+# Requiere la simulacion corriendo.
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MODELS_DIR="$(dirname "$SCRIPT_DIR")/models"
@@ -23,25 +25,21 @@ elif [ -d "${ICUBENV_PREFIX:-$HOME/miniconda3/envs/icubenv}/bin" ]; then
     export PATH="${ICUBENV_PREFIX:-$HOME/miniconda3/envs/icubenv}/bin:$PATH"
 fi
 
-if [ -f "${PROJECT_ROOT}/mujoco_sim/assets/scenes/scenes.yaml" ]; then
-    SCENES_YAML="${PROJECT_ROOT}/mujoco_sim/assets/scenes/scenes.yaml"
-else
-    SCENES_YAML="${PROJECT_ROOT}/mujoco/assets/scenes/scenes.yaml"
-fi
+SCENES_YAML="${PROJECT_ROOT}/mujoco_sim/assets/scenes/scenes.yaml"
 
 PLAN=$(python3 - "$SCENES_YAML" "$SCENE_FILE" "$FIXTURES_YAML" <<'PYEOF'
 import os, random, sys
 import yaml
 
 yaml_path, scene_file, fixtures_path = sys.argv[1], sys.argv[2], sys.argv[3]
-LEGACY = ["blue-cube", "blue-cylinder", "red-ball"]      # objetos del script original
+LEGACY = ["blue-cube", "blue-cylinder", "red-ball"]      # se borran siempre, aunque no esten en scenes.yaml
 Z_GAZEBO = {"blue-cube": 0.745, "red-cube": 0.745, "pick-cube": 0.74}   # tapa 0.72 + semialtura
 
 def pick(v):
     return random.uniform(*v) if isinstance(v, (list, tuple)) else v
 
 if not os.path.exists(scene_file):
-    # comportamiento original: Block Lifting, cubo azul en el area del script anterior
+    # sin escena: Block Lifting con el cubo azul
     known = set(LEGACY)
     spawns = [("blue-cube", round(random.uniform(-0.5, -0.3), 3), round(random.uniform(-0.1, 0.2), 3), 0.745)]
 else:

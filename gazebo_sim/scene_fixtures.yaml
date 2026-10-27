@@ -1,6 +1,6 @@
 # Piezas fijas de cada escena en Gazebo (las que en MuJoCo estan en el XML pero no en scenes.yaml).
-# Las lee gazebo_sim/scripts/reset_objects.sh. Etiqueta de scenes.yaml -> lista de modelos con su pose
+# Las lee gazebo_sim/scripts/reset_objects.sh. Etiqueta de mujoco_sim/assets/scenes/scenes.yaml -> lista de modelos con su pose
 # en el marco de GAZEBO (el iCub mira hacia -x): (x, y) = (-x, -y) del XML de MuJoCo.
 "Door Opening":
-  - model: door                    # models/door (tools/door_sdf_from_mujoco.py): el giro va en el modelo
+  - model: door                    # models/door (src/tools/door_sdf_from_mujoco.py): el giro va en el modelo
     pose: [-0.47, 0.086, 0.885]    # MuJoCo: door_mount en (0.47, -0.086, 0.885)

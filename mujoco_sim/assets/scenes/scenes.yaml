@@ -1,4 +1,9 @@
-# Scene manifest for selectable iCub MuJoCo scenes.
+# Scene manifest of the iCub tasks: the only one, shared by MuJoCo and Gazebo / real robot.
+#
+# Read by: the Hub (task dropdown of both robots), play.py / eval_policy.py (objects, joints,
+# cameras, task), gazebo_sim/scripts/reset_objects.sh (spawns the objects in Gazebo, converting
+# the MuJoCo frame to Gazebo's: (x, y) -> (-x, -y)) and lerobot_robot_icubrg (obj{i} bodies).
+# Fixed pieces of a scene in Gazebo (the door) are in gazebo_sim/scene_fixtures.yaml.
 #
 # This folder also contains XMLs that are NOT selectable scenes (shared
 # includes like icub_visuomanip_ikin_limits.xml or icub_room_arena.xml),
@@ -30,8 +35,7 @@
 
 - file: scene_icub_lift.xml
   label: "Block Lifting"
-  # Marco MuJoCo: x adelante, y a la izquierda del robot. Gazebo tiene su propia copia
-  # (icub-lerobot-gazebo/gazebo/scenes.yaml): un cambio de tareas o rangos va en las dos.
+  # Marco MuJoCo: x adelante, y a la izquierda del robot (reset_objects.sh lo convierte para Gazebo).
   task: "lift the blue block"
   objects:
     - body: "blue-cube"
