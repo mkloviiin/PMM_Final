@@ -46,6 +46,7 @@ from controllers.whole_body_ik import (
     quat_wxyz_to_rotmat,
 )
 from controllers.whole_body_id import iCubWholeBodyID
+from controllers.joint_limits import load_joint_limits
 
 import cv2
 import zmq
@@ -214,6 +215,18 @@ class MuJoCoTeleop:
         self.data = mujoco.MjData(self.model)
         self.model.opt.timestep = self.sim_dt
 
+        # Joint limits: joint_limits_deg of the config is the only source (controllers/joint_limits.py).
+        # They overwrite the XML ranges and the position actuators' ctrlrange (IK model; the ID
+        # model drives these joints with torque motors).
+        self._joint_limits = load_joint_limits(cfg)
+        for j_name, (lo, hi) in self._joint_limits.items():
+            jid = self.model.joint(j_name).id
+            self.model.jnt_range[jid] = (lo, hi)
+            self.model.jnt_limited[jid] = 1
+            act = self.model.actuator(j_name)
+            if self.model.actuator_gaintype[act.id] == mujoco.mjtGain.mjGAIN_FIXED and self.model.actuator_biastype[act.id] == mujoco.mjtBias.mjBIAS_AFFINE:
+                self.model.actuator_ctrlrange[act.id] = (lo, hi)
+
         # Map the 20 upper-body joints (JOINTS_LIST) to MuJoCo qpos, qvel (dof), and actuator indices
         self._upper_jnt_ids = np.array([self.model.joint(n).id for n in self.JOINTS_LIST], dtype=np.int32)
         self._upper_qpos_idxs = np.array([self.model.jnt_qposadr[jid] for jid in self._upper_jnt_ids], dtype=np.int32)
@@ -222,17 +235,6 @@ class MuJoCoTeleop:
         self._upper_jnt_min = np.array([self.model.jnt_range[jid, 0] for jid in self._upper_jnt_ids], dtype=np.float64)
         self._upper_jnt_max = np.array([self.model.jnt_range[jid, 1] for jid in self._upper_jnt_ids], dtype=np.float64)
 
-        # Apply torso limits from config if specified
-        torso_lims = cfg.get("torso_limits_deg") or cfg.get("cart_torso_limits") or {}
-        torso_limits_rad = {}
-        for t_key, j_name in (("pitch", "torso_pitch"), ("roll", "torso_roll"), ("yaw", "torso_yaw")):
-            if t_key in torso_lims and len(torso_lims[t_key]) == 2:
-                idx = self.JOINTS_LIST.index(j_name)
-                lo, hi = np.deg2rad(float(torso_lims[t_key][0])), np.deg2rad(float(torso_lims[t_key][1]))
-                self._upper_jnt_min[idx] = max(self._upper_jnt_min[idx], lo)
-                self._upper_jnt_max[idx] = min(self._upper_jnt_max[idx], hi)
-                torso_limits_rad[t_key] = (lo, hi)
-        self._torso_limits_rad = torso_limits_rad
 
         # Home pose overrides from config
         self._home_pose_overrides: Dict[str, float] = {}
@@ -275,7 +277,8 @@ class MuJoCoTeleop:
                 weight_torque_reg=float(tsid_cfg.get("weight_torque_reg", 1e-5)),
                 impedance_mode=self.impedance_mode,
                 compensate_urdf_damping=True,
-                torso_limits=self._torso_limits_rad,
+                joint_limits=self._joint_limits,
+                joint_limit_horizon_s=float(tsid_cfg.get("joint_limit_horizon_s", 0.1)),
             )
         else:
             tsik_cfg = cfg.get("tsik", {}) or {}
@@ -290,7 +293,7 @@ class MuJoCoTeleop:
                 weight_posture_neck=float(tsik_cfg.get("weight_posture_neck", 0.05)),
                 weight_posture_arms=float(tsik_cfg.get("weight_posture_arms", 0.05)),
                 max_joint_velocity=float(tsik_cfg.get("max_joint_velocity", 1.5)),
-                torso_limits=self._torso_limits_rad,
+                joint_limits=self._joint_limits,
             )
 
         self.solver.set_base_pose(waist_pos, waist_mat)

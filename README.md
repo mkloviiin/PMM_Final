@@ -41,6 +41,9 @@ with a virtual reality headset (Meta Quest 2) using BeaVR, or interactively usin
   controller of `config/control_config.yaml`: **Whole-Body IK (position)**, **Whole-Body ID
   (torque)** or **Whole-Body ID (torque) + impedance**. On Gazebo / real the solver runs in the
   YARP module (step 2.2), which is started with the selected option.
+- Joint limits of the 20 upper-body joints: `joint_limits_deg` in `config/control_config.yaml`
+  is the only source. The solver (IK and ID), MuJoCo (joint ranges) and Gazebo (controlboards)
+  use it; on the real robot only the solver does.
 - Success criteria of the six tasks (robosuite's `_check_success`): [metrics/README.md](metrics/README.md).
 - Both backends record **the same dataset**: same variables, in the same frame and with the same cameras. A dataset from one platform therefore works for the other (see [Recorded data](#recorded-data)).
 

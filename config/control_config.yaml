@@ -37,11 +37,33 @@ use_head_control: true
 #   "world" : MuJoCo world frame
 pose_frame: "root"
 
-# Torso joint limits [deg] enforced inside the QP whole-body solver
-torso_limits_deg:
-  pitch: [-15.0, 15.0]
-  roll: [-10.0, 10.0]
-  yaw: [-15.0, 15.0]
+# Joint limits [deg] of the 20 upper-body joints: the ONLY source of these limits
+# (src/controllers/joint_limits.py). Applied to the whole-body solver (IK: joint limits task;
+# ID: joint accelerations that brake before the limit), to MuJoCo (joint ranges and position
+# actuators, overwriting the XML) and to Gazebo's controlboards. On the real robot only the
+# solver uses them (its firmware limits are not touched).
+# Values: the iCub's iKin limits (= icub_models URDF and Gazebo), torso restricted for teleoperation.
+joint_limits_deg:
+  torso_pitch: [-15.0, 15.0]
+  torso_roll: [-10.0, 10.0]
+  torso_yaw: [-15.0, 15.0]
+  neck_pitch: [-30.0, 17.0]
+  neck_roll: [-20.0, 20.0]
+  neck_yaw: [-45.0, 45.0]
+  l_shoulder_pitch: [-95.0, 10.0]
+  l_shoulder_roll: [0.0, 160.0]
+  l_shoulder_yaw: [-37.0, 80.0]
+  l_elbow: [15.0, 106.0]
+  l_wrist_prosup: [-60.0, 60.0]
+  l_wrist_pitch: [-80.0, 25.0]
+  l_wrist_yaw: [-20.0, 25.0]
+  r_shoulder_pitch: [-95.0, 10.0]
+  r_shoulder_roll: [0.0, 160.0]
+  r_shoulder_yaw: [-37.0, 80.0]
+  r_elbow: [15.0, 106.0]
+  r_wrist_prosup: [-60.0, 60.0]
+  r_wrist_pitch: [-80.0, 25.0]
+  r_wrist_yaw: [-20.0, 25.0]
 
 # Whole-Body IK (TSIK - iCubWholeBodyIK) parameters
 tsik:

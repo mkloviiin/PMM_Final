@@ -42,6 +42,7 @@ from controllers.whole_body_ik import (
 )
 from controllers.whole_body_id import iCubWholeBodyID
 from interfaces.blf_robot_bridge import BLFRobotBridge
+from controllers.joint_limits import load_joint_limits
 
 from interfaces.zmq_image_publisher import ZMQCompressedImageTransmitter
 # VR help (RPC vr_help, forwarded by play.py when the BeaVR app pauses or X is pressed)
@@ -243,15 +244,8 @@ class TeleopModuleSM(yarp.RFModule):
             tsik_cfg = self.cfg.get("tsik", {}) or {}
             tsid_cfg = self.cfg.get("tsid", {}) or {}
 
-            # Parse torso limits from config [deg] and convert to [rad]
-            torso_lims = self.cfg.get("torso_limits_deg") or self.cfg.get("cart_torso_limits") or {}
-            self.torso_limits_rad = {}
-            for t_key, j_name in (("pitch", "torso_pitch"), ("roll", "torso_roll"), ("yaw", "torso_yaw")):
-                if t_key in torso_lims and len(torso_lims[t_key]) == 2:
-                    self.torso_limits_rad[t_key] = (
-                        np.deg2rad(float(torso_lims[t_key][0])),
-                        np.deg2rad(float(torso_lims[t_key][1])),
-                    )
+            # Joint limits: joint_limits_deg of the config is the only source (controllers/joint_limits.py)
+            self.joint_limits = load_joint_limits(self.cfg)
 
             if self.controller_type == "id":
                 self.solver = iCubWholeBodyID(
@@ -268,7 +262,8 @@ class TeleopModuleSM(yarp.RFModule):
                     weight_torque_reg=float(tsid_cfg.get("weight_torque_reg", 1e-5)),
                     impedance_mode=self.impedance_mode,
                     compensate_urdf_damping=True,
-                    torso_limits=self.torso_limits_rad,
+                    joint_limits=self.joint_limits,
+                    joint_limit_horizon_s=float(tsid_cfg.get("joint_limit_horizon_s", 0.1)),
                 )
             else:
                 self.solver = iCubWholeBodyIK(
@@ -282,19 +277,16 @@ class TeleopModuleSM(yarp.RFModule):
                     weight_posture_neck=float(tsik_cfg.get("weight_posture_neck", 0.05)),
                     weight_posture_arms=float(tsik_cfg.get("weight_posture_arms", 0.05)),
                     max_joint_velocity=float(tsik_cfg.get("max_joint_velocity", 1.5)),
-                    torso_limits=self.torso_limits_rad,
+                    joint_limits=self.joint_limits,
                 )
 
-            # Store bounds for 20 joints to clamp q_cmd safely
+            # Bounds of the 20 joints to clamp q_cmd safely (the solver model already has joint_limits)
             model = self.solver.model_loader.model()
             self.jnt_min_20 = np.array([model.getJoint(model.getJointIndex(j)).getMinPosLimit(0) for j in self.solver.JOINTS_LIST], dtype=np.float64)
             self.jnt_max_20 = np.array([model.getJoint(model.getJointIndex(j)).getMaxPosLimit(0) for j in self.solver.JOINTS_LIST], dtype=np.float64)
-            for t_key, j_name in (("pitch", "torso_pitch"), ("roll", "torso_roll"), ("yaw", "torso_yaw")):
-                if t_key in self.torso_limits_rad:
-                    idx = self.solver.JOINTS_LIST.index(j_name)
-                    lo, hi = self.torso_limits_rad[t_key]
-                    self.jnt_min_20[idx] = max(self.jnt_min_20[idx], lo)
-                    self.jnt_max_20[idx] = min(self.jnt_max_20[idx], hi)
+            # Gazebo: same limits on the simulated controlboards. Real robot: solver only.
+            if self.is_gazebo and self.joint_limits:
+                self.bridge.apply_joint_limits(self.joint_limits)
 
             # Compute home posture in radians (20 DoFs)
             self.q_home_20 = self.bridge.home_pose_dict_to_vector(

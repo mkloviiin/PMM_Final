@@ -110,7 +110,7 @@ class iCubWholeBodyIK:
         weight_posture_neck: float = 0.05,
         weight_posture_arms: float = 0.05,
         max_joint_velocity: float = 1.5,
-        torso_limits: Optional[Dict[str, Tuple[float, float]]] = None,
+        joint_limits: Optional[Dict[str, Tuple[float, float]]] = None,
     ):
         self.sampling_time = sampling_time
         self.dT = timedelta(seconds=sampling_time)
@@ -132,14 +132,11 @@ class iCubWholeBodyIK:
         if not self.model_loader.loadReducedModelFromFile(model_file, self.JOINTS_LIST):
             raise RuntimeError(f"Failed to load reduced model from {model_file}")
 
-        # Enforce custom torso limits if provided (e.g. from torso_limits_deg in config)
+        # Joint limits {name: (min_rad, max_rad)} of config joint_limits_deg (controllers/joint_limits.py)
+        # replace the URDF ones; the JointLimitsTask (use_model_limits) enforces them.
         model = self.model_loader.model()
-        if torso_limits:
-            for t_key, j_name in (("pitch", "torso_pitch"), ("roll", "torso_roll"), ("yaw", "torso_yaw")):
-                if t_key in torso_limits and len(torso_limits[t_key]) == 2:
-                    jidx = model.getJointIndex(j_name)
-                    lo, hi = float(torso_limits[t_key][0]), float(torso_limits[t_key][1])
-                    model.getJoint(jidx).setPosLimits(0, lo, hi)
+        for j_name, (lo, hi) in (joint_limits or {}).items():
+            model.getJoint(model.getJointIndex(j_name)).setPosLimits(0, float(lo), float(hi))
 
         self.kindyn = idyn.KinDynComputations()
         if not self.kindyn.loadRobotModel(model):

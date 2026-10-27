@@ -135,7 +135,8 @@ class iCubWholeBodyID:
         impedance_stiffness_scale: float = 0.35,
         max_joint_torques: Optional[np.ndarray] = None,
         compensate_urdf_damping: Optional[bool] = None,
-        torso_limits: Optional[Dict[str, Tuple[float, float]]] = None,
+        joint_limits: Optional[Dict[str, Tuple[float, float]]] = None,
+        joint_limit_horizon_s: float = 0.1,
     ):
         self.sampling_time = sampling_time
         self.dT = timedelta(seconds=sampling_time)
@@ -180,14 +181,14 @@ class iCubWholeBodyID:
         if not self.model_loader.loadReducedModelFromFile(model_file, self.JOINTS_LIST):
             raise RuntimeError(f"Failed to load reduced model from {model_file}")
 
-        # Enforce custom torso limits if provided (e.g. from torso_limits_deg in config)
+        # Joint limits {name: (min_rad, max_rad)} of config joint_limits_deg (controllers/joint_limits.py)
+        # replace the URDF ones; the joint limits task below enforces them.
         model = self.model_loader.model()
-        if torso_limits:
-            for t_key, j_name in (("pitch", "torso_pitch"), ("roll", "torso_roll"), ("yaw", "torso_yaw")):
-                if t_key in torso_limits and len(torso_limits[t_key]) == 2:
-                    jidx = model.getJointIndex(j_name)
-                    lo, hi = float(torso_limits[t_key][0]), float(torso_limits[t_key][1])
-                    model.getJoint(jidx).setPosLimits(0, lo, hi)
+        for j_name, (lo, hi) in (joint_limits or {}).items():
+            model.getJoint(model.getJointIndex(j_name)).setPosLimits(0, float(lo), float(hi))
+        self.q_min = np.array([model.getJoint(model.getJointIndex(j)).getMinPosLimit(0) for j in self.JOINTS_LIST])
+        self.q_max = np.array([model.getJoint(model.getJointIndex(j)).getMaxPosLimit(0) for j in self.JOINTS_LIST])
+        self.joint_limit_horizon_s = float(joint_limit_horizon_s)
 
         # Load URDF viscous joint damping coefficients (Gazebo models and icub_visuomanip_idyn_limits.xml define damping=1.0 Nm*s/rad)
         self.urdf_joint_damping = load_urdf_joint_damping(model_file, self.JOINTS_LIST)
@@ -288,6 +289,21 @@ class iCubWholeBodyID:
             self.torque_reg_task, "torque_reg_task", 1, [self.weight_torque_reg] * self.nr_dofs
         ):
             raise RuntimeError("Failed to add torque_reg_task to QPFixedBaseTSID")
+
+        # 8. Joint limits (hard): TSID has no joint limits task, so the joint accelerations are
+        # bounded to those that stop the joint at its limit within joint_limit_horizon_s T:
+        #   q + dq*T + ddq*T^2/2 <= q_max  ->  ddq <= 2*(q_max - q - dq*T)/T^2   (same for q_min)
+        lim_handler = blf.parameters_handler.StdParametersHandler()
+        lim_handler.set_parameter_string("variable_name", self.ROBOT_ACC_VAR)
+        lim_handler.set_parameter_int("variable_size", self.nr_dofs + 6)
+        self.joint_limits_task = blf.tsid.VariableFeasibleRegionTask()
+        if not self.joint_limits_task.initialize(lim_handler):
+            raise RuntimeError("Failed to initialize the joint limits task (VariableFeasibleRegionTask)")
+        # robotAcceleration = [base (6), joints (nr_dofs)]: the bounds act on the joints only
+        self._limits_C = np.asfortranarray(np.hstack([np.zeros((self.nr_dofs, 6)), np.eye(self.nr_dofs)]))
+        self._update_joint_limits_task()
+        if not self.qp_tsid.add_task(self.joint_limits_task, "joint_limits_task", 0):
+            raise RuntimeError("Failed to add joint_limits_task to QPFixedBaseTSID")
 
         # Finalize QP solver
         if not self.qp_tsid.finalize(self.var_handler):
@@ -418,6 +434,17 @@ class iCubWholeBodyID:
             self.s_dot.fill(0.0)
 
         self.kindyn.setRobotState(self.base_pose, self.s, self.base_vel, self.s_dot, self.gravity)
+        self._update_joint_limits_task()
+
+    def _update_joint_limits_task(self) -> None:
+        """Joint acceleration bounds that stop each joint at its limit within the horizon."""
+        T = self.joint_limit_horizon_s
+        reach = self.s + self.s_dot * T
+        lower = 2.0 * (self.q_min - reach) / T**2
+        upper = 2.0 * (self.q_max - reach) / T**2
+        # Already beyond a limit: the bound pulls it back (lower <= upper always holds)
+        lower = np.minimum(lower, upper)
+        self.joint_limits_task.set_feasible_region(self._limits_C, lower.reshape(-1, 1), upper.reshape(-1, 1))
 
     def get_current_frame_pose(self, frame_name: str) -> Tuple[np.ndarray, np.ndarray]:
         """Return position (3,) and rotation matrix (3,3) in world frame for any link/frame."""

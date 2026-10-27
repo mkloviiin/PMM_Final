@@ -40,6 +40,9 @@ con un visor de realidad virtual (Meta Quest 2 / Pro) mediante BeaVR, o de forma
   whole-body de BLF de `config/control_config.yaml`: **Whole-Body IK (position)**, **Whole-Body ID
   (torque)** o **Whole-Body ID (torque) + impedance**. En Gazebo / real el solver corre en el
   módulo YARP (paso 2.2), que se inicia con la opción elegida.
+- Límites articulares de las 20 articulaciones del tronco, cabeza y brazos: `joint_limits_deg` en
+  `config/control_config.yaml` es la única fuente. La usan el solver (IK e ID), MuJoCo (rangos de las
+  articulaciones) y Gazebo (controlboards); en el robot real, solo el solver.
 - Criterios de éxito de las seis tareas (`_check_success` de robosuite): [metrics/README.md](metrics/README.md).
 - Ambos backends graban **exactamente el mismo dataset**: mismas variables, en el mismo marco de coordenadas y con las mismas cámaras (ver [Datos grabados](#datos-grabados)).
 

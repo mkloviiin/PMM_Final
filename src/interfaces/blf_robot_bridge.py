@@ -347,6 +347,38 @@ stream_forcetorque_sensors             false
             self.aux_axis_info[part_name] = iinfo
             self.aux_num_axes[part_name] = num_axes
 
+    def apply_joint_limits(self, limits_rad: Dict[str, Tuple[float, float]]) -> bool:
+        """
+        Set the position limits {joint: (min_rad, max_rad)} on the robot's controlboards
+        (IControlLimits.setLimits, in degrees). Used in Gazebo so the simulated joints stop at
+        config joint_limits_deg; the YARP module does not call it on the real robot.
+        """
+        pending = dict(limits_rad)
+        ok = True
+        for part in self.PARTS:
+            props = yarp.Property()
+            props.put("device", "remote_controlboard")
+            props.put("local", f"/{self.local_prefix}/limits/{part}")
+            props.put("remote", f"/{self.robot_name}/{part}")
+            driver = yarp.PolyDriver(props)
+            if not driver.isValid():
+                print(f"[BLFRobotBridge] Warning: could not open {part} to set joint limits.")
+                ok = False
+                continue
+            ilim, iinfo, ienc = driver.viewIControlLimits(), driver.viewIAxisInfo(), driver.viewIEncoders()
+            for idx in range(ienc.getAxes() if ienc is not None else 0):
+                name = iinfo.getAxisName(idx)
+                if name in pending:
+                    lo, hi = pending.pop(name)
+                    if not ilim.setLimits(idx, float(np.rad2deg(lo)), float(np.rad2deg(hi))):
+                        print(f"[BLFRobotBridge] Warning: setLimits failed for {name}.")
+                        ok = False
+            driver.close()
+        if pending:
+            print(f"[BLFRobotBridge] Warning: joints not found on the controlboards: {sorted(pending)}")
+        print(f"[BLFRobotBridge] Joint limits set on the controlboards ({len(limits_rad) - len(pending)} joints).")
+        return ok and not pending
+
     def lock_eyes_forward(self, tilt_deg: float = 0.0, version_deg: float = 0.0, vergence_deg: float = 0.0):
         """
         Lock the 3 eye joints (eyes_tilt, eyes_version, eyes_vergence) on the head part
