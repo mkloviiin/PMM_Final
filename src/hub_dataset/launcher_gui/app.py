@@ -139,6 +139,9 @@ WELCOME_CSS = """
     border: 1px solid var(--border-color-primary) !important;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 100vmax rgba(0, 0, 0, 0.55) !important;
 }
+.pmm-modal-hidden {
+    display: none !important;
+}
 .pmm-modal h3 {
     margin-top: 0 !important;
 }
@@ -203,7 +206,8 @@ def _checkbox_filter_js(elem_id: str) -> str:
 
 
 def build_ui() -> gr.Blocks:
-    with gr.Blocks(title="iCub Experimentation Hub", css=WELCOME_CSS) as demo:
+    # El CSS se pasa a launch() (hub_experimentacion.py): Gradio 6 ya no lo toma aquí
+    with gr.Blocks(title="iCub Experimentation Hub") as demo:
         welcome_col, welcome_buttons = build_welcome_screen()
         # Sincroniza los videos de "Visualize & Curate" y dibuja el cursor de
         # tiempo sobre los graficos (ver video_sync.py).
@@ -233,7 +237,7 @@ def build_ui() -> gr.Blocks:
             btn = welcome_buttons[robot.id]
             if robot.id in config_columns:
                 # La columna del robot se muestra/oculta con la clase .robot-hidden, no con
-                # visible= (ver ui/tab_config.py: con visible Gradio dejaba Configuration en blanco).
+                # visible= (ver ui/tab_config.py: con visible Gradio deja Configuration en blanco).
                 # Al elegir robot se abre siempre la pestaña Configuration (aunque antes se haya
                 # salido desde Visualize & Curate o Episode Control). Si es otra plataforma que la
                 # anterior, Episode Control queda como nuevo (no muestra la sesión de la otra);
@@ -301,15 +305,22 @@ def build_ui() -> gr.Blocks:
         # conservando la selección; el botón hace lo mismo a pedido.
         c["tab"].select(fn=curation.refresh_datasets, inputs=[c["viz_root_tb"], c["dataset_dd"]],
                         outputs=[c["dataset_dd"], c["viz_status"]])
+        # La confirmación de borrado no sobrevive a salir de la pestaña (ni a "Back to robot
+        # selection"): al volver, el diálogo está cerrado y sin dataset pendiente.
+        delete_dialog = [c["delete_confirm_grp"], c["delete_target_state"]]
+        c["tab"].select(fn=curation.close_delete_dialog, outputs=delete_dialog)
+        back_btn.click(fn=curation.close_delete_dialog, outputs=delete_dialog)
         c["refresh_btn"].click(fn=curation.refresh_datasets, inputs=[c["viz_root_tb"], c["dataset_dd"]],
                                 outputs=[c["dataset_dd"], c["viz_status"]])
         # Borrar dataset: confirmación -> papelera
         c["delete_ds_btn"].click(fn=curation.ask_delete_dataset, inputs=[c["dataset_dd"]],
-                                 outputs=[c["delete_confirm_grp"], c["delete_confirm_md"]])
-        c["delete_cancel_btn"].click(fn=lambda: gr.update(visible=False), outputs=[c["delete_confirm_grp"]])
-        c["delete_yes_btn"].click(fn=curation.delete_dataset, inputs=[c["dataset_dd"], c["viz_root_tb"]],
+                                 outputs=[c["delete_confirm_grp"], c["delete_confirm_md"],
+                                          c["delete_target_state"]])
+        c["delete_cancel_btn"].click(fn=curation.close_delete_dialog, outputs=delete_dialog)
+        c["delete_yes_btn"].click(fn=curation.delete_dataset,
+                                  inputs=[c["delete_target_state"], c["viz_root_tb"]],
                                   outputs=[c["delete_confirm_grp"], c["dataset_dd"], c["viz_status"],
-                                           c["dataset_col"]])
+                                           c["dataset_col"], c["delete_target_state"]])
         c["last_btn"].click(fn=curation.use_last_dataset, inputs=[c["viz_root_tb"]], outputs=[c["dataset_dd"]])
         # Al elegir carpeta con el botón, refrescar la lista de datasets
         c["browse_dir_ev"].then(fn=curation.refresh_datasets, inputs=[c["viz_root_tb"]],
@@ -363,9 +374,9 @@ def build_ui() -> gr.Blocks:
         c["state_none_btn"].click(fn=curation.select_none_list, outputs=[c["dims_state_cbg"]])
 
         # Buscadores de features/dimensiones: filtran en el navegador (ocultan las casillas que
-        # no calzan) sin tocar las opciones, así la selección se conserva. Antes se filtraban
-        # las opciones en Python dejando siempre las marcadas, y como al cargar un dataset
-        # están todas marcadas, el buscador no ocultaba nada.
+        # no calzan) sin tocar las opciones, así la selección se conserva. Filtrar las opciones
+        # en Python obliga a dejar siempre las marcadas, y como al cargar un dataset están
+        # todas marcadas, el buscador no ocultaría nada.
         for tb_key, cbg_id in (("whole_search_tb", "cbg-whole"), ("action_search_tb", "cbg-action"),
                                ("state_search_tb", "cbg-state")):
             c[tb_key].change(fn=None, inputs=[c[tb_key]], js=_checkbox_filter_js(cbg_id))

@@ -1,20 +1,18 @@
 """Backend de robot: iCub **Real / Gazebo** (vía YARP).
 
-Encapsula todo lo propio de este robot. A diferencia de `icub_sim` (MuJoCo,
-in-process), aquí la grabación corre en un **subproceso aislado**
-(`icub-lerobot-gazebo/play_gazebo.py`) — así los paquetes de este proyecto
-(`lerobot_robot_icubrg`, `lerobot_teleoperator_icubrgteleop`) nunca comparten
-el intérprete con los del backend MuJoCo, y una caída de la sesión no arrastra
-al Hub. El resto del Hub (Control de episodios, Visualizar y curar, Subir a
+Encapsula todo lo propio de este robot. Como en `icub_sim` (MuJoCo), la grabación
+corre en un **subproceso aislado** (`play.py --backend gazebo|real`): una caída de
+la sesión no arrastra al Hub. El resto del Hub (Control de episodios, Visualizar y curar, Subir a
 Hugging Face) no sabe nada de esto: solo le importa que el dataset quede en
 formato LeRobot bajo `dataset_root` y que la grabación hable el protocolo de
 `session.start_session` (ver robots/base.py).
 
 El stack real/Gazebo son tres procesos que el usuario levanta por partes desde
-la pestaña de configuración (ver README de icub-lerobot-gazebo):
-  1. Simulación Gazebo (`gazebo/scripts/start_sim.sh`)  — solo en modo Gazebo.
-  2. Módulo YARP (`common/yarp_module/teleop_module_sm.py`) — servidor.
-  3. Teleop/Grabación (`play_gazebo.py`) — el cliente que graba (= la "sesión").
+la pestaña de configuración (ver README):
+  1. Simulación Gazebo (`gazebo_sim/scripts/start_sim.sh`)  — solo en modo Gazebo.
+  2. Módulo YARP (`src/interfaces/teleop_module_sm.py`) — servidor: corre el solver
+     whole-body (BLF IK / ID, robots/solver.py) sobre los controlboards del robot.
+  3. Teleop/Grabación (`play.py`) — el cliente que graba (= la "sesión").
 
 El único switch real/Gazebo es `robot_name` (`icub`/`icubSim`): se pasa como
 `--robot` al módulo YARP y `--robot-name` al play, sin reescribir el YAML.
@@ -37,9 +35,10 @@ import gradio as gr
 import yaml
 
 from .. import ports, procman, session
-from ..paths import ASSETS_DIR, GAZEBO_ROOT, HUB_ROOT, REPO_ROOT, PLAY_SCRIPT
+from ..paths import ASSETS_DIR, REPO_ROOT, PLAY_SCRIPT
 from ..ui.dir_picker import dir_textbox
 from .base import RobotBackend
+from .solver import SOLVERS, solver_argv, solver_dropdown
 
 # ── Rutas de simulación y control ────────────────────────────────────────────
 _SCENES_DIR = REPO_ROOT / "mujoco_sim" / "assets" / "scenes"
@@ -71,8 +70,9 @@ REAL_YARP_IP = os.environ.get("ICUB_YARP_IP", "10.0.0.1")
 REAL_YARP_PORT = int(os.environ.get("ICUB_YARP_PORT", "10000"))
 
 
-# Brazos con los que se inició el módulo YARP (None = no iniciado desde el Hub).
+# Brazos y solver con los que se inició el módulo YARP (None = no iniciado desde el Hub).
 _module_arms: str | None = None
+_module_solver: str | None = None
 
 _QUERY_ARMS_PY = (
     "import sys, yarp\n"
@@ -130,27 +130,19 @@ def _connect_real_robot() -> tuple[bool, str]:
                    f"(`yarp detect` rc={rc}). Is the robot on and the network cable connected?")
 
 
-def _load_scenes() -> dict[str, tuple[str, str]]:
-    """Lee scenes.yaml del proyecto gazebo: {label: (archivo_xml, tarea_default)}.
+def _load_scenes() -> dict[str, tuple[str, str, list | None]]:
+    """Lee scenes.yaml: {label: (archivo_xml, tarea_default, cameras)}.
+    cameras = None: las cámaras por defecto del robot.
 
-    En Gazebo/real el objeto no tiene pose observable, así que `objects`/`joints`
-    del manifiesto no se usan aquí (play_gazebo no los recibe): solo importan la
-    escena del visualizador MuJoCo (`--model`) y la instrucción (`--single-task`).
+    Aquí `objects`/`joints` del manifiesto no se usan: en Gazebo los crea
+    reset_objects.sh y en el robot real los pone el operador. El espejo MuJoCo
+    (`--model`) es siempre la mesa vacía; importan la instrucción y las cámaras.
     """
     if not _SCENES_MANIFEST.exists():
         print(f"[icub_rg] Warning: {_SCENES_MANIFEST} not found; no tasks.")
         return {}
     entries = yaml.safe_load(_SCENES_MANIFEST.read_text(encoding="utf-8")) or []
-    scenes = {e["label"]: (e["file"], e["task"]) for e in entries}
-
-    declared = {e["file"] for e in entries}
-    all_xml = {p.name for p in _SCENES_DIR.glob("*.xml")}
-    orphans = all_xml - declared
-    if orphans:
-        print(f"[icub_rg] Warning: {len(orphans)} XML(s) in {_SCENES_DIR} are not "
-              f"declared in scenes.yaml and will not appear in the dropdown: "
-              f"{', '.join(sorted(orphans))}")
-    return scenes
+    return {e["label"]: (e.get("file"), e["task"], e.get("cameras")) for e in entries}
 
 
 SCENES = _load_scenes()
@@ -167,7 +159,7 @@ def _tmux_alive() -> bool:
         return False
 
 
-# ── Puente subproceso play_gazebo.py ↔ protocolo de sesión ───────────────────
+# ── Puente subproceso play.py ↔ protocolo de sesión ──────────────────────────
 def _dir_size_mb(path: Path) -> float:
     try:
         return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / (1024 * 1024)
@@ -176,7 +168,7 @@ def _dir_size_mb(path: Path) -> float:
 
 
 def _bridge_play(argv, *, cmd_source, on_status, dataset_root: Path | None = None) -> None:
-    """Corre play_gazebo.py como subproceso y traduce entre el protocolo del
+    """Corre play.py como subproceso y traduce entre el protocolo del
     Hub (cmd_source/on_status) y el stdin/stdout del hijo.
 
     Se ejecuta dentro del thread de `session.start_session`, cuyo stdout está
@@ -184,7 +176,7 @@ def _bridge_play(argv, *, cmd_source, on_status, dataset_root: Path | None = Non
     """
     proc = subprocess.Popen(
         [str(a) for a in argv],
-        cwd=str(GAZEBO_ROOT),
+        cwd=str(REPO_ROOT),
         env={**os.environ, "PYTHONUNBUFFERED": "1", "PMM_LIVE_METRICS": "1"},
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -199,7 +191,7 @@ def _bridge_play(argv, *, cmd_source, on_status, dataset_root: Path | None = Non
 
     def _forward_cmds() -> None:
         # cmd_source() devuelve "1"/"2"/"3" (START/STOP/EXIT) o None. Se los
-        # escribimos por stdin al listener de consola de play_gazebo.
+        # escribimos por stdin al listener de consola de play.py.
         while proc.poll() is None and not stop_flag["exit"]:
             cmd = cmd_source() if cmd_source else None
             if cmd:
@@ -267,7 +259,7 @@ def _bridge_play(argv, *, cmd_source, on_status, dataset_root: Path | None = Non
                     proc.wait(timeout=5)
                 except Exception:  # noqa: BLE001
                     proc.kill()
-        print(f"[play] play_gazebo finished (rc={proc.poll()})")
+        print(f"[play] play.py finished (rc={proc.poll()})")
 
 
 # ── Formulario de configuración ──────────────────────────────────────────────
@@ -286,7 +278,7 @@ def build_config_form() -> dict[str, gr.components.Component]:
             scene_dd = gr.Dropdown(
                 choices=scene_choices, value=scene_choices[0],
                 label="Tasks",
-                info="Instruction to record."
+                info="Instruction to record. The MuJoCo mirror always shows the empty "
                      "table; objects are placed in the real world / Gazebo.",
             )
             repo_id_tb = gr.Textbox(
@@ -308,7 +300,7 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 precision=0, minimum=0, info="0 = no time limit",
             )
             root_tb, _ = dir_textbox(
-                "Dataset root directory", str(HUB_ROOT.parent / "data"),
+                "Dataset root directory", str(REPO_ROOT / "data"),
                 title="Select the dataset root directory",
             )
             arms_dd = gr.Dropdown(
@@ -316,9 +308,12 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 label="Control arms",
                 info="'auto' detects the arms available in YARP",
             )
+            solver_dd = solver_dropdown(
+                _CFG_PATH, "Runs in the YARP module (2.2): IK commands joint positions "
+                           "(POSITION_DIRECT); ID commands joint torques (TORQUE mode)",
+            )
             # Cable e IP solo con "Enable VR" marcado: los muestra/oculta el CSS .vr-extra de
-            # app.py según la casilla (visible= de Gradio no era confiable y a veces quedaban
-            # a la vista sin VR).
+            # app.py según la casilla (con visible= de Gradio a veces quedan a la vista sin VR).
             vr_cb = gr.Checkbox(value=False, label="Enable VR", elem_classes=["vr-cb"])
             vr_cable_cb = gr.Checkbox(
                 value=False,
@@ -398,8 +393,8 @@ def build_config_form() -> dict[str, gr.components.Component]:
     sim_stop_btn.click(fn=_sim_stop, inputs=[], outputs=[sim_status])
 
     # 2. Módulo YARP (long-lived, gestionado por procman)
-    def _yarp_start(mode, arms):
-        global _module_arms
+    def _yarp_start(mode, arms, solver):
+        global _module_arms, _module_solver
         if not _YARP_MODULE.exists():
             return f"Not found: {_YARP_MODULE}"
         if mode == MODE_REAL:
@@ -416,23 +411,31 @@ def build_config_form() -> dict[str, gr.components.Component]:
             if busy:
                 return busy
         # Brazos: los del formulario; 'auto' = los que tengan cartesianController en YARP
-        # (si no se detecta ninguno, el control_arms del YAML). Antes no se pasaba y el módulo
-        # usaba siempre el del YAML, así que "Control arms" no cambiaba nada.
+        # (si no se detecta ninguno, el control_arms del YAML). Hay que pasarlo con --control:
+        # sin él, el módulo usa siempre el del YAML y "Control arms" no tiene efecto.
         if arms in ("right", "left", "both"):
             resolved, how = arms, "selected"
         else:
             resolved = _detect_arms(robot_name)
             resolved, how = (resolved, "auto-detected") if resolved else (_yaml_arms(), "from YAML")
-        argv = [sys.executable, "-u", str(_YARP_MODULE), "--robot", robot_name, "--control", resolved]
+        if procman.is_running("yarp_module") and _module_solver not in (None, solver):
+            return (f"The YARP module is running with '{_module_solver}'. Stop it "
+                    f"(■ Stop YARP module) to start it with '{solver}'.")
+        argv = [sys.executable, "-u", str(_YARP_MODULE), "--robot", robot_name, "--control", resolved,
+                *solver_argv(solver)]
+        if mode == MODE_REAL and SOLVERS.get(solver, ("ik",))[0] == "id":
+            session.log("[Hub] WARNING: the real robot will be driven in TORQUE mode (whole-body ID). "
+                        "Keep the emergency stop at hand.")
         msg = procman.start(
             "yarp_module", argv,
             cwd=str(_YARP_MODULE.parent),
             env={"ICUB_LEROBOT_CONFIG": str(_CFG_PATH), "ICUB_ROBOT_NAME": robot_name},
         )
         _module_arms = resolved
-        return f"{msg} — arms: {resolved} ({how})"
+        _module_solver = solver
+        return f"{msg} — arms: {resolved} ({how}) — {solver}"
 
-    yarp_start_btn.click(fn=_yarp_start, inputs=[mode_dd, arms_dd], outputs=[yarp_status])
+    yarp_start_btn.click(fn=_yarp_start, inputs=[mode_dd, arms_dd, solver_dd], outputs=[yarp_status])
     yarp_stop_btn.click(fn=lambda: procman.stop("yarp_module"), inputs=[], outputs=[yarp_status])
 
     # 3. Detener play/grabación = EXIT de la sesión (mismo protocolo genérico)
@@ -441,7 +444,7 @@ def build_config_form() -> dict[str, gr.components.Component]:
     return dict(
         mode=mode_dd, scene=scene_dd, repo_id=repo_id_tb, num_eps=num_eps_nb,
         fps=fps_nb, ep_time=ep_time_nb, root=root_tb, control_arms=arms_dd,
-        vr=vr_cb, vr_cable=vr_cable_cb, vr_ip=vr_ip_tb,
+        vr=vr_cb, vr_cable=vr_cable_cb, vr_ip=vr_ip_tb, solver=solver_dd,
         launch_btn=launch_btn, launch_status=launch_status,
     )
 
@@ -464,7 +467,7 @@ def _prepare_gazebo_scene(scene_name: str) -> None:
 
 # ── Lanzamiento de la parte "play" (la sesión de grabación) ──────────────────
 def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
-           vr, vr_ip, vr_cable, control_arms, root_dir) -> str:
+           vr, vr_ip, vr_cable, control_arms, root_dir, solver) -> str:
     if session.state.running:
         return "A session is already running."
 
@@ -475,9 +478,13 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
             and _module_arms not in (None, "both", control_arms)):
         return (f"The YARP module is running with arms = '{_module_arms}'. Restart it "
                 f"(■ Stop YARP module → ▶ Start YARP module) to control '{control_arms}'.")
+    # El solver lo corre el módulo YARP: play.py tiene que usar el mismo (impedancia al empezar)
+    if procman.is_running("yarp_module") and _module_solver not in (None, solver):
+        return (f"The YARP module is running with '{_module_solver}'. Restart it "
+                f"(■ Stop YARP module → ▶ Start YARP module) to use '{solver}'.")
     # Solo importa la instrucción; el XML de la escena se ignora a propósito:
     # en gazebo/real MuJoCo es un espejo y siempre carga la mesa vacía.
-    _xml_file, default_task = SCENES[scene_name]
+    _xml_file, default_task, scene_cameras = SCENES[scene_name]
     model_path = _EMPTY_TABLE
 
     if not model_path.exists():
@@ -485,7 +492,7 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
     if not _CFG_PATH.exists():
         return f"Config not found: {_CFG_PATH}"
     if not _PLAY.exists():
-        return f"play_gazebo.py not found: {_PLAY}"
+        return f"play.py not found: {_PLAY}"
 
     rid = (repo_id.strip() or "local/icub_gazebo_demo")
     rid = rid if "/" in rid else f"local/{rid}"
@@ -496,14 +503,14 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
     resolved_vr_ip = vr_ip.strip() if vr_ip else None
     resolved_vr = bool(vr)
     if resolved_vr or vr_cable:
-        # play_gazebo abre los puertos del VR (los mismos que usa el núcleo MuJoCo)
+        # play.py abre los puertos del VR (los mismos que usa el núcleo MuJoCo)
         busy = ports.preflight(ports.VR_PORTS, "the Gazebo/robot session (VR)", log=session.log)
         if busy:
             return busy
     resolved_cable = bool(vr_cable)
 
     run_suffix = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    base_root = Path(root_dir or str(HUB_ROOT.parent / "data")).expanduser()
+    base_root = Path(root_dir or str(REPO_ROOT / "data")).expanduser()
     dataset_root = base_root / f"{rid.replace('/', '_')}_{run_suffix}"
 
     argv = [
@@ -519,7 +526,10 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
         "--episode-time-s", str(int(ep_time)),
         "--control-arms", control_arms or "auto",
         "--robot-name", robot_name,
+        *solver_argv(solver),
     ]
+    if scene_cameras:
+        argv += ["--cameras", ",".join(scene_cameras)]
     if resolved_vr:
         argv.append("--vr")
     if resolved_vr_ip:
@@ -544,6 +554,6 @@ BACKEND = RobotBackend(
     launch=launch,
     config_input_order=[
         "mode", "scene", "repo_id", "num_eps", "fps", "ep_time",
-        "vr", "vr_ip", "vr_cable", "control_arms", "root",
+        "vr", "vr_ip", "vr_cable", "control_arms", "root", "solver",
     ],
 )

@@ -4,15 +4,15 @@ MuJoCo y Gazebo/robot real usan los mismos puertos para el VR, pero desde proces
 distintos:
 
 - 8115-8121 (entrada del VR: cabeza, manos, botones): el núcleo de MuJoCo
-  (dependencies/teleop_mujoco.py), que el Hub corre dentro de su propio proceso, o el
-  teleoperador de Gazebo/real, dentro de play_gazebo.py (proceso aparte).
+  (src/interfaces/teleop_mujoco.py) o el teleoperador de Gazebo/real, ambos dentro de
+  play.py (subproceso de la sesión).
 - 10505 / 15001 (streaming de imagen a los lentes): el núcleo de MuJoCo, o el módulo YARP
   (teleop_module_sm.py, proceso aparte).
 
-Si una sesión de MuJoCo termina sin cerrar su núcleo, sus puertos quedan tomados por el Hub
-y la sesión siguiente (de cualquier plataforma) falla con "Address already in use". Por eso,
-antes de lanzar algo se revisan los puertos que va a usar: los que retiene el propio Hub se
-liberan (release_own); los de otro proceso se informan en vez de dejar que la sesión se caiga.
+Si una sesión anterior no se cerró bien, sus puertos siguen tomados y la sesión siguiente
+(de cualquier plataforma) falla con "Address already in use". Por eso, antes de lanzar algo
+se revisan los puertos que va a usar: los que retiene el propio Hub se liberan
+(release_own); los de otro proceso se informan en vez de dejar que la sesión se caiga.
 """
 
 from __future__ import annotations
@@ -60,7 +60,6 @@ def release_own() -> int:
     core_mod = (
         sys.modules.get("interfaces.teleop_mujoco")
         or sys.modules.get("teleop_mujoco")
-        or sys.modules.get("dependencies.teleop_mujoco")
     )
     if core_mod is None or not hasattr(core_mod, "close_all_live"):
         return 0
@@ -94,4 +93,4 @@ def preflight(ports, label: str, log=print) -> str | None:
         owners.setdefault(pid, []).append(port)
     detail = "; ".join(f"{ports_} held by {_describe(pid)}" for pid, ports_ in owners.items())
     return (f"Cannot start {label}: ports {detail}. Close that session/process "
-            f"(another Hub, play_gazebo.py, teleop_mujoco.py or a YARP module) and try again.")
+            f"(another Hub, play.py, teleop_mujoco.py or a YARP module) and try again.")

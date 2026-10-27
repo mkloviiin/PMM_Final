@@ -700,12 +700,14 @@ def run_yarp_teleop_loop(args, model_path: Path, scene_task: str, scene_cameras:
     print(f" Recording:  {'DISABLED (--no-record)' if args.no_record else 'ENABLED'}")
     print("=======================================================\n")
 
-    # If teleop_module_sm is not running on YARP, launch it automatically in background
+    # If teleop_module_sm is not running on YARP (the Hub starts it in step 2.2), launch it
+    # automatically in background. Its RPC port tells whether it is up.
     import yarp
     yarp.Network.init()
+    module_port = "/teleop/rpc:i"
     teleop_proc = None
-    if not yarp.Network.exists("/teleop/state:o"):
-        print(f"[play.py] /teleop/state:o not found. Auto-launching teleop_module_sm.py ({args.controller.upper()})...")
+    if not yarp.Network.exists(module_port):
+        print(f"[play.py] {module_port} not found. Auto-launching teleop_module_sm.py ({args.controller.upper()})...")
         teleop_cmd = [
             sys.executable,
             str(repo_root / "src" / "interfaces" / "teleop_module_sm.py"),
@@ -716,14 +718,14 @@ def run_yarp_teleop_loop(args, model_path: Path, scene_task: str, scene_cameras:
         if args.impedance:
             teleop_cmd.append("--impedance")
         teleop_proc = subprocess.Popen(teleop_cmd)
-        print("[play.py] Waiting for /teleop/state:o to appear on YARP network...")
-        for _ in range(40):
-            if yarp.Network.exists("/teleop/state:o"):
-                print("[play.py] /teleop/state:o is ready.")
+        print(f"[play.py] Waiting for {module_port} to appear on YARP network...")
+        for _ in range(120):
+            if yarp.Network.exists(module_port):
+                print(f"[play.py] {module_port} is ready.")
                 break
             time.sleep(0.5)
         else:
-            print("[play.py] Warning: Timeout waiting for /teleop/state:o. Proceeding to connect...")
+            print(f"[play.py] Warning: Timeout waiting for {module_port}. Proceeding to connect...")
 
     try:
         robot.connect()

@@ -16,6 +16,3 @@ REPO_ROOT = HUB_ROOT.parent.parent
 PLAY_SCRIPT = REPO_ROOT / "play.py"
 MUJOCO_ASSETS = REPO_ROOT / "mujoco_sim" / "assets"
 GAZEBO_ROOT = REPO_ROOT / "gazebo_sim"
-
-# Compatibilidad para referencias previas
-MJ_ROOT = REPO_ROOT

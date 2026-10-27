@@ -125,7 +125,6 @@ def start_session(record_fn: Callable[..., None], *, repo_id: str,
     launcher.
     """
     if state.running:
-        # Terminar sesion activa antes de lanzar la nueva
         log("[Hub] Previous session active — sending EXIT to relaunch with new scene.")
         state.cmd_queue.put("3")
         deadline = time.time() + 15

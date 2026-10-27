@@ -14,22 +14,24 @@ from __future__ import annotations
 import sys
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
 
 import gradio as gr
 import yaml
 
 from .. import ports, session
-from ..paths import ASSETS_DIR, HUB_ROOT, REPO_ROOT, PLAY_SCRIPT
+from ..paths import ASSETS_DIR, REPO_ROOT, PLAY_SCRIPT
 from ..ui.dir_picker import dir_textbox
 from .base import RobotBackend
 from .icub_rg import _bridge_play
+from .solver import solver_argv, solver_dropdown
 
 PROJECT_ROOT = REPO_ROOT
 
 _SCENES_DIR = PROJECT_ROOT / "mujoco_sim" / "assets" / "scenes"
 _SCENES_MANIFEST = _SCENES_DIR / "scenes.yaml"
 _CFG_PATH = PROJECT_ROOT / "config" / "control_config.yaml"
+# Espejo de MuJoCo para Gazebo / real (icub_rg): no es una tarea de este backend
+_NOT_TASKS = {"scene_icub_empty_table.xml"}
 
 
 def _ensure_mj_on_path() -> None:
@@ -46,8 +48,9 @@ def _ensure_mj_on_path() -> None:
             sys.path.insert(0, _s)
 
 
-def _load_scenes() -> dict[str, tuple[str, str, list]]:
-    """Lee scenes.yaml: {label: (archivo_xml, tarea_default, objects_list)}.
+def _load_scenes() -> dict[str, tuple[str, str, list, list, list | None]]:
+    """Lee scenes.yaml: {label: (archivo_xml, tarea_default, objects, joints, cameras)}.
+    cameras = None: las cámaras por defecto del robot (left, right, front).
 
     Las escenas se declaran a mano en el manifiesto (no se auto-detectan todos
     los *.xml de la carpeta) porque esa carpeta tambien tiene XMLs que no son
@@ -57,19 +60,18 @@ def _load_scenes() -> dict[str, tuple[str, str, list]]:
     """
     entries = yaml.safe_load(_SCENES_MANIFEST.read_text(encoding="utf-8")) or []
     scenes = {
-        e["label"]: (e["file"], e["task"], e.get("objects", []), e.get("joints", []))
+        e["label"]: (e["file"], e["task"], e.get("objects", []), e.get("joints", []), e.get("cameras"))
         for e in entries
     }
 
+    # Escenas (scene_*.xml) sin declarar; los includes del robot y de la sala no son escenas
     declared_files = {e["file"] for e in entries}
-    all_xml = {p.name for p in _SCENES_DIR.glob("*.xml")}
-    orphans = all_xml - declared_files
+    all_scenes = {p.name for p in _SCENES_DIR.glob("scene_*.xml")}
+    orphans = all_scenes - declared_files - _NOT_TASKS
     if orphans:
-        print(f"[icub_sim] Warning: {len(orphans)} XML(s) in {_SCENES_DIR} are not "
+        print(f"[icub_sim] Warning: {len(orphans)} scene XML(s) in {_SCENES_DIR} are not "
               f"declared in scenes.yaml and will not appear in the dropdown: "
               f"{', '.join(sorted(orphans))}")
-
-
     return scenes
 
 
@@ -105,7 +107,7 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 precision=0, minimum=0, info="0 = no time limit"
             )
             root_tb, _ = dir_textbox(
-                "Dataset root directory", str(HUB_ROOT.parent / "data"),
+                "Dataset root directory", str(REPO_ROOT / "data"),
                 title="Select the dataset root directory",
             )
             arms_dd = gr.Dropdown(
@@ -113,9 +115,12 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 label="Control arms",
                 info="Arms driven by the teleoperation (and recorded in the dataset)",
             )
+            solver_dd = solver_dropdown(
+                _CFG_PATH, "IK commands joint positions; ID commands joint torques "
+                           "(+ impedance: compliant Cartesian tracking)",
+            )
             # Cable e IP solo con "Enable VR" marcado: los muestra/oculta el CSS .vr-extra de
-            # app.py según la casilla (visible= de Gradio no era confiable y a veces quedaban
-            # a la vista sin VR).
+            # app.py según la casilla (con visible= de Gradio a veces quedan a la vista sin VR).
             vr_cb = gr.Checkbox(value=False, label="Enable VR", elem_classes=["vr-cb"])
             vr_cable_cb = gr.Checkbox(
                 value=False,
@@ -161,21 +166,22 @@ def build_config_form() -> dict[str, gr.components.Component]:
     return dict(
         scene=scene_dd, repo_id=repo_id_tb, num_eps=num_eps_nb, fps=fps_nb,
         ep_time=ep_time_sl, root=root_tb, vr=vr_cb, vr_cable=vr_cable_cb, control_arms=arms_dd,
-        vr_ip=vr_ip_tb, launch_btn=launch_btn, launch_status=launch_status,
+        vr_ip=vr_ip_tb, solver=solver_dd, launch_btn=launch_btn, launch_status=launch_status,
     )
 
 
 def _yaml_arms() -> str:
-    """control_arms de utils/control_config.yaml de MuJoCo (valor inicial del selector)."""
+    """control_arms de config/control_config.yaml (valor inicial del selector)."""
     try:
-        cfg = yaml.safe_load((MJ_ROOT / "utils" / "control_config.yaml").read_text(encoding="utf-8")) or {}
+        cfg = yaml.safe_load(_CFG_PATH.read_text(encoding="utf-8")) or {}
         arms = cfg.get("control_arms", "both")
         return arms if arms in ("both", "right", "left") else "both"
     except Exception:  # noqa: BLE001
         return "both"
 
 
-def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, control_arms, root_dir) -> str:
+def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, control_arms, root_dir,
+           solver) -> str:
     if session.state.running:
         return "A session is already running."
     # El núcleo MuJoCo abre los puertos del VR y del streaming (también los usan el
@@ -187,11 +193,11 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, cont
 
     _ensure_mj_on_path()
 
-    xml_file, default_task, scene_objects, scene_joints = SCENES.get(
-        scene_name, ("icub_table_scene.xml", "tarea libre", [], [])
-    )
+    if scene_name not in SCENES:
+        return f"Invalid task: {scene_name}. Check {_SCENES_MANIFEST}."
+    xml_file, default_task, scene_objects, scene_joints, scene_cameras = SCENES[scene_name]
     model_path = _SCENES_DIR / xml_file
-    cfg_path = PROJECT_ROOT / "utils" / "control_config.yaml"
+    cfg_path = _CFG_PATH
 
     if not model_path.exists():
         return f"Scene not found: {model_path}"
@@ -211,10 +217,10 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, cont
                      "enable 'USB Debugging' and accept the popup on the headset.")
         resolved_vr_ip = CABLE_IP
         resolved_vr = True
-        session.log(f"[USB] Cable listo. En BeaVR, pon la IP en {CABLE_IP}.")
+        session.log(f"[USB] Cable ready. Set BeaVR's IP to {CABLE_IP} on the headset.")
 
     run_suffix = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    base_root = Path(root_dir or str(HUB_ROOT.parent / "data")).expanduser()
+    base_root = Path(root_dir or str(REPO_ROOT / "data")).expanduser()
     dataset_root = base_root / f"{rid.replace('/', '_')}_{run_suffix}"
 
     argv = [
@@ -229,7 +235,12 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, cont
         "--single-task", default_task,
         "--episode-time-s", str(int(ep_time)),
         "--control-arms", control_arms or "both",
+        *solver_argv(solver),
     ]
+    if scene_cameras:
+        # Cámaras de la tarea (cameras en scenes.yaml), p. ej. la puerta: ojos + cenital
+        argv += ["--cameras", ",".join(scene_cameras)]
+    session.log(f"[Hub] MuJoCo session: {scene_name} | {control_arms} arm(s) | {solver}")
     if resolved_vr:
         argv.append("--vr")
     if resolved_vr_ip:
@@ -260,6 +271,6 @@ BACKEND = RobotBackend(
     launch=launch,
     config_input_order=[
         "scene", "repo_id", "num_eps", "fps", "ep_time",
-        "vr", "vr_ip", "vr_cable", "control_arms", "root",
+        "vr", "vr_ip", "vr_cable", "control_arms", "root", "solver",
     ],
 )
