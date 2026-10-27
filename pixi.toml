@@ -50,6 +50,7 @@ fsspec = "<=2025.3.0"
 numpy = ">=2.0.0,<2.3.0"
 opencv = ">=4.9.0,<4.13.0"
 icub-main = ">=2.11.1,<3"
+pillow = "<13"                   # gradio 6 requires pillow < 13
 
 [pypi-options]
 extra-index-urls = ["https://download.pytorch.org/whl/cu124"]
@@ -61,4 +62,6 @@ torch = ">=2.2.0"
 torchvision = "*"
 lerobot = "*"
 datasets = "*"
-gradio = "*"
+gradio = ">=6.18,<7"         # Hub UI (gradio 3.x does not run the Hub)
+plotly = ">=6.5"                 # Hub curation plots
+kaleido = ">=1.2"                # Hub curation PDF export

@@ -1,39 +1,30 @@
 #!/bin/bash
+# Cierra la simulación lanzada por start_sim.sh (sesión tmux icub_sim).
 
 SESSION_NAME="icub_sim"
+PROJECT_ROOT="$(dirname "$(dirname "$(dirname "$(readlink -f "$0")")")")"
+PIXI_ENV="${PIXI_ENV:-$PROJECT_ROOT/.pixi/envs/default}"
 
 echo "Iniciando secuencia de cierre para la sesión de tmux '$SESSION_NAME'..."
 
-# 1. Cierra los controladores de alto nivel (brazos y mirada)
-echo "Cerrando controladores (brazos y mirada)..."
-tmux send-keys -t $SESSION_NAME:right_arm C-c
-tmux send-keys -t $SESSION_NAME:left_arm C-c
-tmux send-keys -t $SESSION_NAME:gaze C-c
-
-# 2. Cierra el 'robotinterface'
-echo "Cerrando yarprobotinterface..."
-tmux send-keys -t $SESSION_NAME:robotinterface C-c
-
-# 3. Cierra Gazebo y fuerza la terminación de sus procesos
+# 1. Cierra Gazebo y fuerza la terminación de sus procesos
 echo "Cerrando Gazebo..."
-tmux send-keys -t $SESSION_NAME:gazebo C-c
-sleep 1 # Pequeña pausa
+tmux send-keys -t $SESSION_NAME:gazebo.0 C-c 2>/dev/null
+tmux send-keys -t $SESSION_NAME:gazebo.1 C-c 2>/dev/null
+sleep 1
 echo "Asegurando el cierre forzoso del servidor y cliente de Gazebo..."
 pkill -9 -f "gz sim"
-
-# Pausa para asegurar que los procesos terminen
 sleep 2
 
-# 4. Cierra el 'yarpserver' y limpia YARP
+# 2. Cierra el 'yarpserver' y limpia YARP
 echo "Cerrando yarpserver y limpiando YARP..."
-tmux send-keys -t $SESSION_NAME:server C-c
-sleep 1 # Pausa para que el servidor muera antes de limpiar
-tmux send-keys -t $SESSION_NAME:server "yarp clean" C-m
+tmux send-keys -t $SESSION_NAME:server C-c 2>/dev/null
 sleep 1
+PATH="$PIXI_ENV/bin:$PATH" yarp clean --timeout 0.5 >/dev/null 2>&1
 
-# 5. Cierra la sesión de tmux completa
+# 3. Cierra la sesión de tmux completa
 echo "Cerrando la sesión de tmux..."
-tmux kill-session -t $SESSION_NAME
+tmux kill-session -t $SESSION_NAME 2>/dev/null
 rm -f /tmp/icub_gazebo_model
 
 echo "Cierre completado."

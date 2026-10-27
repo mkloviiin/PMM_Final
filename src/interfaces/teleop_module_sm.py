@@ -543,7 +543,7 @@ class TeleopModuleSM(yarp.RFModule):
                 if not self.is_gazebo:
                     reply.addString("Reset not available on real robot.")
                     return True
-                script_path = str(_PROJECT_ROOT / "gazebo" / "scripts" / "reset_objects.sh")
+                script_path = str(_PROJECT_ROOT / "gazebo_sim" / "scripts" / "reset_objects.sh")
                 if os.path.exists(script_path):
                     subprocess.Popen(["bash", script_path])
                     reply.addString("Scenario reset.")
