@@ -12,7 +12,7 @@ simulación en **MuJoCo**, simulación en **Gazebo Sim** y el **iCub real**. Las
 con un visor de realidad virtual (Meta Quest 2 / Pro) mediante BeaVR, o de forma interactiva usando teclado y mouse en el visor gráfico.
 
 - [Plataformas disponibles](#plataformas-disponibles)
-- [Controles VR](#controles-vr)
+- [Gafas VR](#gafas-vr)
 - [Controles en el visor](#controles-en-el-visor)
 - [Controles de consola](#controles-de-consola)
 - [Instalación](#instalación)
@@ -30,25 +30,69 @@ con un visor de realidad virtual (Meta Quest 2 / Pro) mediante BeaVR, o de forma
 
 | Plataforma (pantalla de inicio) | Backend | Modo de ejecución | Tareas |
 |---|---|---|---|
-| **iCub Simulated MJ** | `robots/icub_sim.py` | En el mismo proceso del Hub (MuJoCo 3.3) | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
+| **iCub Simulated MJ** | `robots/icub_sim.py` | Subproceso independiente (`play.py --backend mujoco`) | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
 | **iCub Real / Gazebo** | `robots/icub_rg.py` | Subproceso independiente conectado por YARP | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
 
 - Las tareas se declaran de manera unificada en `mujoco_sim/assets/scenes/scenes.yaml`, y Gazebo utiliza el mismo archivo.
+  Cada tarea puede elegir sus cámaras (`cameras`): Door Opening graba `left`, `right` y la cámara
+  cenital `top` en vez de `front`.
+- En *Configuración*, las dos plataformas eligen el **Controller (solver)**, el controlador
+  whole-body de BLF de `config/control_config.yaml`: **Whole-Body IK (position)**, **Whole-Body ID
+  (torque)** o **Whole-Body ID (torque) + impedance**. En Gazebo / real el solver corre en el
+  módulo YARP (paso 2.2), que se inicia con la opción elegida.
+- Criterios de éxito de las seis tareas (`_check_success` de robosuite): [metrics/README.md](metrics/README.md).
 - Ambos backends graban **exactamente el mismo dataset**: mismas variables, en el mismo marco de coordenadas y con las mismas cámaras (ver [Datos grabados](#datos-grabados)).
 
 ---
 
-## Controles VR
+## Gafas VR
 
-Teleoperación con visor Meta Quest 2 / Quest Pro y la aplicación BeaVR:
+La teleoperación usa la app BeaVR en unas Meta Quest 2 / Quest Pro, conectadas por Wi-Fi
+(con la IP de las gafas en *Configuración*) o por cable USB.
+
+### Controles
 
 | Control VR | Acción |
 |---|---|
-| **Index trigger (gatillo frontal)** | Cierre proporcional de la pinza: `0.0` = totalmente abierta, `1.0` = totalmente cerrada |
-| **Lower trigger (gatillo de agarre)** | Congela el seguimiento (brazos y cabeza) para reposicionar las manos cómodamente |
+| **Gatillo índice (frontal)** | Cierre de la mano, proporcional: suelto = abierta, a fondo = cerrada (un cierre completo dura `hand_close_time_s` = 2 s, en todas las plataformas) |
+| **Gatillo inferior (de agarre)** | Embrague: mientras está apretado la posición de las manos no se mueve y la cabeza queda congelada, para reacomodar el control; al soltarlo la mano sigue desde donde quedó, sin salto. La orientación sigue al control |
 | **A** | Iniciar grabación de episodio |
 | **B** | Detener y guardar episodio (mantener presionado **B** por 1.5s para descartar) |
 | **Y** | Reposicionar / aleatorizar la posición de los objetos en la mesa |
+| **X** | Panel de ayuda con estos botones en la pantalla grande (también aparece con la app BeaVR en pausa) |
+
+La pantalla grande muestra el ojo del robot con un campo de visión más amplio que la cámara que
+se graba (`vr_head_fovy`, `head_cam_vr` en MuJoCo / cámara VR en Gazebo) y el estado de la
+grabación en la esquina; la pantalla chica muestra la cámara frontal.
+
+### Conexión por cable USB (una sola vez)
+
+La conexión por cable pasa por ADB, así que el computador necesita las herramientas de Android
+y permiso para acceder a las gafas por USB. Estos pasos se hacen en la máquina anfitriona,
+también cuando el Hub corre en Docker.
+
+1. Activa el **modo desarrollador** de las gafas desde la app Meta Horizon del celular
+   (*Dispositivos → Configuración de las gafas → Modo desarrollador*).
+2. Instala ADB.
+   ```bash
+   sudo apt install adb
+   ```
+3. Agrega una regla udev para que tu usuario acceda a las gafas (`2833` es el vendor ID USB de
+   Meta) y súmate al grupo `plugdev`. Luego cierra sesión y vuelve a entrar.
+   ```bash
+   echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="2833", MODE="0666", GROUP="plugdev"' \
+     | sudo tee /etc/udev/rules.d/51-meta-quest.rules
+   sudo udevadm control --reload-rules && sudo udevadm trigger
+   sudo usermod -aG plugdev $USER
+   ```
+4. Conecta el cable, ponte las gafas y acepta **Permitir depuración USB**
+   (marca *Permitir siempre desde este computador*).
+5. Revisa que las gafas aparezcan como `device`.
+   ```bash
+   adb devices
+   ```
+   Si aparecen como `unauthorized`, vuelve a aceptar el aviso dentro de las gafas. Si no
+   aparecen, revisa el cable y la regla udev.
 
 ---
 
@@ -115,6 +159,14 @@ docker compose up                     # inicia el Hub en http://localhost:7860
 ---
 
 ## Cómo usarlo
+
+El Hub sigue el orden de sus pestañas numeradas. En la pantalla de inicio se elige la
+plataforma, en **1. Configuración** se prepara y lanza la sesión (tarea, brazos, solver, VR),
+en **2. Control de episodios** se graban los episodios con las gafas VR y en
+**3. Visualizar y curar** se revisa, cura y publica el dataset. El recorrido completo, con
+capturas de cada pestaña, está en el [Manual de usuario](docs/MANUAL.es.md).
+
+Desde la línea de comandos, `play.py` graba (o solo teleopera, con `--no-record`) de la misma forma:
 
 ### MuJoCo
 
@@ -187,6 +239,23 @@ pixi run python play.py --backend gazebo --controller id --impedance --control-a
 
 *(Nota: Si `teleop_module_sm.py` no está corriendo en YARP, `play.py` lo levantará automáticamente en segundo plano con el solver BLF seleccionado).*
 
+### Evaluar una política
+
+`eval_policy.py` corre una política LeRobot entrenada en cualquier plataforma, con las mismas
+opciones de solver, y mide el éxito de la tarea con el criterio de robosuite
+([metrics/README.md](metrics/README.md)): en algún paso y al final de cada episodio. Cada episodio
+parte en home con la escena reiniciada; las cámaras, los brazos y el orden del estado salen del
+checkpoint y de su dataset de entrenamiento.
+
+```bash
+pixi run python eval_policy.py --checkpoint outputs/train/<run>/checkpoints/020000/pretrained_model \
+    --scene "Door Opening" --num-episodes 20
+pixi run python eval_policy.py --checkpoint ... --backend gazebo --scene "Block Lifting" --controller id --impedance
+```
+
+Los resultados quedan en `outputs/eval/<run>_<backend>_<fecha>/` (`eval.log`, `summary.json`). En
+el robot real el operador ubica los objetos y responde si cada episodio fue exitoso.
+
 ---
 
 ## Arquitectura
@@ -204,7 +273,7 @@ flowchart LR
         REG --> RG["robots/icub_rg.py"]
     end
 
-    SIM -- "record_fn (mismo proceso)" --> PMJ["play.py (--backend mujoco)<br/>MuJoCo + BLF"]
+    SIM -- "record_fn → subproceso" --> PMJ["play.py (--backend mujoco)<br/>MuJoCo + BLF"]
     RG -- "record_fn → subproceso" --> PGZ["play.py (--backend gazebo)<br/>YARP + BLF"]
     PGZ <-->|YARP| YM["teleop_module_sm.py<br/>Whole-Body Solver"]
     YM <--> ROBOT["Gazebo / iCub Real"]
@@ -222,16 +291,18 @@ flowchart LR
 
 ## Módulos del Hub
 
-Módulos principales ubicados en `hub_dataset/launcher_gui/`:
+Módulos principales ubicados en `src/hub_dataset/launcher_gui/`:
 
 | Módulo | Función |
 |---|---|
 | `app.py` | Construye la interfaz gráfica (pantalla de inicio, pestañas, CSS) y conecta componentes |
 | `robots/base.py`, `robots/registry.py` | Contrato base de backends y registro de robots disponibles |
 | `robots/icub_sim.py`, `robots/icub_rg.py` | Formulario y lanzamiento de cada plataforma del iCub |
+| `robots/solver.py` | Selector *Controller (solver)* compartido por las dos plataformas |
 | `session.py` | Hilo de sesión, cola de comandos, estado y sondeo de control de episodios |
 | `session_log.py` | Métricas por episodio y cuaderno de notas (`hub_session/`) |
 | `curation.py` | Carga de datasets, navegación por episodios, gráficos y empaquetado curado |
+| `dataset_curation.py` | Empaquetado del dataset curado (episodios, features y dimensiones eliminadas, instrucciones) |
 | `hub_push.py` | Subida de datasets a Hugging Face Hub |
 | `video_sync.py` | Reproductor sincronizado de las tres cámaras con las señales cinemáticas |
 | `procman.py` | Gestión de procesos externos de larga duración (`teleop_module_sm.py`, `launch_sim.sh`) |
@@ -311,7 +382,8 @@ Ambos backends del iCub graban las mismas variables, garantizando compatibilidad
   - Posiciones, velocidades y pares de las articulaciones.
   - Poses cartesianas de los efectores finales y comandos previos enviados.
   - Poses *ground-truth* de los objetos de la escena (en simulación).
-- **Cámaras:** `left` y `right` (ojos del robot) y `front` (cámara externa de mesa), en RGB $320 \times 240$.
+- **Cámaras:** `left` y `right` (ojos del robot) y `front` (cámara externa de mesa), en RGB $320 \times 240$. Una tarea puede elegir otras en `scenes.yaml` (`cameras`), p. ej. la cenital `top` de Door Opening.
+- **Objetos de escena ausentes en una tarea** (p. ej. sin cubo en Door Opening) se graban en cero.
 - **Selección de brazos:** Solo se registran los brazos seleccionados mediante `--control-arms`.
 - **Canonicidad de cuaterniones:** Parte escalar positiva ($q_w \geq 0$) para eliminar saltos de discontinuidad de signo en modelos de difusión.
 
@@ -338,7 +410,8 @@ PMM_Final/
 │   └── tools/                   # Utilidades de cuaterniones y transformadas
 ├── mujoco_sim/                  # Archivos de simulación MuJoCo (escenas XML, mallas OBJ)
 ├── gazebo_sim/                  # Archivos de simulación Gazebo (mundos SDF, modelos, plugins)
-├── metrics/                     # Mediciones de latencia, jitter y rendimiento
+├── metrics/                     # Latencia, jitter, métricas por frame y criterios de éxito de las tareas (task_success.py)
+├── docs/                        # Manual de usuario del Hub
 ├── docker/                      # Configuración alternativa de contenedores Docker
 ├── data/                        # Datasets grabados (no versionados)
 └── data_curated/                # Datasets curados (no versionados)
@@ -350,6 +423,7 @@ PMM_Final/
 
 | Documento | Contenido |
 |---|---|
+| [docs/MANUAL.es.md](docs/MANUAL.es.md) | Manual de usuario del Hub, pestaña por pestaña, con capturas |
 | [docker/README.md](docker/README.md) | Contenedor Docker: volúmenes, robot real, puertos VR y actualización |
 | [gazebo_sim/README.md](gazebo_sim/README.md) | Configuración de assets y entornos de simulación en Gazebo Sim |
 | [metrics/README.md](metrics/README.md) | Medición de latencia, jitter y sincronización de grabaciones |

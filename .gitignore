@@ -15,6 +15,7 @@ build/
 data/
 data_curated/
 output/
+outputs/
 logs/
 *.log
 

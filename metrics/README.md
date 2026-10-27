@@ -5,7 +5,7 @@ Todo usa el entorno `icubenv`.
 
 | Script | Qué hace | Cuándo |
 |---|---|---|
-| `frame_metrics.py` | Registra una línea por frame (periodo, tiempo por etapa, timestamps de estado y cámaras, confirmación de comandos) | **Automático** al grabar desde el Hub o con `play_*.py` |
+| `frame_metrics.py` | Registra una línea por frame (periodo, tiempo por etapa, timestamps de estado y cámaras, confirmación de comandos) | **Automático** al grabar desde el Hub o con `play.py` |
 | `latency_probe.py` | Prueba de escalón: comando → movimiento de la mano | A mano, con el robot/sim listo |
 | `metrics_report.py` | Tablas (Markdown + LaTeX) y figuras para el informe | Después de grabar/probar |
 | `dataset_check.py` | Integridad y sincronización de datasets ya grabados (también los antiguos) | Cuando quieras |
