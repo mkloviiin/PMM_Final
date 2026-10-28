@@ -85,6 +85,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-episodes", type=int, default=10, help="Number of evaluation episodes")
     parser.add_argument("--episode-len", type=int, default=600, help="Max steps per episode")
     parser.add_argument("--fps", type=int, default=30, help="Control rate (as recorded)")
+    parser.add_argument("--n-action-steps", type=int, default=None,
+                        help="Actions executed from each predicted chunk before predicting again "
+                             "(default: the policy's n_action_steps). Fewer = more closed-loop corrections")
     parser.add_argument("--task", default=None, help="Language task instruction prompt (default: scenes.yaml)")
     parser.add_argument("--scene", default=None, help="Scene index or label in scenes.yaml (e.g. 1 or 'Door Opening')")
     parser.add_argument("--control-arms", choices=["right", "left", "both"], default=None,
@@ -313,6 +316,14 @@ def reset_mujoco_episode(robot, ep: int, args) -> None:
     tc._reset_scenario()
     tc._snap_targets_to_ee()
     tc.state = "teleop_active"
+    # Settle for 0.5 s holding the home pose (fingers reach the open hand, velocities ~0), as in
+    # the recordings, where the robot waits at home before an episode starts; otherwise the first
+    # observation (fingers at the XML pose, large velocities) is far out of the training data.
+    for _ in range(int(0.5 / tc.control_dt)):
+        tc._solve_whole_body()
+        tc._interpolate_hands()
+        tc._step_physics()
+    tc._snap_targets_to_ee()
 
 
 def reset_yarp_episode(robot, args) -> float:
@@ -355,6 +366,10 @@ def main():
     # ── Policy and its normalization (saved with the checkpoint) ──────────────
     policy_cfg = PreTrainedConfig.from_pretrained(str(ckpt))
     policy_cfg.pretrained_path = str(ckpt)
+    if args.n_action_steps is not None:
+        if not 1 <= args.n_action_steps <= policy_cfg.chunk_size:
+            raise SystemExit(f"--n-action-steps must be in 1..{policy_cfg.chunk_size} (chunk_size)")
+        policy_cfg.n_action_steps = args.n_action_steps  # policy.reset() rebuilds the action queue
     policy = get_policy_class(policy_cfg.type).from_pretrained(str(ckpt), config=policy_cfg)
     policy.to(device)
     policy.eval()
@@ -385,6 +400,7 @@ def main():
     print(f" Arms:       {control_arms}  |  Cameras: {cameras}")
     print(f" Checkpoint: {args.checkpoint}")
     print(f" Device:     {device}  |  Results: {run_dir}")
+    print(f" Actions:    {policy.config.n_action_steps} of each chunk of {policy_cfg.chunk_size}")
     if success_task:
         print(f" Success:    {success_task}: {task_success.DESCRIPTION[success_task]}, at some step")
     print("=======================================================\n")
