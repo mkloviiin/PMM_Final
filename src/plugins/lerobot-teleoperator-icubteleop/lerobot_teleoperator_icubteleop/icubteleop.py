@@ -231,12 +231,13 @@ class iCubTeleop(Teleoperator):
             try:
                 print("Launching MuJoCo Viewer... (keys: 8/9 open/close right hand, 6/7 left hand)")
                 print("Mouse: Ctrl + Right-click drag to translate, Ctrl + Left-click drag to rotate")
+                print("Side panels hidden: Tab shows the left one, Shift+Tab the right one")
                 self.viewer = mujoco.viewer.launch_passive(
                     self.model,
                     self.data,
                     key_callback=self._key_callback,
-                    show_left_ui=True,
-                    show_right_ui=True,
+                    show_left_ui=False,
+                    show_right_ui=False,
                 )
                 self.viewer.cam.lookat[:] = [0.35, 0.0, 0.9]
                 self.viewer.cam.distance = 2.5
