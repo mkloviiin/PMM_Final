@@ -1066,6 +1066,12 @@ class MuJoCoTeleop:
                 return np.random.uniform(val[0], val[1])
             return float(val) if val is not None else default
 
+        # spawn.mirror_y: one coin per reset for all those objects; heads -> y negated (layout
+        # mirrored to the other side of the robot)
+        mirror = 1.0
+        if any(o.get("spawn", {}).get("mirror_y") for o in objects) and np.random.uniform() < 0.5:
+            mirror = -1.0
+
         any_reset = False
         for obj_def in objects:
             body_name = obj_def.get("body", "")
@@ -1083,6 +1089,8 @@ class MuJoCoTeleop:
                     x = _sample(spawn.get("x"), self.data.qpos[qpos_adr + 0])
                     y = _sample(spawn.get("y"), self.data.qpos[qpos_adr + 1])
                     z = _sample(spawn.get("z"), self.data.qpos[qpos_adr + 2])
+                    if spawn.get("mirror_y"):
+                        y *= mirror
                     self.data.qpos[qpos_adr : qpos_adr + 3] = [x, y, z]
 
                 quat = spawn.get("quat", [1, 0, 0, 0])

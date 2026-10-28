@@ -32,6 +32,8 @@
 #   x/y/z:  [min, max] → uniform random  |  scalar → fixed  |  absent → unchanged
 #   quat:   [w, x, y, z] reset orientation (default [1, 0, 0, 0]). [0, 0, 0, 1] (180 deg in z)
 #           = identity in the iCub root frame, like Gazebo's objects (same recorded obj quat)
+#   mirror_y: true → on each reset, one 50/50 draw shared by all objects with this flag: either
+#           the y ranges as written, or all of them negated (layout mirrored to the other side)
 
 - file: scene_icub_lift.xml
   label: "Block Lifting"
@@ -50,6 +52,9 @@
 - file: scene_icub_stack.xml
   label: "Block Stacking"
   task: "stack the blue cube on top of the red cube"
+  # Desde el 2026-10-28 los cubos quedan siempre en lados opuestos y la disposición se refleja al
+  # azar (mirror_y): azul a la derecha / rojo a la izquierda, o al revés. El robot toma el azul con
+  # el brazo de su lado y lo apila cruzando hacia el rojo. Hasta entonces, siempre sin reflejar.
   objects:
     - body: "blue-cube"
       spawn:
@@ -58,6 +63,7 @@
         z: 0.745                 # tapa 0.72 + semialtura 0.025 (como Z_GAZEBO de reset_objects.sh);
                                  # más bajo, los cubos quedan hundidos en la mesa
         quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
+        mirror_y: true
     - body: "red-cube"
       spawn:
         x: [0.3025, 0.40]
@@ -65,6 +71,7 @@
                                  # orientación y desde 0.15 no llega (hasta el 2026-10-26: [0.05, 0.20])
         z: 0.745
         quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
+        mirror_y: true
 
 - file: scene_icub_pickplace.xml
   label: "Pick-and-Place"

@@ -53,9 +53,13 @@ else:
     known = set(LEGACY) | {o["body"] for s in scenes for o in s.get("objects", [])} \
             | {f["model"] for lst in fixtures.values() for f in lst}
     spawns = []
+    # spawn.mirror_y: un solo sorteo por reset para todos esos objetos; si sale, y cambia de signo
+    mirror = -1 if any(o["spawn"].get("mirror_y") for o in scene.get("objects", [])) \
+             and random.random() < 0.5 else 1
     for obj in scene.get("objects", []):
         sp = obj["spawn"]
-        x, y = -pick(sp["x"]), -pick(sp["y"])                          # marco MuJoCo -> marco Gazebo
+        x = -pick(sp["x"])                                                # marco MuJoCo -> marco Gazebo
+        y = -pick(sp["y"]) * (mirror if sp.get("mirror_y") else 1)
         z = Z_GAZEBO.get(obj["body"], pick(sp["z"]))
         spawns.append((obj["body"], round(x, 3), round(y, 3), round(z, 3)))
     for fx in fixtures.get(label, []):                                    # piezas fijas de la escena
