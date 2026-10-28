@@ -14,6 +14,9 @@ from pathlib import Path
 
 _THIS_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _THIS_DIR.parent.parent
+# Al correr este archivo, Python pone su carpeta (src/hub_v2/) al frente de sys.path y
+# `import hub_v2` encontraría este mismo hub_v2.py en vez del paquete: se saca.
+sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != _THIS_DIR]
 # hub_dataset/ (launcher_gui), src/ (hub_v2, interfaces) y la raíz al frente de sys.path, como
 # hub_experimentacion.py
 for _p in (_REPO_ROOT / "src" / "hub_dataset", _REPO_ROOT, _REPO_ROOT / "src"):
