@@ -27,6 +27,7 @@ ROUTE = "/live/view.mjpg"
 _VIEW_H = 360           # alto de cada vista en el cuadro combinado [px]
 _STALE_S = 1.0          # sin imágenes nuevas en este tiempo: "No video"
 _PERIOD_S = 1.0 / 15    # tope de cuadros por segundo del stream
+_RESEND_S = 0.5         # sin imágenes nuevas, el cuadro actual se repite cada este tiempo
 _LABELS = {True: ("VR headset", "Front view"), False: ("Robot eye", "Scene camera")}
 
 _frames: dict[int, tuple[bytes, float]] = {}   # puerto -> (último JPEG, hora de llegada)
@@ -81,7 +82,9 @@ def _combined() -> tuple[tuple, bytes]:
     global _cache
     vr = bool(state.live_view_vr)
     ports = VR_STREAM_PORTS if vr else PREVIEW_PORTS
-    now = time.time()
+    # Sin sesión activa: "No video" aunque alguien siga publicando (el módulo YARP de Gazebo
+    # es un proceso aparte y sigue mandando imágenes después de End session)
+    now = time.time() if state.running else float("inf")
     # Clave: la imagen de cada fuente (su hora de llegada) o "sin video"
     key = (vr, *(t if (t := _frames.get(p, (b"", 0.0))[1]) and now - t <= _STALE_S else None
                  for p in (ports["robot"], ports["scene"])))
@@ -96,11 +99,13 @@ def _combined() -> tuple[tuple, bytes]:
 
 
 async def _mjpeg():
-    last = None
+    # El navegador dibuja un cuadro recién cuando empieza a llegar el siguiente: sin cambios, el
+    # cuadro actual se reenvía cada _RESEND_S (si no, "No video" quedaría sin mostrarse)
+    last, last_t = None, 0.0
     while True:
         key, jpg = await asyncio.to_thread(_combined)
-        if key != last and jpg:
-            last = key
+        if jpg and (key != last or time.monotonic() - last_t >= _RESEND_S):
+            last, last_t = key, time.monotonic()
             yield b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(jpg)).encode() \
                 + b"\r\n\r\n" + jpg + b"\r\n"
         await asyncio.sleep(_PERIOD_S)
