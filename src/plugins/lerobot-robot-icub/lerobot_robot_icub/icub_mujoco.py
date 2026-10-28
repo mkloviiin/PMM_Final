@@ -382,12 +382,16 @@ class iCubMuJoCo(Robot):
         if b_pressed and not self._vr_b_held:
             self._vr_b_hold_start = time.monotonic()
 
+        # Discard as soon as B has been held long enough (the VR status changes: the operator
+        # knows when to let go); releasing it afterwards does nothing. A short press = STOP/SAVE.
+        if (b_pressed and self._vr_b_hold_start is not None
+                and time.monotonic() - self._vr_b_hold_start >= self._B_HOLD_DISCARD_S):
+            self._vr_rec_discard_event = True
+            self._vr_b_hold_start = None
+            print(f"[VR] B held {self._B_HOLD_DISCARD_S:.1f}s → DISCARD episode")
+
         if not b_pressed and self._vr_b_held:
-            held_s = time.monotonic() - (self._vr_b_hold_start or 0.0)
-            if held_s >= self._B_HOLD_DISCARD_S:
-                self._vr_rec_discard_event = True
-                print(f"[VR] B held {held_s:.1f}s → DISCARD episode")
-            else:
+            if self._vr_b_hold_start is not None:
                 self._vr_rec_stop_event = True
             self._vr_b_hold_start = None
 

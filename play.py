@@ -513,9 +513,9 @@ def _record_loop(args, session, *, scene_task: str, cameras: list[str]) -> None:
     preview = (_LivePreview(cameras) if os.environ.get("PMM_LIVE_VIEW") == "1" and not session.vr_enabled
                else None)
 
-    def _wait_status() -> None:
+    def _wait_status(title: str = "EN ESPERA") -> None:
         print(f"\n[Manual] Waiting START for episode {dataset.num_episodes}...", flush=True)
-        session.vr_status("EN ESPERA", f"Episodios grabados: {recorded}/{n_eps}", "A = grabar")
+        session.vr_status(title, f"Episodios grabados: {recorded}/{n_eps}", "A = grabar")
 
     if dataset is not None:
         _wait_status()
@@ -580,12 +580,15 @@ def _record_loop(args, session, *, scene_task: str, cameras: list[str]) -> None:
                     stop_ev = True
 
                 if discard_ev:
+                    # Shown right away (B is still held: the operator can let go now) and kept
+                    # until the next A
+                    session.vr_status("DESCARTADO", "Suelta B", push=True)
                     print("[Manual] Episode DISCARDED (B held) - re-recording...", flush=True)
                     fm.end_episode(dataset.num_episodes, saved=False, reason="discarded")
                     _discard_episode(dataset)
                     recording = False
                     session.reset_world()
-                    _wait_status()
+                    _wait_status("DESCARTADO")
                 elif stop_ev or cmd == "2":
                     session.vr_status("GUARDANDO...", f"Episodio {recorded + 1}/{n_eps}", push=True)
                     ep_idx = dataset.num_episodes

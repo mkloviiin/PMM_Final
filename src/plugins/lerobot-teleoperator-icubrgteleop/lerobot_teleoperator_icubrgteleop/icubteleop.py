@@ -834,13 +834,23 @@ class iCubTeleop(Teleoperator):
                 elif name == "rec_b":
                     self._vr_b_hold_start = t
             elif kind == "release" and name == "rec_b":
-                held_s = t - (self._vr_b_hold_start or t)
-                if held_s >= self._B_HOLD_DISCARD_S:
-                    self._vr_rec_discard_event = True
-                    print(f"[VR] B held {held_s:.1f}s → DISCARD episode")
-                else:
-                    self._vr_rec_stop_event = True
+                # Hold already turned into DISCARD (below): releasing does nothing
+                if self._vr_b_hold_start is not None:
+                    held_s = t - self._vr_b_hold_start
+                    if held_s >= self._B_HOLD_DISCARD_S:
+                        self._vr_rec_discard_event = True
+                        print(f"[VR] B held {held_s:.1f}s → DISCARD episode")
+                    else:
+                        self._vr_rec_stop_event = True
                 self._vr_b_hold_start = None
+
+        # Discard as soon as B has been held long enough (the VR status changes: the operator
+        # knows when to let go), not when it is released
+        if (levels.get("rec_b") and self._vr_b_hold_start is not None
+                and time.monotonic() - self._vr_b_hold_start >= self._B_HOLD_DISCARD_S):
+            self._vr_rec_discard_event = True
+            self._vr_b_hold_start = None
+            print(f"[VR] B held {self._B_HOLD_DISCARD_S:.1f}s → DISCARD episode")
 
         self.freeze_rh = levels.get("freeze", False)
         self.freeze_lh = levels.get("freeze", False)
