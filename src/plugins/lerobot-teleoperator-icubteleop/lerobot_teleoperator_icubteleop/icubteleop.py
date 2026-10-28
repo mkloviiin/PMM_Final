@@ -242,6 +242,11 @@ class iCubTeleop(Teleoperator):
                 self.viewer.cam.distance = 2.5
                 self.viewer.cam.elevation = -65
                 self.viewer.cam.azimuth = 0
+                # Starts on the scene's front camera, like Gazebo (Esc -> free camera)
+                front_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, "frontview")
+                if front_id >= 0:
+                    self.viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+                    self.viewer.cam.fixedcamid = front_id
                 self.viewer.opt.frame = mujoco.mjtFrame.mjFRAME_SITE
             except Exception as e:
                 print(f"[Teleop] Viewer launch skipped: {e}")
