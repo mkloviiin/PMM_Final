@@ -398,6 +398,50 @@ def _console_commands() -> list[str]:
     return queue
 
 
+class _LivePreview:
+    """Hub session without VR: the recorded robot-eye and scene cameras to the Hub's live view
+    (ZMQ, PREVIEW_PORTS, ~15 fps). With VR the Hub shows the headset streams instead."""
+
+    PERIOD_S = 0.06  # every 2nd step of the 30 Hz loop: ~15 fps
+
+    def __init__(self, cameras: list[str]):
+        import cv2
+        import numpy as np
+        from interfaces.zmq_image_publisher import PREVIEW_PORTS, ZMQCompressedImageTransmitter
+
+        self._cv2, self._np = cv2, np
+        self._pubs = []
+        self._last = 0.0
+        eye = next((c for c in ("left", "right") if c in cameras), None)
+        scene = next((c for c in ("front", "top") if c in cameras), None)
+        for view, cam in (("robot", eye), ("scene", scene)):
+            if cam is None:
+                continue
+            try:
+                pub = ZMQCompressedImageTransmitter(host="*", port=PREVIEW_PORTS[view], quality=70)
+                self._pubs.append((cam, pub))
+            except Exception as e:  # noqa: BLE001
+                print(f"[Preview] '{cam}' camera not sent to the Hub: {e}")
+
+    def send(self, obs: dict) -> None:
+        now = time.perf_counter()
+        if not self._pubs or now - self._last < self.PERIOD_S:
+            return
+        self._last = now
+        for cam, pub in self._pubs:
+            img = obs.get(cam)
+            if img is None:
+                continue
+            try:
+                pub.send_image(self._cv2.cvtColor(self._np.asarray(img), self._cv2.COLOR_RGB2BGR))
+            except Exception:  # noqa: BLE001
+                pass
+
+    def close(self) -> None:
+        for _, pub in self._pubs:
+            pub.stop()
+
+
 def _record_loop(args, session, *, scene_task: str, cameras: list[str]) -> None:
     """Teleoperation loop shared by every backend; records a LeRobot dataset unless --no-record.
 
@@ -466,6 +510,8 @@ def _record_loop(args, session, *, scene_task: str, cameras: list[str]) -> None:
     frame_i = 0
     episode_start = 0.0
     n_eps = args.num_episodes
+    preview = (_LivePreview(cameras) if os.environ.get("PMM_LIVE_VIEW") == "1" and not session.vr_enabled
+               else None)
 
     def _wait_status() -> None:
         print(f"\n[Manual] Waiting START for episode {dataset.num_episodes}...", flush=True)
@@ -520,6 +566,8 @@ def _record_loop(args, session, *, scene_task: str, cameras: list[str]) -> None:
                 dataset.add_frame(frame)
                 fm.mark("record")
             fm.end(robot=robot, obs=obs, action=recorded_action)
+            if preview is not None:
+                preview.send(obs)
 
             if dataset is not None and recording:
                 frame_i += 1
@@ -564,6 +612,8 @@ def _record_loop(args, session, *, scene_task: str, cameras: list[str]) -> None:
             precise_sleep(max(1.0 / args.fps - (time.perf_counter() - loop_t0), 0.0))
     finally:
         fm.close()
+        if preview is not None:
+            preview.close()
         if dataset is not None:
             if recording:
                 # Unfinished episode (EXIT / window closed): not saved, like a discard

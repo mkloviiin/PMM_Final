@@ -51,13 +51,18 @@ except Exception as _cv2_err:  # noqa: BLE001
     print(f"[Hub] OpenCV not available (no image streaming to the VR): {_cv2_err!r}")
 
 from launcher_gui.app import build_ui, WELCOME_CSS  # noqa: E402
-from launcher_gui import state  # noqa: E402
+from launcher_gui import live_view, state  # noqa: E402
 
 if __name__ == "__main__":
     print("Opening the GUI at: http://localhost:7860")
-    build_ui().launch(
+    demo = build_ui()
+    demo.launch(
         server_name="0.0.0.0", server_port=7860, share=False,
         theme="EGOsnm/AMGBitch", css=WELCOME_CSS,
         # Los videos recortados se sirven via /gradio_api/file= desde un <video> HTML.
         allowed_paths=[str(state.viz_tmp_dir)],
+        prevent_thread_lock=True,
     )
+    # Vista en vivo de Episode Control: su stream lo sirve el mismo servidor de Gradio
+    live_view.mount(demo.app)
+    demo.block_thread()

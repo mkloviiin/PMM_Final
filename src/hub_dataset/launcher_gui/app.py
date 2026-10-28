@@ -18,7 +18,7 @@ from . import curation, hub_push, session, state
 from .robots.registry import REGISTRY
 from .ui.tab_config import CONFIG_TAB_ID, ROBOT_HIDDEN, ROBOT_SHOWN, build_config_tab
 from .ui.tab_curation import build_curation_tab
-from .ui.tab_episodes import build_episodes_tab
+from .ui.tab_episodes import EPISODES_TAB_ID, build_episodes_tab
 from .ui.welcome import build_welcome_screen
 from .ui.input_filters import INPUT_FILTER_JS
 from .video_sync import PLAYER_CSS, SYNC_JS
@@ -270,7 +270,13 @@ def build_ui() -> gr.Blocks:
             # plataforma activa (solo su formulario está a la vista)
             form["num_eps"].change(fn=session.set_planned_episodes, inputs=[form["num_eps"]])
             inputs = [form[key] for key in robot.config_input_order]
-            form["launch_btn"].click(fn=robot.launch, inputs=inputs, outputs=[form["launch_status"]])
+            # Si la sesión partió, se salta a Episode Control; si no, queda en Configuration
+            # mostrando el error
+            def _launch(*args, launch=robot.launch):
+                seq = state.session_seq
+                msg = launch(*args)
+                return msg, gr.update(selected=EPISODES_TAB_ID) if state.session_seq != seq else gr.update()
+            form["launch_btn"].click(fn=_launch, inputs=inputs, outputs=[form["launch_status"], main_tabs])
 
         # ── Control de episodios (generico, no depende del robot) ────────
         episodes["start_btn"].click(fn=session.cmd_start, outputs=[episodes["cmd_feedback"]])

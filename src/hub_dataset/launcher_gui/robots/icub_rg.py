@@ -177,7 +177,7 @@ def _bridge_play(argv, *, cmd_source, on_status, dataset_root: Path | None = Non
     proc = subprocess.Popen(
         [str(a) for a in argv],
         cwd=str(REPO_ROOT),
-        env={**os.environ, "PYTHONUNBUFFERED": "1", "PMM_LIVE_METRICS": "1"},
+        env={**os.environ, "PYTHONUNBUFFERED": "1", "PMM_LIVE_METRICS": "1", "PMM_LIVE_VIEW": "1"},
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -546,6 +546,7 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
 
     return session.start_session(
         _record, repo_id=rid, dataset_root=dataset_root, num_episodes=int(num_eps),
+        vr=bool(resolved_vr or resolved_vr_ip),
     )
 
 

@@ -7,10 +7,14 @@ from __future__ import annotations
 
 import gradio as gr
 
+from .. import live_view
+
+EPISODES_TAB_ID = "episodes"
+
 
 def build_episodes_tab(num_eps_component: gr.components.Component):
     # Pestañas y secciones numeradas en el orden de uso (pedido del cuestionario SUS)
-    with gr.Tab("2. Episode Control") as episodes_tab:
+    with gr.Tab("2. Episode Control", id=EPISODES_TAB_ID) as episodes_tab:
         gr.Markdown("### 1. Status")
         with gr.Row():
             status_lbl = gr.Textbox(
@@ -34,7 +38,11 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
             exit_btn = gr.Button("End session", variant="stop", scale=1)
         cmd_feedback = gr.Textbox(label="Response", interactive=False)
 
-        gr.Markdown("### 3. Logbook")
+        gr.Markdown("### 3. Live view")
+        # With VR: what the headset shows + its front screen; without VR: robot eye + scene camera
+        gr.HTML(live_view.html())
+
+        gr.Markdown("### 4. Logbook")
         with gr.Row(equal_height=True):
             note_tb = gr.Textbox(
                 label="Note", lines=2, scale=5,
@@ -44,7 +52,7 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
         notes_md = gr.Markdown("*No notes yet.*")
 
         gr.Markdown("---")
-        gr.Markdown("### 4. Real-time metrics")
+        gr.Markdown("### 5. Real-time metrics")
         with gr.Row():
             fps_nb = gr.Number(label="FPS", elem_classes=["metric-nb"], value=0.0, interactive=False, precision=1, scale=1)
             lat_nb = gr.Number(label="Latency (ms)", elem_classes=["metric-nb"], value=0.0, interactive=False, precision=1, scale=1)
@@ -54,7 +62,7 @@ def build_episodes_tab(num_eps_component: gr.components.Component):
             episode_metrics_plot = gr.Plot(label="Per-episode metrics", show_label=False)
 
         gr.Markdown("---")
-        gr.Markdown("### 5. Live log")
+        gr.Markdown("### 6. Live log")
         log_box = gr.Textbox(
             label="Live log  (last 80 lines)",
             lines=22,

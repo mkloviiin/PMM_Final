@@ -258,6 +258,7 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, cont
 
     return session.start_session(
         _record, repo_id=rid, dataset_root=dataset_root, num_episodes=int(num_eps),
+        vr=bool(resolved_vr or resolved_vr_ip),
     )
 
 

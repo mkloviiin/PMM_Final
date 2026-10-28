@@ -112,7 +112,7 @@ def cmd_close_window() -> str:
 
 
 def start_session(record_fn: Callable[..., None], *, repo_id: str,
-                   dataset_root: Path, num_episodes: int) -> str:
+                   dataset_root: Path, num_episodes: int, vr: bool = False) -> str:
     """Arranca `record_fn(cmd_source=..., on_status=...)` en un thread propio.
 
     Si ya hay una sesion activa, le envia EXIT y espera hasta 15 s a que
@@ -121,7 +121,8 @@ def start_session(record_fn: Callable[..., None], *, repo_id: str,
 
     `record_fn` es responsabilidad exclusiva del backend del robot: recibe los
     callbacks del protocolo de sesion y debe dejar el dataset final en formato
-    LeRobot bajo `dataset_root`. Devuelve el mensaje de estado a mostrar en el
+    LeRobot bajo `dataset_root`. `vr`: la sesión usa VR (la vista en vivo de Episode
+    Control muestra lo que va a los lentes). Devuelve el mensaje de estado a mostrar en el
     launcher.
     """
     if state.running:
@@ -143,6 +144,8 @@ def start_session(record_fn: Callable[..., None], *, repo_id: str,
     state.ep_total = num_episodes
     state.ep_current = 0
     state.running = True
+    state.live_view_vr = bool(vr)
+    state.session_seq += 1
     session_log.begin(dataset_root)  # métricas por episodio + bitácora de esta sesión
 
     def _thread_body() -> None:

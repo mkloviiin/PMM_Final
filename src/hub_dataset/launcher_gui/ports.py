@@ -8,6 +8,8 @@ distintos:
   play.py (subproceso de la sesión).
 - 10505 / 15001 (streaming de imagen a los lentes): el núcleo de MuJoCo, o el módulo YARP
   (teleop_module_sm.py, proceso aparte).
+- 15010 / 15011 (sesión sin VR: cámaras de play.py para la vista en vivo de Episode Control,
+  live_view.py). Si están tomados la sesión sigue igual, solo sin esa vista.
 
 Si una sesión anterior no se cerró bien, sus puertos siguen tomados y la sesión siguiente
 (de cualquier plataforma) falla con "Address already in use". Por eso, antes de lanzar algo

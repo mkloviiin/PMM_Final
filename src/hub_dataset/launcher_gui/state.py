@@ -25,6 +25,8 @@ live_metrics = {"fps": 0.0, "latency_ms": 0.0, "size_mb": 0.0}
 last_dataset_root: Path | None = None
 last_repo_id: str | None = None
 hub_robot_id: str | None = None  # plataforma elegida en la bienvenida (al cambiarla se limpia Episode Control)
+live_view_vr = False  # la sesión usa VR: la vista en vivo muestra lo que va a los lentes (live_view.py)
+session_seq = 0  # sesiones lanzadas: al cambiar, el launch partió y se salta a Episode Control
 
 # ── Estado del visualizador / curacion ────────────────────────────────────────
 viz_dataset_path: Path | None = None

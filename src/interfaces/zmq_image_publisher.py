@@ -18,6 +18,13 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Image streams of a session ({view: port}); the Hub's live view subscribes to them.
+# VR: what goes to the headset (robot eye + overlay) and its small front screen, published by the
+# MuJoCo core (teleop_mujoco.py) or the YARP module (teleop_module_sm.py).
+VR_STREAM_PORTS = {"robot": 10505, "scene": 15001}
+# Without VR: play.py publishes its recorded cameras (robot eye, front / top camera).
+PREVIEW_PORTS = {"robot": 15010, "scene": 15011}
+
 _GLOBAL_ZMQ_CONTEXT = None
 
 
