@@ -267,15 +267,26 @@ class _MuJoCoSession:
         return False
 
     def reset_world(self) -> None:
-        self.teleop._reset_scenario()
-        poses = getattr(self.teleop, "_last_reset_poses", None)
-        if self.robot.teleop_core and poses:
-            self.robot.teleop_core.set_object_poses(poses)
+        # The robot's MuJoCo core (owner of the physics) draws the scene (tools/scene_reset.py);
+        # the teleoperator's viewer copies it in _sync_viewer_scene
+        self.robot.teleop_core._reset_scenario()
+        self._sync_viewer_scene()
+
+    def _sync_viewer_scene(self) -> None:
+        """Viewer of the teleoperator <- layout of the robot core after any reset (also the Y of
+        the VR, done in the core): door side and position, joints and objects."""
+        tc = self.robot.teleop_core
+        version = getattr(tc, "scene_layout_version", None)
+        if version != getattr(self, "_seen_layout_version", None):
+            self._seen_layout_version = version
+            if getattr(tc, "scene_layout", None) is not None:
+                self.teleop.apply_scene_layout(tc.scene_layout)
 
     def poll_world_reset(self, requested: bool) -> None:
         if requested or self.teleop.consume_world_reset_event():
             print("\n[Teleop] Reset scenario: re-randomizing scene objects...")
             self.reset_world()
+        self._sync_viewer_scene()
 
     def vr_status(self, *lines: str, push: bool = False) -> None:
         """Recording status in the top-right corner of the big VR screen (no accents:

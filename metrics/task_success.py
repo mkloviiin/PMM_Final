@@ -5,7 +5,7 @@ Lo usa eval_policy.py (MuJoCo y Gazebo): cada simulador arma un SceneState (pose
 objetos, contactos, articulaciones) y aquí se decide el éxito con el mismo código. Como en los
 rollouts de robomimic, el episodio es un éxito si el criterio se cumple en algún paso; los
 evaluadores también guardan el estado final, porque un objeto puede cumplirlo un instante y
-caerse después.
+caerse después. Las tareas de SUCCESS_AT_END_ONLY (stack) solo cuentan el estado final.
 
 Posiciones con z = altura en el mundo (mesa en table_z, 0.72 m en ambos simuladores); x/y y
 las orientaciones pueden estar en cualquier frame común a todos los objetos (mundo MuJoCo, mundo
@@ -52,8 +52,16 @@ JOINTS = {"door": ["door_hinge"]}
 GRASP_THUMB = "thumb"
 GRASP_FINGERS = ("index", "middle")
 
-# Lift._check_success / Stack.staged_rewards: centro del cubo sobre la mesa + 4 cm
+# Lift._check_success: centro del cubo sobre la mesa + 4 cm
 LIFT_MARGIN_M = 0.04
+# Stack: criterio propio en vez del de robosuite (levantado + tocando el rojo + no agarrado), que
+# daba éxito con solo levantar el azul y rozar el rojo. Al final del episodio el centro del azul
+# debe quedar sobre la mesa + 5 cm (apilado queda a 7.5 cm: cubos de 5 cm), a menos de 3 cm del
+# centro del rojo en xy y sin agarrar (soltado sobre el rojo).
+STACK_MIN_Z_M = 0.05
+STACK_MAX_XY_M = 0.03
+# Tareas cuyo éxito es solo el del estado final (no "en algún paso")
+SUCCESS_AT_END_ONLY = {"stack"}
 # Door._check_success: bisagra sobre 0.3 rad
 DOOR_HINGE_RAD = 0.3
 # TwoArmLift._check_success: fondo de la olla sobre la mesa + 10 cm. El fondo de lift-pot está
@@ -112,11 +120,14 @@ def _lift(s: SceneState) -> dict:
 
 def _stack(s: SceneState) -> dict:
     blue, red = s.pos("blue-cube"), s.pos("red-cube")
-    lifted = bool(blue[2] > s.table_z + LIFT_MARGIN_M)
-    touching = s.in_contact("blue-cube", "red-cube")
+    height = float(blue[2] - s.table_z)
+    xy = float(np.linalg.norm(blue[:2] - red[:2]))
     grasped = "blue-cube" in s.grasped
-    return {"success": lifted and touching and not grasped, "lifted": lifted, "touching": touching,
-            "grasped": grasped, "blue_minus_red": (blue - red).round(3).tolist()}
+    # touching queda solo como información
+    return {"success": bool(height > STACK_MIN_Z_M and xy < STACK_MAX_XY_M and not grasped),
+            "blue_above_table": round(height, 4), "xy_dist": round(xy, 4),
+            "touching": s.in_contact("blue-cube", "red-cube"), "grasped": grasped,
+            "blue_minus_red": (blue - red).round(3).tolist()}
 
 
 def _pickplace(s: SceneState) -> dict:
@@ -163,7 +174,8 @@ CHECKS = {"lift": _lift, "stack": _stack, "pickplace": _pickplace, "door": _door
 
 DESCRIPTION = {
     "lift": f"blue cube center > table + {LIFT_MARGIN_M} m (robosuite Lift)",
-    "stack": f"blue cube > table + {LIFT_MARGIN_M} m, touching the red cube and not grasped (robosuite Stack)",
+    "stack": f"blue cube center > table + {STACK_MIN_Z_M} m, < {STACK_MAX_XY_M} m from the red cube "
+             "center in xy and not grasped, at the end of the episode",
     "pickplace": f"object inside the bin (±{BIN_HALF_XY_M} m, base to +{BIN_HEIGHT_M} m) and not grasped "
                  "(robosuite PickPlace)",
     "door": f"door_hinge > {DOOR_HINGE_RAD} rad (robosuite Door)",
@@ -194,6 +206,8 @@ class EpisodeSuccess:
 
     @property
     def success(self) -> bool:
+        if self.task in SUCCESS_AT_END_ONLY:
+            return bool(self.last.get("success", False))
         return self.first_step is not None
 
     def summary(self) -> dict:

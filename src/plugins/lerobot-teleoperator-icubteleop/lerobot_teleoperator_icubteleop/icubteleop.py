@@ -947,6 +947,17 @@ class iCubTeleop(Teleoperator):
         if self._scene_joints:
             mujoco.mj_forward(self.model, self.data)
 
+    def apply_scene_layout(self, layout: dict) -> None:
+        """Copies into this viewer the layout drawn by the robot's MuJoCo core
+        (tools/scene_reset.py): door side and position, joints and objects."""
+        from tools.scene_reset import apply_layout
+
+        if self.viewer is not None:
+            with self.viewer.lock():
+                apply_layout(self.model, self.data, layout, verbose=False)
+        else:
+            apply_layout(self.model, self.data, layout, verbose=False)
+
     def _set_grip(self, side: str, level: float) -> None:
         level = float(np.clip(level, 0.0, 1.0))
         setattr(self, f"{side}_grip_state", level)

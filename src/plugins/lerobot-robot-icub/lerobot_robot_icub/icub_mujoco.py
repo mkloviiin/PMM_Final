@@ -366,10 +366,12 @@ class iCubMuJoCo(Robot):
     _B_HOLD_DISCARD_S: float = 1.5
 
     def _update_vr_record_events(self) -> None:
+        # Every frame, on the last value of each button (not only when a message arrives): B held
+        # sends nothing more, and its 1.5 s must run while it stays down
         if self.teleop_core is None:
             return
-        b = self.teleop_core.latest_buttons
-        if b is None or not isinstance(b, dict):
+        b = self.teleop_core.button_state
+        if not b:
             return
 
         a_pressed = (b.get("BTN_ONE_RIGHT", 0) > 0.5) or (b.get("A", 0) > 0.8)
@@ -437,6 +439,7 @@ class iCubMuJoCo(Robot):
             if self.teleop_core.latest_buttons:
                 self.teleop_core._process_button_commands()
                 self.teleop_core.latest_buttons = None
+            self.teleop_core.consume_vr_reset()
             action = self._applied_action()
         else:
             self._set_targets_from_action(action)

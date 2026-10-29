@@ -53,6 +53,7 @@ import zmq
 from pyquaternion import Quaternion as PyQuaternion
 from interfaces.zmq_image_publisher import ZMQCompressedImageTransmitter
 from interfaces.vr_overlay import VR_PAUSE_TIMEOUT_S, draw_help_hint, draw_help_panel
+from tools.scene_reset import SceneRandomizer, apply_layout, scene_entry
 
 # Hand actuator names (order matches the actuator block in icub_visuomanip_*_limits.xml)
 RIGHT_HAND_ACTUATORS = [
@@ -491,6 +492,11 @@ class MuJoCoTeleop:
         self._last_ctrl_recv_time = 0.0    # last controller message (0 = never)
         self._vr_help_toggled = False       # help panel opened with X (if BeaVR sends X to the PC)
         self._vr_x_held = False
+        self._vr_y_held = False
+        self._vr_reset_requested = False    # Y pressed (VR thread) -> consume_vr_reset (main)
+        # Last value of every button key (VR thread). BeaVR sends one key per message (and maybe
+        # only on change): latest_buttons alone loses a held B behind any other message
+        self.button_state: dict[str, float] = {}
         # Last value of each lower (grip) trigger: BeaVR may send one key per message
         self._grip_state = {"HAND_RIGHT": 0.0, "HAND_LEFT": 0.0}
         # Clutch (lower trigger): controller position when it was pressed, None = released
@@ -750,9 +756,11 @@ class MuJoCoTeleop:
                             self.latest_buttons = self._parse_buttons(raw)
                             self._last_btn_recv_time = time.time()
                             if isinstance(self.latest_buttons, dict):
+                                self.button_state.update(self.latest_buttons)
                                 for k in self._grip_state.keys() & self.latest_buttons.keys():
                                     self._grip_state[k] = float(self.latest_buttons[k])
                             self._ingest_help_button(self.latest_buttons)
+                            self._ingest_reset_button(self.latest_buttons)
                 except zmq.Again:
                     pass
             time.sleep(0.001)
@@ -765,6 +773,27 @@ class MuJoCoTeleop:
         if pressed and not self._vr_x_held:
             self._vr_help_toggled = not self._vr_help_toggled
         self._vr_x_held = pressed
+
+    def _ingest_reset_button(self, b):
+        """(VR thread) Y requests a scene reset, once per press. Read here, like X: BeaVR sends
+        one key per message and the main loop only sees the last one, so a Y followed by any
+        other message (e.g. a trigger) was lost."""
+        if not isinstance(b, dict) or not any(k in b for k in ("BTN_TWO_LEFT", "Y")):
+            return
+        pressed = b.get("BTN_TWO_LEFT", 0) > 0.5 or b.get("Y", 0) > 0.8
+        if pressed and not self._vr_y_held:
+            self._vr_reset_requested = True
+        self._vr_y_held = pressed
+
+    def consume_vr_reset(self) -> bool:
+        """(Main thread) Scene reset pending from the Y button: runs it here, not in the VR
+        thread, so it doesn't race the physics step. True if one was done."""
+        if not self._vr_reset_requested:
+            return False
+        self._vr_reset_requested = False
+        print("[VR] Y → reset scene", flush=True)
+        self._reset_scenario()
+        return True
 
     def vr_help_active(self) -> bool:
         """True = show the help panel: X pressed, or the controllers sent data and then stopped
@@ -1009,9 +1038,6 @@ class MuJoCoTeleop:
         if "INDEX_LEFT" in b:
             self._set_hand_level("left", self._trigger_to_level(b["INDEX_LEFT"]))
 
-        if b.get("BTN_TWO_LEFT", 0) > 0.5 or b.get("Y", 0) > 0.8:
-            self._reset_scenario()
-
         # Lower (grip) trigger, either hand: clutch of both hands' position (_clutch_hand)
         # and head freeze. _grip_state accumulates both (BeaVR may send one key per message).
         any_active = any(v > 0.8 for v in self._grip_state.values())
@@ -1052,73 +1078,28 @@ class MuJoCoTeleop:
 
     # ========================= SCENE RESET =================================
 
-    def _reset_scenario(self):
+    def _reset_scenario(self, mirror_y: bool | None = None, side: str | None = None, door_xy=None):
+        """Scene reset (tools/scene_reset.py, from scenes.yaml): objects, joints, side of the task
+        and door placement. With `sides: alternate` every reset switches side; without it, objects
+        with spawn.mirror_y keep the 50/50 draw. side ('right'/'left') or mirror_y (True = 'left')
+        force the side and door_xy the door panel center (eval_policy.py).
+        Leaves the layout in self.scene_layout and bumps self.scene_layout_version, so the
+        teleoperator's viewer (play.py) applies the same one."""
         objects = getattr(self, "_scene_objects", [])
         if not objects and not self._scene_joints:
             spawn = getattr(self, "_cube_spawn", None)
-            if spawn:
-                objects = [{"body": "blue-cube", "spawn": spawn}]
-            else:
+            if not spawn:
                 return
+            objects = [{"body": "blue-cube", "spawn": spawn}]
 
-        def _sample(val, default=0.0):
-            if isinstance(val, list) and len(val) == 2:
-                return np.random.uniform(val[0], val[1])
-            return float(val) if val is not None else default
-
-        # spawn.mirror_y: one coin per reset for all those objects; heads -> y negated (layout
-        # mirrored to the other side of the robot)
-        mirror = 1.0
-        if any(o.get("spawn", {}).get("mirror_y") for o in objects) and np.random.uniform() < 0.5:
-            mirror = -1.0
-
-        any_reset = False
-        for obj_def in objects:
-            body_name = obj_def.get("body", "")
-            spawn = obj_def.get("spawn", {})
-            try:
-                body = self.model.body(body_name)
-                bid = body.id
-                jnt_adr = body.jntadr[0]
-                if jnt_adr == -1:
-                    continue
-                qpos_adr = self.model.jnt_qposadr[jnt_adr]
-                dof_adr = self.model.jnt_dofadr[jnt_adr]
-
-                if any(k in spawn for k in ("x", "y", "z")):
-                    x = _sample(spawn.get("x"), self.data.qpos[qpos_adr + 0])
-                    y = _sample(spawn.get("y"), self.data.qpos[qpos_adr + 1])
-                    z = _sample(spawn.get("z"), self.data.qpos[qpos_adr + 2])
-                    if spawn.get("mirror_y"):
-                        y *= mirror
-                    self.data.qpos[qpos_adr : qpos_adr + 3] = [x, y, z]
-
-                quat = spawn.get("quat", [1, 0, 0, 0])
-                self.data.qpos[qpos_adr + 3 : qpos_adr + 7] = quat
-
-                ndof = self.model.jnt_type[self.model.body_jntadr[bid]]
-                num_dof = 6 if ndof == 0 else 1
-                self.data.qvel[dof_adr : dof_adr + num_dof] = 0
-                any_reset = True
-            except Exception as e:
-                print(f"[Reset] Skip '{body_name}': {e}")
-
-        if any_reset:
-            mujoco.mj_forward(self.model, self.data)
-
-        for jnt_def in self._scene_joints:
-            jnt_name = jnt_def.get("name", "")
-            target_qpos = float(jnt_def.get("qpos", 0.0))
-            try:
-                jnt_id = self.model.joint(jnt_name).id
-                qpos_adr = self.model.jnt_qposadr[jnt_id]
-                dof_adr = self.model.jnt_dofadr[jnt_id]
-                self.data.qpos[qpos_adr] = target_qpos
-                self.data.qvel[dof_adr] = 0.0
-            except Exception:
-                pass
-        if self._scene_joints:
-            mujoco.mj_forward(self.model, self.data)
+        if getattr(self, "_randomizer", None) is None:
+            self._randomizer = SceneRandomizer(objects, self._scene_joints, scene_entry(self.model_path))
+        if side is None and mirror_y is not None:
+            side = "left" if mirror_y else "right"
+        layout = self._randomizer.sample(self.model, self.data, side=side, door_xy=door_xy)
+        apply_layout(self.model, self.data, layout)
+        self.scene_layout = layout
+        self.scene_layout_version = getattr(self, "scene_layout_version", 0) + 1
 
     def set_object_poses(self, poses: dict):
         for body_name, (pos, quat) in poses.items():
@@ -1284,6 +1265,7 @@ class MuJoCoTeleop:
                 if self.latest_buttons:
                     self._process_button_commands()
                     self.latest_buttons = None
+                self.consume_vr_reset()
 
                 if self.vr_enabled:
                     btn_age = (time.time() - self._last_btn_recv_time) if self._last_btn_recv_time > 0 else np.inf

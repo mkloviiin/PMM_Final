@@ -34,11 +34,20 @@
 #           = identity in the iCub root frame, like Gazebo's objects (same recorded obj quat)
 #   mirror_y: true → on each reset, one 50/50 draw shared by all objects with this flag: either
 #           the y ranges as written, or all of them negated (layout mirrored to the other side)
+#
+# MuJoCo only for now (src/tools/scene_reset.py; Gazebo ignores these two keys):
+#   sides: right | left | alternate → side of the task. The y ranges are the right-side ones
+#           (object to pick on the robot's right, y < 0); "left" mirrors every object in y. Door:
+#           side of the handle. alternate = right, left, right...: every reset switches side
+#           (Y, N / Reset scene, saved or discarded episode, each eval episode). With `sides`,
+#           MuJoCo ignores mirror_y's 50/50 draw.
+#   door: {panel_xy: [x, y], jitter: m} → door panel center, + uniform ±jitter in x and y.
 
 - file: scene_icub_lift.xml
   label: "Block Lifting"
   # Marco MuJoCo: x adelante, y a la izquierda del robot (reset_objects.sh lo convierte para Gazebo).
   task: "lift the blue block"
+  sides: alternate               # cubo a la derecha (mano derecha) o a la izquierda (espejo en y)
   objects:
     - body: "blue-cube"
       spawn:
@@ -52,6 +61,7 @@
 - file: scene_icub_stack.xml
   label: "Block Stacking"
   task: "stack the blue cube on top of the red cube"
+  sides: alternate               # MuJoCo: alterna en cada reset (Gazebo: mirror_y, 50/50)
   # Desde el 2026-10-28 los cubos quedan siempre en lados opuestos y la disposición se refleja al
   # azar (mirror_y): azul a la derecha / rojo a la izquierda, o al revés. El robot toma el azul con
   # el brazo de su lado y lo apila cruzando hacia el rojo. Hasta entonces, siempre sin reflejar.
@@ -76,6 +86,7 @@
 - file: scene_icub_pickplace.xml
   label: "Pick-and-Place"
   task: "grasp the object and place it at the target position"
+  sides: alternate               # cubo a la derecha y caja a la izquierda, o al revés (espejo en y)
   objects:
     - body: "pick-cube"
       spawn:
@@ -93,8 +104,13 @@
 - file: scene_icub_door.xml
   label: "Door Opening"
   task: "open the door"
-  # Manilla a la izquierda, mano derecha (escenario final). Se graba la cenital, no la frontal.
+  # MuJoCo: puerta centrada frente al robot y la manilla alterna de lado (se abre con la mano de
+  # ese lado). Gazebo: manilla a la izquierda, mano derecha. Se graba la cenital, no la frontal.
   cameras: [left, right, top]
+  sides: alternate               # lado de la manilla
+  door:
+    panel_xy: [0.47, 0.0]        # centro de la hoja (el XML la tiene en (0.47, -0.13))
+    jitter: 0.03                 # ± uniforme en x y en y
   joints:
     - name: "door_hinge"
       qpos: 0.0

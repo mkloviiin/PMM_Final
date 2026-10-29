@@ -17,8 +17,9 @@ import gradio as gr
 from . import curation, hub_push, session, state
 from .robots.registry import REGISTRY
 from .ui.tab_config import CONFIG_TAB_ID, ROBOT_HIDDEN, ROBOT_SHOWN, build_config_tab
-from .ui.tab_curation import build_curation_tab
-from .ui.tab_episodes import EPISODES_TAB_ID, build_episodes_tab
+from .ui.tab_curation import CURATION_TAB_ID, build_curation_tab
+from .ui import tab_episodes
+from .ui.tab_episodes import EPISODES_CSS, EPISODES_JS, EPISODES_TAB_ID, build_episodes_tab
 from .ui.welcome import build_welcome_screen
 from .ui.input_filters import INPUT_FILTER_JS
 from .video_sync import PLAYER_CSS, SYNC_JS
@@ -41,9 +42,6 @@ WELCOME_CSS = """
     right: auto !important;
     transform: translate(-50%, -50%) !important;
     align-items: center !important;
-}
-.progress-completado input[data-testid="number-input"] {
-    display: none !important;
 }
 /* Scrollable vertical CheckboxGroup */
 .scrollable-list .wrap {
@@ -188,7 +186,7 @@ button.btn-red:hover, .btn-red button:hover {
     box-sizing: border-box !important;
 }
 """
-WELCOME_CSS += PLAYER_CSS
+WELCOME_CSS += PLAYER_CSS + EPISODES_CSS
 
 
 def _checkbox_filter_js(elem_id: str) -> str:
@@ -214,6 +212,8 @@ def build_ui() -> gr.Blocks:
         demo.load(fn=None, js=SYNC_JS)
         # Campos numéricos: solo dígitos (IP del VR: dígitos y puntos)
         demo.load(fn=None, js=INPUT_FILTER_JS)
+        # Atajos R / S de Episode Control
+        demo.load(fn=None, js=EPISODES_JS)
 
 
 
@@ -225,7 +225,7 @@ def build_ui() -> gr.Blocks:
                 config_columns, config_forms = build_config_tab()
 
                 available_robots = [r for r in REGISTRY if r.available and r.build_config_form]
-                episodes = build_episodes_tab(config_forms[available_robots[0].id]["num_eps"])
+                episodes = build_episodes_tab()
                 c = build_curation_tab()
 
         # ── Navegacion bienvenida <-> configuracion ───────────────────────
@@ -278,22 +278,8 @@ def build_ui() -> gr.Blocks:
                 return msg, gr.update(selected=EPISODES_TAB_ID) if state.session_seq != seq else gr.update()
             form["launch_btn"].click(fn=_launch, inputs=inputs, outputs=[form["launch_status"], main_tabs])
 
-        # ── Control de episodios (generico, no depende del robot) ────────
-        episodes["start_btn"].click(fn=session.cmd_start, outputs=[episodes["cmd_feedback"]])
-        episodes["stop_btn"].click(fn=session.cmd_stop, outputs=[episodes["cmd_feedback"]])
-        episodes["exit_btn"].click(fn=session.cmd_exit, outputs=[episodes["cmd_feedback"]])
-        episodes["tab"].select(fn=session.episode_panels,
-                               outputs=[episodes["episode_metrics_plot"], episodes["notes_md"]])
-        episodes["add_note_btn"].click(fn=session.add_note, inputs=[episodes["note_tb"]],
-                                       outputs=[episodes["note_tb"], episodes["notes_md"]])
-
-        gr.Timer(0.5).tick(
-            fn=session.poll_status,
-            outputs=[episodes["status_lbl"], episodes["progress_lbl"],
-                     episodes["progress_bar"], episodes["log_box"],
-                     episodes["fps_nb"], episodes["lat_nb"], episodes["size_nb"],
-                     back_btn, episodes["episode_metrics_plot"], episodes["notes_md"]],
-        )
+        # ── Control de episodios (generico, no depende del robot; botones en ui/tab_episodes.py)
+        gr.Timer(0.5).tick(fn=tab_episodes.poll, outputs=tab_episodes.poll_outputs(episodes, back_btn))
 
         # ── Visualizar y curar (generico, no depende del robot) ──────────
         nav_outputs = [c["ep_num_nb"], c["ep_info_tb"], c["videos_html"],
@@ -335,6 +321,17 @@ def build_ui() -> gr.Blocks:
             fn=curation.load_viz_dataset, inputs=[c["dataset_dd"]],
             outputs=[c["dataset_col"], c["viz_status"]] + nav_outputs + curation_outputs,
         ).then(  # buscadores vacíos: la lista nueva se muestra completa
+            fn=lambda: ("", "", ""),
+            outputs=[c["whole_search_tb"], c["action_search_tb"], c["state_search_tb"]],
+        )
+        # Episode Control -> Visualize & Curate con el último dataset grabado ya cargado
+        episodes["review_btn"].click(
+            fn=lambda root: (gr.update(selected=CURATION_TAB_ID), curation.use_last_dataset(root)),
+            inputs=[c["viz_root_tb"]], outputs=[main_tabs, c["dataset_dd"]],
+        ).then(
+            fn=curation.load_viz_dataset, inputs=[c["dataset_dd"]],
+            outputs=[c["dataset_col"], c["viz_status"]] + nav_outputs + curation_outputs,
+        ).then(
             fn=lambda: ("", "", ""),
             outputs=[c["whole_search_tb"], c["action_search_tb"], c["state_search_tb"]],
         )

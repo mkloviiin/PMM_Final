@@ -12,8 +12,11 @@ from .dir_picker import dir_textbox
 from ..curation import MODAL_HIDDEN, build_custom_plotly_chart
 
 
+CURATION_TAB_ID = "curation"
+
+
 def build_curation_tab():
-    with gr.Tab("3. Visualize & Curate") as curation_tab:
+    with gr.Tab("3. Visualize & Curate", id=CURATION_TAB_ID) as curation_tab:
         gr.Markdown("Load a recorded dataset, explore its episodes and choose what to keep in the final version.")
         gr.Markdown("### 1. Dataset")
 

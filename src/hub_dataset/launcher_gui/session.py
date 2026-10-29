@@ -217,9 +217,6 @@ def cmd_exit() -> str:
     return "No active session."
 
 
-_ui_log_version = -1  # versión de session_log ya enviada a la UI (gráfico y notas)
-
-
 def _episode_metrics_figure():
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
@@ -278,25 +275,3 @@ def add_note(text: str):
         episode, phase = max(state.ep_current - 1, 0), "after session"
     session_log.add_note(text, episode, phase)
     return "", _notes_markdown()
-
-
-def poll_status():
-    global _ui_log_version
-    if session_log.version != _ui_log_version:
-        _ui_log_version = session_log.version
-        plot_upd, notes_upd = _episode_metrics_figure(), _notes_markdown()
-    else:
-        plot_upd, notes_upd = gr.update(), gr.update()
-    label = "" if state.status == "idle" else state.STATUS_LABEL.get(state.status, state.status)
-    pct = state.ep_current / max(state.ep_total, 1)
-    progress = f"Episode: {state.ep_current} / {state.ep_total}  ({int(pct * 100)}%)"
-
-    with state.log_lock:
-        log_text = "\n".join(state.log_lines[-80:])
-
-    return (
-        label, progress, gr.update(value=state.ep_current, maximum=max(state.ep_total, 1)), log_text,
-        state.live_metrics["fps"], state.live_metrics["latency_ms"], state.live_metrics["size_mb"],
-        gr.update(interactive=not state.running),
-        plot_upd, notes_upd,
-    )
