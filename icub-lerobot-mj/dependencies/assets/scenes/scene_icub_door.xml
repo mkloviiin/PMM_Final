@@ -20,7 +20,8 @@
          (0.47, -0.13): bisagra en y=-0.27 (derecha), manilla en y~-0.075. La puerta abre hacia
          el robot; door_hinge > 0 = abierta. Es la orientación de la puerta original de
          robosuite (door_mount (0.42, 0.15)); dependencies/door_scene.py la espeja (manilla a la
-         derecha) y la mueve en tiempo de ejecución.
+         derecha) y la mueve en tiempo de ejecución. Desde el 2026-10-29 el reset de la escena
+         (scenes.yaml: sides / door) la centra en (0.47, 0) ± 3 cm y alterna el lado de la manilla.
 
          Pestillo (como use_latch de robosuite): latch_tip, detrás de la puerta, choca con
          latch_strike del marco y la traba cerrada. Bajar la manilla (handle_hinge < 0, eje

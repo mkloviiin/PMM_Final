@@ -287,14 +287,26 @@ def _manual_vr_record(
                 dev.disconnect()
         raise
 
+    # Reset de la escena: lo sortea siempre el núcleo MuJoCo del robot (dueño de la física,
+    # dependencies/scene_reset.py) y el viewer del teleoperador aplica el mismo layout. Lo
+    # piden la tecla N del viewer (_reset_request), el botón Y del VR (directo en el núcleo),
+    # el inicio de la sesión y el fin de cada episodio.
+    tc = robot.teleop_core
+    seen_layout = {"version": None}
+
+    def _sync_scene_reset() -> None:
+        if teleop._reset_request:
+            teleop._reset_request = False
+            tc._reset_scenario()
+        version = getattr(tc, "scene_layout_version", None)
+        if version != seen_layout["version"]:
+            seen_layout["version"] = version
+            if getattr(tc, "scene_layout", None) is not None:
+                teleop.apply_scene_layout(tc.scene_layout)
+
     # Initial reset: randomize scene objects so they're visible from the start
-    teleop._reset_scenario()
-    # Sync reset object poses to physics model (only if objects were reset)
-    if hasattr(robot, "teleop_core") and robot.teleop_core:
-        reset_poses = getattr(teleop, "_last_reset_poses", None)
-        if reset_poses:
-            robot.teleop_core.set_object_poses(reset_poses)
-    teleop._reset_request = False
+    tc._reset_scenario()
+    _sync_scene_reset()
 
     cmd_state = {
         "start": False,
@@ -375,17 +387,7 @@ def _manual_vr_record(
                 fm.mark("obs")
                 teleop.send_feedback(obs)
                 
-                # Check for reset request (KEY_N from teleop viewer)
-                if getattr(teleop, "_reset_request", False):
-                    try:
-                        reset_poses = getattr(teleop, "_last_reset_poses", {})
-                        if hasattr(robot, "teleop_core") and robot.teleop_core:
-                            robot.teleop_core.set_object_poses(reset_poses)
-                        elif hasattr(robot, "set_object_poses"):
-                            robot.set_object_poses(reset_poses)
-                    except Exception as e:
-                        print(f"[Record] Sync failed: {e}")
-                    teleop._reset_request = False
+                _sync_scene_reset()   # N del viewer o Y del VR
 
                 act = teleop.get_action()
                 act_processed = teleop_action_processor((act, obs))
@@ -424,18 +426,7 @@ def _manual_vr_record(
                 teleop.send_feedback(obs)
                 obs_processed = robot_observation_processor(obs)
 
-                # Check for reset request (KEY_N from teleop viewer)
-                if getattr(teleop, "_reset_request", False):
-                    try:
-                        reset_poses = getattr(teleop, "_last_reset_poses", {})
-                        if hasattr(robot, "teleop_core") and robot.teleop_core:
-                            robot.teleop_core.set_object_poses(reset_poses)
-                        elif hasattr(robot, "set_object_poses"):
-                            robot.set_object_poses(reset_poses)
-                        print(f"[Record] Synced {len(reset_poses)} object(s)")
-                    except Exception as e:
-                        print(f"[Record] Sync failed: {e}")
-                    teleop._reset_request = False
+                _sync_scene_reset()   # N del viewer o Y del VR
 
                 latency_start = time.perf_counter()
                 act = teleop.get_action()
@@ -497,6 +488,10 @@ def _manual_vr_record(
                 frame_idx += 1
 
             if discard_ev:
+                # Escena nueva (y el otro lado, con sides: alternate), sin mover el robot,
+                # como el botón Y
+                tc._reset_scenario()
+                _sync_scene_reset()
                 continue   # no guardar, volver al bucle de espera
 
             _vr_status(robot, "GUARDANDO...", f"Episodio {recorded + 1}/{args.num_episodes}", push=True)
@@ -511,6 +506,10 @@ def _manual_vr_record(
             if on_status is not None:
                 on_status(f"saved:{recorded}")
             print(f"[Manual] Episode saved ({recorded}/{args.num_episodes})")
+            # Escena nueva para el siguiente episodio (y el otro lado, con sides: alternate),
+            # sin mover el robot, como el botón Y
+            tc._reset_scenario()
+            _sync_scene_reset()
 
     finally:
         fm.close()

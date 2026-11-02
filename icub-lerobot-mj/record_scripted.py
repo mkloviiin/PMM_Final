@@ -9,8 +9,10 @@ Solo cambia de dónde sale la acción (rh_/lh_ pos, quat y gripper, gaze), que s
 se le envía al robot.
 
 Cada episodio parte con el robot en home, las manos abiertas y los objetos donde los pone el
-reset de la escena (rangos de scenes.yaml). Solo se guardan los episodios en que la tarea
-quedó cumplida (criterio de cada tarea); los demás se descartan y se reintenta.
+reset de la escena (dependencies/scene_reset.py, el mismo del Hub: rangos, lado y puerta de
+scenes.yaml). Solo se guardan los episodios en que la tarea quedó cumplida (criterio de cada
+tarea); los demás se descartan y se reintenta. Con sides: alternate cada intento pasa al otro
+lado, y stacking / pickplace usan la mano de ese lado.
 
 Tareas: door (puerta con pestillo), stacking, pickplace, twoarmlift, peginhole.
 
@@ -38,7 +40,7 @@ import play_mujoco  # deja en sys.path los plugins locales, metrics/ y el site-p
 from play_mujoco import _apply_control_arms, _discard_episode
 import demo_door_mujoco as door
 from demo_door_mujoco import Trajectory, mat2quat
-from dependencies.door_scene import place_door, set_handle_side
+from dependencies.door_scene import handle_side
 
 repo_root = Path(__file__).resolve().parent
 SCENES_DIR = repo_root / "dependencies" / "assets" / "scenes"
@@ -108,6 +110,21 @@ def pick_and_place_plan(cube, place_center, rng, carry_z=0.12, release_dz=0.0, o
     ]
 
 
+def side_grasp(tc, offset):
+    """Mano del lado de la tarea (el que sorteó el reset de la escena) y su agarre de cubo: la
+    izquierda usa el espejo en y del de la derecha."""
+    arm = tc.scene_layout["side"] or "right"
+    if arm == "right":
+        return arm, R_CUBE, offset
+    return arm, mirror_grasp(R_CUBE), offset * np.array([1.0, -1.0, 1.0])
+
+
+def hold_plan(m, d, tc, arm):
+    """La otra mano se queda donde está, abierta (como en las demos teleoperadas)."""
+    site = tc.rh_site_id if arm == "right" else tc.lh_site_id
+    return [(1.0, d.site_xpos[site].copy(), d.site_xmat[site].reshape(3, 3).copy(), 0.0, "quieta")]
+
+
 def shift_from(traj, label, delta, max_shift=0.05):
     """Corrige en xy los waypoints desde el tramo `label`. Más de max_shift = el objeto ya no
     está en la mano (se cayó): no se corrige."""
@@ -129,8 +146,8 @@ class Task:
     def __init__(self, args):
         self.args = args
 
-    def prepare(self, m, d, tc, rng) -> dict:
-        """Cambios de la escena antes del reset de objetos (modelo). Devuelve info del episodio."""
+    def reset_overrides(self, rng) -> dict:
+        """side / door_xy forzados para el reset de la escena (por defecto, los de scenes.yaml)."""
         return {}
 
     def plan(self, m, d, tc, rng) -> tuple[dict, np.ndarray, dict]:
@@ -147,34 +164,31 @@ class Task:
 
 
 class DoorTask(Task):
-    """Puerta con pestillo (escenario final: manilla a la izquierda, mano derecha)."""
+    """Puerta con pestillo: centrada, con la manilla alternando de lado (scenes.yaml); la abre
+    la mano de ese lado (--arm same)."""
     scene = "scene_icub_door.xml"
 
     def __init__(self, args):
         super().__init__(args)
-        self.sides = ["right", "left"] if args.handle_sides == "both" else [args.handle_sides]
+        # scene / both: el lado de scenes.yaml (alterna en cada intento)
+        self.side = {"xml": "left", "right": "right", "left": "left"}.get(args.handle_sides)
+        sides = [self.side] if self.side else ["right", "left"]
         arm_for = {"same": lambda s: s, "opposite": lambda s: OTHER[s],
                    "right": lambda s: "right", "left": lambda s: "left"}[args.arm]
-        self.arm_for = {s: arm_for(s) for s in self.sides if s != "xml"}
-        used = set(self.arm_for.values()) or {args.arm if args.arm in ("right", "left") else "right"}
+        self.arm_for = {s: arm_for(s) for s in sides}
+        used = set(self.arm_for.values())
         self.arms = used.pop() if len(used) == 1 else "both"
-        self.count = {s: 0 for s in self.sides}
 
-    def prepare(self, m, d, tc, rng):
-        # Lado con menos episodios guardados (alterna); "xml" = el del XML (izquierda)
-        side = min(self.sides, key=lambda s: (self.count[s], rng.random()))
-        if side != "xml":
-            set_handle_side(m, side)
-        mujoco.mj_forward(m, d)
-        place_door(m, d, (rng.uniform(*self.args.door_x), rng.uniform(*self.args.door_y)))
-        self.side = side
-        return {"handle_side": side}
+    def reset_overrides(self, rng):
+        door_xy = None
+        if self.args.door_x is not None or self.args.door_y is not None:
+            cx, cy = scene_entry(self.scene)["door"]["panel_xy"]
+            door_xy = (rng.uniform(*self.args.door_x) if self.args.door_x else cx,
+                       rng.uniform(*self.args.door_y) if self.args.door_y else cy)
+        return {"side": self.side, "door_xy": door_xy}
 
     def plan(self, m, d, tc, rng):
-        from dependencies.door_scene import handle_side
-        side = handle_side(m)
-        arm = self.arm_for.get(self.side, "right" if self.args.arm in ("opposite", "right") and side == "left"
-                               else "left" if self.args.arm in ("opposite", "left") else side)
+        arm = self.arm_for[handle_side(m)]
         pa = door.fill_plan_defaults(SimpleNamespace(
             grasp="top", back=None, up=None, twist=1.0, close_s=3.5,
             press_deg=rng.uniform(35.0, 45.0), open_deg=rng.uniform(50.0, 60.0),
@@ -186,15 +200,13 @@ class DoorTask(Task):
         plans = {arm: plan}
         if self.arms == "both":
             plans[OTHER[arm]] = door.idle_plan(m, d, OTHER[arm])
-        info = {"arm": arm, "panel_xy": [round(float(v), 4) for v in body_pos(m, d, "door_panel")[:2]],
+        info = {"arm": arm, "handle_side": handle_side(m),
+                "panel_xy": [round(float(v), 4) for v in body_pos(m, d, "door_panel")[:2]],
                 "press_deg": round(pa.press_deg, 1), "grip_shift": round(pa.grip_shift, 4)}
         return plans, bar, info
 
     def success(self, m, d):
-        ok = door.door_open(m, d)
-        if ok:
-            self.count[self.side] += 1
-        return ok
+        return door.door_open(m, d)
 
     def metrics(self, m, d):
         return {"door_deg": round(float(np.degrees(d.qpos[m.jnt_qposadr[m.joint("door_hinge").id]])), 1),
@@ -202,25 +214,28 @@ class DoorTask(Task):
 
 
 class StackingTask(Task):
-    """Cubo azul encima del rojo, con la mano derecha."""
+    """Cubo azul encima del rojo, con la mano del lado del azul."""
     scene = "scene_icub_stack.xml"
+    arms = "both"
     # Ajustados en MuJoCo: con el agarre de lifting (0.037 y cierre 0.5) el cubo se suelta
     grip = 0.8
     cube_offset = np.array([-0.026, -0.025, 0.037])
 
     def plan(self, m, d, tc, rng):
         blue, red = body_pos(m, d, "blue-cube"), body_pos(m, d, "red-cube")
+        self.arm, R, offset = side_grasp(tc, self.args.cube_offset)
         # Centro del azul 5 cm sobre el del rojo (+1.5 cm de holgura al soltar: los dedos
         # sobresalen bajo el cubo y, más abajo, botan el rojo)
         plan = pick_and_place_plan(blue, red + np.array([0.0, 0.0, 0.05]), rng, release_dz=0.015,
-                                   offset=self.args.cube_offset)
-        return {"right": plan}, (blue + red) / 2, {"blue": blue.round(3).tolist(), "red": red.round(3).tolist()}
+                                   offset=offset, R=R)
+        return ({self.arm: plan, OTHER[self.arm]: hold_plan(m, d, tc, OTHER[self.arm])}, (blue + red) / 2,
+                {"arm": self.arm, "blue": blue.round(3).tolist(), "red": red.round(3).tolist()})
 
     def correct(self, m, d, trajs, label):
         # Con el cubo en la mano sobre el rojo: alinea en xy el cubo (no la mano) con el rojo,
         # como un operador que mira antes de bajar
         if label == "baja":
-            shift_from(trajs["right"], "baja", body_pos(m, d, "red-cube") - body_pos(m, d, "blue-cube"))
+            shift_from(trajs[self.arm], "baja", body_pos(m, d, "red-cube") - body_pos(m, d, "blue-cube"))
 
     def success(self, m, d):
         blue, red = body_pos(m, d, "blue-cube"), body_pos(m, d, "red-cube")
@@ -232,18 +247,21 @@ class StackingTask(Task):
 
 
 class PickPlaceTask(Task):
-    """Cubo rojo dentro de la caja verde, con la mano derecha."""
+    """Cubo rojo dentro de la caja verde, con la mano del lado del cubo."""
     scene = "scene_icub_pickplace.xml"
+    arms = "both"
     # Cubo de 4 cm (no 5): agarre más bajo y más cerrado que en lifting
     grip = 0.8
     cube_offset = np.array([-0.026, -0.025, 0.028])
 
     def plan(self, m, d, tc, rng):
         cube, bin_ = body_pos(m, d, "pick-cube"), body_pos(m, d, "place-bin")
+        arm, R, offset = side_grasp(tc, self.args.cube_offset)
         # Suelta con el cubo 2 cm sobre el borde de las paredes (techo de la caja: 0.04 + 0.02)
         plan = pick_and_place_plan(cube, bin_ + np.array([0.0, 0.0, 0.0225 + 0.02]), rng, release_dz=0.04,
-                                   offset=self.args.cube_offset)
-        return {"right": plan}, (cube + bin_) / 2, {"cube": cube.round(3).tolist(), "bin": bin_.round(3).tolist()}
+                                   offset=offset, R=R)
+        return ({arm: plan, OTHER[arm]: hold_plan(m, d, tc, OTHER[arm])}, (cube + bin_) / 2,
+                {"arm": arm, "cube": cube.round(3).tolist(), "bin": bin_.round(3).tolist()})
 
     def success(self, m, d):
         rel = body_pos(m, d, "pick-cube") - body_pos(m, d, "place-bin")
@@ -444,7 +462,6 @@ def reset_episode(robot, task, rng, settle_s=1.0) -> dict:
     tc = robot.teleop_core
     m, d = tc.model, tc.data
     mujoco.mj_resetData(m, d)
-    info = task.prepare(m, d, tc, rng)
     d.qpos[:] = tc.home_qpos            # qpos0 del XML: robot y objetos en su pose del XML
     d.ctrl[:] = tc.home_ctrl
     tc._apply_home_pose_to_arrays(d.qpos, d.ctrl)
@@ -452,12 +469,13 @@ def reset_episode(robot, task, rng, settle_s=1.0) -> dict:
     tc._hand_last_t = None
     tc._set_hand_level("right", 0.0)
     tc._set_hand_level("left", 0.0)
-    tc._reset_scenario()                # objetos (rangos de scenes.yaml) y joints de la escena
+    # Objetos, joints, lado y puerta de scenes.yaml (el mismo sorteo que el Hub)
+    tc._reset_scenario(**task.reset_overrides(rng))
     mujoco.mj_forward(m, d)
     for _ in range(int(settle_s / m.opt.timestep)):
         mujoco.mj_step(m, d)
     tc._snap_targets_to_ee()
-    return info
+    return {"side": tc.scene_layout["side"]}
 
 
 def scripted_action(robot, trajs, t, gaze_world):
@@ -498,15 +516,18 @@ def main() -> None:
                    help="Sitio de la mano respecto del centro del cubo al agarrar (mundo) [m] "
                         "(por defecto el de la tarea)")
     g = p.add_argument_group("door")
-    g.add_argument("--handle-sides", choices=["xml", "right", "left", "both"], default="xml",
-                   help="Lado de la manilla (xml = izquierda); both = mitad y mitad")
-    g.add_argument("--arm", choices=["right", "left", "same", "opposite"], default="right",
+    g.add_argument("--handle-sides", choices=["scene", "both", "xml", "right", "left"], default="scene",
+                   help="Lado de la manilla. scene / both: sides de scenes.yaml (alterna en cada "
+                        "intento); xml = izquierda")
+    g.add_argument("--arm", choices=["right", "left", "same", "opposite"], default="same",
                    help="Mano que abre: fija, la del lado de la manilla o la contraria")
-    g.add_argument("--door-x", type=float, nargs=2, default=[0.45, 0.50], metavar=("MIN", "MAX"),
-                   help="Rango del centro de la hoja en x [m] (XML: 0.47; más cerca que 0.45 la mano "
-                        "derecha en home roza la puerta)")
-    g.add_argument("--door-y", type=float, nargs=2, default=[-0.16, -0.10], metavar=("MIN", "MAX"),
-                   help="Rango del centro de la hoja en y [m] (XML: -0.13)")
+    g.add_argument("--door-x", type=float, nargs=2, default=None, metavar=("MIN", "MAX"),
+                   help="Rango del centro de la hoja en x [m] (por defecto: door de scenes.yaml, "
+                        "0.47 ± 0.03)")
+    g.add_argument("--door-y", type=float, nargs=2, default=None, metavar=("MIN", "MAX"),
+                   help="Rango del centro de la hoja en y [m] (por defecto: door de scenes.yaml, "
+                        "0 ± 0.03; el escenario anterior: --door-y -0.16 -0.10 --handle-sides xml "
+                        "--arm right)")
     g.add_argument("--grip-shift", type=float, nargs=2, default=[0.015, 0.03], metavar=("MIN", "MAX"),
                    help="Agarre corrido por la barra hacia su punta [m]")
     args = p.parse_args()

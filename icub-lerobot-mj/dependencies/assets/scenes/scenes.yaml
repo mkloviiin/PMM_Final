@@ -27,12 +27,20 @@
 #   x/y/z:  [min, max] → uniform random  |  scalar → fixed  |  absent → unchanged
 #   quat:   [w, x, y, z] reset orientation (default [1, 0, 0, 0]). [0, 0, 0, 1] (180 deg in z)
 #           = identity in the iCub root frame, like Gazebo's objects (same recorded obj quat)
+#
+# Optional `sides` (right | left | alternate): side of the task. The y ranges of `objects`
+# are the right-side ones (object to pick on the robot's right, y < 0); "left" mirrors them
+# in y. Door: side of the handle. alternate = right, left, right... : every reset switches
+# side (N, Y, saved or discarded episode in the Hub, each eval episode).
+# Optional `door: {panel_xy: [x, y], jitter: m}`: door panel center, + uniform ±jitter in x and y.
+# Implemented in dependencies/scene_reset.py (MuJoCo only for now).
 
 - file: scene_icub_lift.xml
   label: "Block Lifting"
   # Marco MuJoCo: x adelante, y a la izquierda del robot. Gazebo tiene su propia copia
   # (icub-lerobot-gazebo/gazebo/scenes.yaml): un cambio de tareas o rangos va en las dos.
   task: "lift the blue block"
+  sides: alternate               # cubo a la derecha (mano derecha) o a la izquierda (espejo en y)
   objects:
     - body: "blue-cube"
       spawn:
@@ -46,6 +54,7 @@
 - file: scene_icub_stack.xml
   label: "Block Stacking"
   task: "stack the blue cube on top of the red cube"
+  sides: alternate               # azul a la derecha y rojo a la izquierda, o al revés (espejo en y)
   objects:
     - body: "blue-cube"
       spawn:
@@ -65,6 +74,7 @@
 - file: scene_icub_pickplace.xml
   label: "Pick-and-Place"
   task: "grasp the object and place it at the target position"
+  sides: alternate               # cubo a la derecha y caja a la izquierda, o al revés (espejo en y)
   objects:
     - body: "pick-cube"
       spawn:
@@ -82,8 +92,13 @@
 - file: scene_icub_door.xml
   label: "Door Opening"
   task: "open the door"
-  # Manilla a la izquierda, mano derecha (escenario final). Se graba la cenital, no la frontal.
+  # Puerta centrada frente al robot; la manilla alterna de lado (se abre con la mano de ese
+  # lado). Se graba la cenital, no la frontal.
   cameras: [left, right, top]
+  sides: alternate               # lado de la manilla
+  door:
+    panel_xy: [0.47, 0.0]        # centro de la hoja (el XML la tiene en (0.47, -0.13))
+    jitter: 0.03                 # ± uniforme en x y en y
   joints:
     - name: "door_hinge"
       qpos: 0.0

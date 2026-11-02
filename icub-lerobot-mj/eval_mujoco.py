@@ -16,6 +16,13 @@ Optional flags:
     --scene 1                        1=lift, 2=stack, 3=door (con pestillo), 4=pick-and-place,
                                      5=two-arm lifting, 6=two-arm peg-in-hole
                                      (éxito: criterio de robosuite, metrics/task_success.py)
+    --no-video                       No guardar los videos de las cámaras
+
+Outputs (../outputs/tests/<experiment>_mujoco_<timestamp>/):
+    eval.log                         Salida de la corrida
+    summary.json                     % de éxito (total, al final, acumulado), métricas por episodio
+    videos/<cámara>.mp4              Un video por cámara de la política con toda la evaluación
+                                     (inicio/fin de cada episodio en summary.json)
 """
 
 from __future__ import annotations
@@ -51,7 +58,7 @@ _icubenv_sp = os.environ.get("ICUBENV_SITE_PACKAGES", os.path.expanduser(
 if _icubenv_sp not in sys.path:
     sys.path.append(_icubenv_sp)
 
-from dependencies.door_scene import handle_side, place_door, set_handle_side  # noqa: E402
+from dependencies.door_scene import handle_side  # noqa: E402
 
 # Criterios de éxito de robosuite, compartidos con eval_gazebo.py
 sys.path.insert(0, str(repo_root.parent / "metrics"))
@@ -114,15 +121,19 @@ def parse_args() -> argparse.Namespace:
         nargs=2,
         default=None,
         metavar=("X", "Y"),
-        help="--scene 3: moves the door so the center of its panel is at (X, Y) in the MuJoCo "
-             "world (table center = 0.5 0). Default: XML position, panel at (0.47, -0.13)",
+        help="--scene 3: center of the door panel at (X, Y) in the MuJoCo world (table center "
+             "= 0.5 0) in every episode. Default: door of scenes.yaml (0.47 0 ± 3 cm). The old "
+             "scenario (before 2026-10-29): --door-xy 0.47 -0.13 --side left",
     )
     p.add_argument(
-        "--door-side",
+        "--side", "--door-side",
+        dest="side",
         choices=["right", "left", "alternate"],
         default=None,
-        help="--scene 3: side of the handle (default: XML, left). alternate = right in odd "
-             "episodes, left in even ones (dataset local_door_both_sides)",
+        help="Side of the task: object to pick (lift, stack, pick-and-place) or door handle. "
+             "alternate = right in odd episodes, left in even ones. Default: sides of "
+             "scenes.yaml (alternate in those scenes). Policies trained on one side only: "
+             "--side right (cubes) / --side left (door)",
     )
     p.add_argument(
         "--config",
@@ -195,6 +206,11 @@ def parse_args() -> argparse.Namespace:
              "holding the previous targets, like Gazebo and the real robot. Default: the sim "
              "waits for the policy (exactly 1/fps per step)",
     )
+    p.add_argument(
+        "--no-video",
+        action="store_true",
+        help="Do not save the videos of the policy cameras (run_dir/videos/<camera>.mp4)",
+    )
     return p.parse_args()
 
 
@@ -227,6 +243,51 @@ class _Tee:
 
     def __getattr__(self, name):
         return getattr(self.stream, name)
+
+
+class CameraVideos:
+    """Un .mp4 por cámara de la política (lo que ve en cada paso) con todos los episodios
+    seguidos: run_dir/videos/<cámara>.mp4. n_frames da el instante de cada episodio."""
+
+    def __init__(self, run_dir: Path, cameras: list[str], fps: int):
+        self.run_dir, self.fps = run_dir, fps
+        self.paths = {cam: run_dir / "videos" / f"{cam}.mp4" for cam in cameras}
+        self.containers, self.streams = {}, {}  # se abren con el primer frame (su tamaño)
+        self.n_frames = 0
+
+    @property
+    def time_s(self) -> float:
+        return self.n_frames / self.fps
+
+    def files(self) -> dict[str, str]:
+        """{cámara: ruta relativa al run_dir}."""
+        return {cam: str(path.relative_to(self.run_dir)) for cam, path in self.paths.items()}
+
+    def add(self, obs: dict) -> None:
+        import av
+
+        for cam, path in self.paths.items():
+            img = np.ascontiguousarray(obs[cam])
+            img = img[: img.shape[0] // 2 * 2, : img.shape[1] // 2 * 2]  # yuv420p: lados pares
+            if cam not in self.streams:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self.containers[cam] = av.open(str(path), mode="w")
+                stream = self.containers[cam].add_stream("libx264", rate=self.fps)
+                stream.width, stream.height = img.shape[1], img.shape[0]
+                stream.pix_fmt = "yuv420p"
+                stream.options = {"crf": "23", "preset": "veryfast"}
+                self.streams[cam] = stream
+            frame = av.VideoFrame.from_ndarray(img, format="rgb24")
+            for packet in self.streams[cam].encode(frame):
+                self.containers[cam].mux(packet)
+        self.n_frames += 1
+
+    def close(self) -> None:
+        for cam, stream in self.streams.items():
+            for packet in stream.encode():
+                self.containers[cam].mux(packet)
+            self.containers[cam].close()
+        self.containers, self.streams = {}, {}
 
 
 def log_to(path: Path) -> None:
@@ -432,6 +493,57 @@ def clamp_action_targets(
     return clamped
 
 
+def _mean(values) -> float | None:
+    values = [v for v in values if v is not None and not np.isnan(v)]
+    return float(np.mean(values)) if values else None
+
+
+def write_summary(run_dir: Path, args, success_task: str, task: str, t_start: str,
+                  episode_metrics: list[dict], videos: dict[str, str]) -> None:
+    """summary.json del run: resultados agregados, videos y métricas de cada episodio. Se
+    reescribe al terminar cada episodio, así un run interrumpido también deja sus resultados."""
+    n = len(episode_metrics)
+    successes = [bool(m["success"]) for m in episode_metrics]
+    at_end = [bool(m["success_at_end"]) for m in episode_metrics]
+    rate = sum(successes) / n if n else None
+    rate_end = sum(at_end) / n if n else None
+    results = {
+        "n_success": sum(successes),
+        "success_rate": rate,
+        "success_rate_pct": round(100 * rate, 1) if n else None,
+        "n_success_at_end": sum(at_end),
+        "success_at_end_rate": rate_end,
+        "success_at_end_rate_pct": round(100 * rate_end, 1) if n else None,
+        "per_episode_success": successes,
+        # % de éxito acumulado tras cada episodio (cómo converge la tasa)
+        "cumulative_success_rate_pct": [round(100 * sum(successes[:i + 1]) / (i + 1), 1) for i in range(n)],
+        "avg_success_time_s": _mean([m["success_time_s"] for m in episode_metrics]),
+        "avg_lift_delta": _mean([m["lift_delta"] for m in episode_metrics]),
+        "avg_touch_ratio": _mean([m["touch_ratio"] for m in episode_metrics]),
+        "avg_clamp_ratio": _mean([m["clamp_ratio"] for m in episode_metrics]),
+    }
+    sides = sorted({m["side"] for m in episode_metrics if m.get("side")})
+    if len(sides) > 1:
+        # % de éxito de cada lado (sides: alternate)
+        results["success_rate_pct_by_side"] = {
+            s: round(100 * float(np.mean([m["success"] for m in episode_metrics if m["side"] == s])), 1)
+            for s in sides}
+    if episode_metrics and "door_max_deg" in episode_metrics[0]:
+        results["avg_door_max_deg"] = _mean([m["door_max_deg"] for m in episode_metrics])
+        results["avg_door_final_deg"] = _mean([m["door_final_deg"] for m in episode_metrics])
+    (run_dir / "summary.json").write_text(json.dumps(
+        {"policy": args.policy_repo, "task": task, "success_task": success_task,
+         "success_criterion": task_success.DESCRIPTION[success_task],
+         "started": t_start, "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
+         "n_episodes_planned": args.n_episodes, "n_episodes_completed": n,
+         "success_rate": rate, "success_at_end_rate": rate_end,
+         "results": results,
+         "videos": videos,
+         "episodes": episode_metrics,
+         "args": vars(args)},
+        indent=2, default=float))
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -583,12 +695,18 @@ def main() -> None:
             f"trained={expected_action_dim}, expected_full={len(FULL_ACTION_ORDER)}."
         )
 
-    # Same passive viewer as during recording
+    # Viewer sin los paneles de configuración, en la cámara frontview de la escena
     tc = robot.teleop_core
-    mj_viewer = mujoco.viewer.launch_passive(tc.model, tc.data)
-    mj_viewer.cam.azimuth = 135
-    mj_viewer.cam.elevation = -20
-    mj_viewer.cam.distance = 2.0
+    mj_viewer = mujoco.viewer.launch_passive(tc.model, tc.data, show_left_ui=False, show_right_ui=False)
+    frontview_id = mujoco.mj_name2id(tc.model, mujoco.mjtObj.mjOBJ_CAMERA, "frontview")
+    if frontview_id >= 0:
+        with mj_viewer.lock():
+            mj_viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+            mj_viewer.cam.fixedcamid = frontview_id
+    else:
+        mj_viewer.cam.azimuth = 135
+        mj_viewer.cam.elevation = -20
+        mj_viewer.cam.distance = 2.0
     print("[eval] MuJoCo viewer opened ✓")
 
     # Escena de la puerta: la métrica es la bisagra (no hay cubo)
@@ -596,15 +714,8 @@ def main() -> None:
     if "door_hinge" in [tc.model.joint(j).name for j in range(tc.model.njnt)]:
         door_adr = tc.model.jnt_qposadr[tc.model.joint("door_hinge").id]
         handle_adr = tc.model.jnt_qposadr[tc.model.joint("handle_hinge").id]
-        if args.door_xy is not None:
-            # Se mueve todo el montaje (marco, hoja, manilla); cambiar de lado la manilla
-            # espeja respecto del centro de la hoja, así que basta con ubicarla una vez.
-            panel_xy = tc.data.xpos[tc.model.body("door_panel").id][:2].copy()
-            place_door(tc.model, tc.data, args.door_xy)
-            mujoco.mj_forward(tc.model, tc.data)
-            print(f"[eval] Door moved: panel center {np.round(panel_xy, 3)} -> {args.door_xy}")
-    elif args.door_xy is not None or args.door_side is not None:
-        raise SystemExit("--door-xy / --door-side only apply to the door scene (--scene 3)")
+    elif args.door_xy is not None:
+        raise SystemExit("--door-xy only applies to the door scene (--scene 3)")
 
     success_task = task_success.TASK_BY_SCENE[model_file.name]
     scene_state = MujocoSceneState(tc.model, success_task)
@@ -612,18 +723,22 @@ def main() -> None:
 
     # ── Evaluation loop ───────────────────────────────────────────────────────
     episode_metrics: list[dict] = []
+    videos = None if args.no_video else CameraVideos(run_dir, trained_cams, args.fps)
+    video_files = {} if videos is None else videos.files()
+    t_start = time.strftime("%Y-%m-%d %H:%M:%S")
+    if not args.no_video:
+        print(f"[eval] Saving videos of {trained_cams} to {run_dir / 'videos'}")
 
     try:
         for ep in range(args.n_episodes):
             print(f"── Episode {ep + 1}/{args.n_episodes} ──")
 
-            # Reset scenario: randomize the cube (cube_spawn of control_config.yaml)
+            # Reset: robot en home y la escena con el mismo sorteo que el Hub
+            # (dependencies/scene_reset.py): lado alternado por episodio si scenes.yaml lo pide
             if hasattr(robot, "teleop_core") and robot.teleop_core:
                 tc = robot.teleop_core
-                if door_adr is not None and args.door_side is not None:
-                    side = (args.door_side if args.door_side != "alternate"
-                            else ("right" if ep % 2 == 0 else "left"))
-                    set_handle_side(tc.model, side)
+                side = (None if args.side is None else args.side if args.side != "alternate"
+                        else ("right" if ep % 2 == 0 else "left"))
                 # Las demos parten en home con las manos abiertas (Hub y record_scripted.py), y
                 # una mano que quedó sobre un objeto (la manilla, la olla) lo sostendría durante
                 # el reset.
@@ -635,7 +750,8 @@ def main() -> None:
                 tc._set_hand_level("left", 0.0)
                 mujoco.mj_forward(tc.model, tc.data)
                 if hasattr(tc, "_reset_scenario"):
-                    tc._reset_scenario()
+                    tc._reset_scenario(side=side, door_xy=args.door_xy)
+                layout = getattr(tc, "scene_layout", None) or {"side": None, "objects": {}, "door_xy": None}
 
                 if args.cube_pos is not None and hasattr(tc, "set_cube_pose"):
                     pos = np.array(args.cube_pos)
@@ -663,6 +779,8 @@ def main() -> None:
             infer_ms: list[float] = []
             rt_gap_s = 0.0
             t_last_send = None
+            t_episode = time.perf_counter()
+            video_start_s = videos.time_s if videos is not None else None
 
             for step in range(args.episode_steps):
                 t0 = time.perf_counter()
@@ -672,6 +790,8 @@ def main() -> None:
                     obs[trained_cam] = obs[source_cam]
                 for extra_cam in set(camera_sources.values()) - set(trained_cams):
                     obs.pop(extra_cam, None)
+                if videos is not None:
+                    videos.add(obs)
                 for name in missing if state_names is not None else []:
                     obs[name] = torch.tensor(0.0)
                 if args.zero_touch:
@@ -765,6 +885,18 @@ def main() -> None:
             episode_metrics.append(
                 {
                     "episode": ep + 1,
+                    "success": success,
+                    "success_time_s": (success_metrics["success_step"] / args.fps
+                                       if success_metrics["success_step"] is not None else None),
+                    "wall_time_s": time.perf_counter() - t_episode,
+                    # Tramo del episodio en videos/<cámara>.mp4
+                    **({"video_start_s": round(video_start_s, 3), "video_end_s": round(videos.time_s, 3)}
+                       if videos is not None else {}),
+                    # Lado de la tarea y posiciones iniciales del reset (scene_reset.py)
+                    "side": layout["side"],
+                    "initial_objects": {n: np.round(p, 3).tolist() for n, (p, _) in layout["objects"].items()},
+                    **({"door_panel_xy": np.round(layout["door_xy"], 3).tolist()}
+                       if layout["door_xy"] is not None else {}),
                     "initial_cube_z": ep_initial_cube_z,
                     "max_cube_z": ep_max_cube_z,
                     "lift_delta": lift_delta,
@@ -791,7 +923,7 @@ def main() -> None:
                          + " ".join(f"{k.removeprefix('final_')}={v}" for k, v in success_metrics.items()
                                     if k.startswith("final_")))
             print(
-                f"  [metrics] {task_str} "
+                f"  [metrics] side={layout['side']} {task_str} "
                 f"touch={touch_ratio:.1%} clamp={ep_clamp_steps / max(args.episode_steps, 1):.1%} "
                 f"success={'yes' if success else 'no'}"
             )
@@ -800,6 +932,7 @@ def main() -> None:
                   f"other steps {np.median(infer_ms):.1f} ms | realtime extra sim time "
                   f"{rt_gap_s:.1f} s")
             print(f"  Episode {ep + 1} done.\n")
+            write_summary(run_dir, args, success_task, task, t_start, episode_metrics, video_files)
 
         if episode_metrics:
             total = len(episode_metrics)
@@ -817,6 +950,9 @@ def main() -> None:
             print(f"  success_rate: {successes}/{total} ({successes / total:.1%})  "
                   f"[{success_task}: {task_success.DESCRIPTION[success_task]}]")
             print(f"  success_at_end: {at_end}/{total} ({at_end / total:.1%})")
+            for s in sorted({m["side"] for m in episode_metrics if m["side"]}):
+                eps = [m for m in episode_metrics if m["side"] == s]
+                print(f"  success_rate[{s}]: {sum(m['success'] for m in eps)}/{len(eps)}")
             if door_adr is not None:
                 print(f"  avg_door_max: {np.mean([m['door_max_deg'] for m in episode_metrics]):.1f}deg")
             elif success_task in ("lift", "stack"):
@@ -824,19 +960,13 @@ def main() -> None:
             print(f"  avg_touch_ratio: {avg_touch:.1%}")
             print(f"  avg_clamp_ratio: {avg_clamp:.1%}")
 
-        (run_dir / "summary.json").write_text(json.dumps(
-            {"args": vars(args), "success_task": success_task,
-             "success_criterion": task_success.DESCRIPTION[success_task],
-             "episodes": episode_metrics,
-             "success_rate": (sum(m["success"] for m in episode_metrics) / len(episode_metrics))
-             if episode_metrics else None,
-             "success_at_end_rate": (sum(m["success_at_end"] for m in episode_metrics) / len(episode_metrics))
-             if episode_metrics else None},
-            indent=2, default=float))
+        write_summary(run_dir, args, success_task, task, t_start, episode_metrics, video_files)
         print(f"[eval] Summary saved to {run_dir / 'summary.json'}")
 
     finally:
         print("[eval] Cleaning up …")
+        if videos is not None:  # cierra los .mp4 (también si se interrumpe) para que se puedan abrir
+            videos.close()
         mj_viewer.close()
         if robot.is_connected:
             robot.disconnect()

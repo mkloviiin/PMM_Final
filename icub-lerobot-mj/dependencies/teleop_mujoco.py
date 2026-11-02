@@ -75,6 +75,7 @@ except ImportError:
 
 # Local imports -------------------------------------------------------------
 from dependencies.mujoco_ik import IKinArmSolver, GazeIKSolver
+from dependencies.scene_reset import SceneRandomizer, apply_layout, scene_entry
 
 try:
     from dependencies.recorder_mujoco import MuJoCoRecorder
@@ -275,6 +276,7 @@ class MuJoCoTeleop:
         self.frame_skip = int(self.control_dt / self.sim_dt)
 
         # ----- Load MuJoCo model / data -----
+        self.model_path = model_path
         self.model = mujoco.MjModel.from_xml_path(model_path)
         self.data = mujoco.MjData(self.model)
         self.model.opt.timestep = self.sim_dt
@@ -950,9 +952,13 @@ class MuJoCoTeleop:
         if "HAND_LEFT" in b:
             self._set_hand_level("left", self._trigger_to_level(b["HAND_LEFT"]))
 
-        # Reset
+        # Reset: uno por pulsación (mantener Y no re-sortea la escena en cada mensaje)
         if b.get("BTN_TWO_LEFT", 0) > 0.5 or b.get("Y", 0) > 0.8:
-            self._reset_scenario()
+            if not getattr(self, "_reset_y_held", False):
+                self._reset_y_held = True
+                self._reset_scenario()
+        else:
+            self._reset_y_held = False
 
         # Recording A → start, B → stop
         if b.get("BTN_ONE_RIGHT", 0) > 0.5 or b.get("A", 0) > 0.8:
@@ -1025,88 +1031,31 @@ class MuJoCoTeleop:
 
     # ========================= SCENE RESET =================================
 
-    def _reset_scenario(self):
-        """Randomize all declared scene objects (driven by scenes.yaml).
+    def _reset_scenario(self, side=None, door_xy=None):
+        """Sortea y aplica un layout de la escena (dependencies/scene_reset.py, según
+        scenes.yaml): objetos, joints, lado de la tarea y posición de la puerta.
 
-        Falls back to legacy _cube_spawn config if no scene_objects are declared
-        but a blue-cube body exists in the model.
+        Con sides: alternate cada reset pasa al otro lado. side / door_xy fuerzan el lado o
+        el centro de la hoja (eval_mujoco.py, record_scripted.py).
+        Deja el layout en self.scene_layout y sube self.scene_layout_version, para que el
+        viewer del teleoperador (play_mujoco.py) aplique el mismo.
+
+        Sin objects ni joints en scenes.yaml usa el cube_spawn heredado del YAML (si el
+        modelo tiene blue-cube).
         """
         objects = getattr(self, "_scene_objects", [])
-
-        # Legacy fallback: only when BOTH scene_objects AND scene_joints are absent.
-        # Joint-only scenes (e.g. door) must not trigger this or they'd try to reset
-        # a 'blue-cube' that doesn't exist in the model.
         if not objects and not self._scene_joints:
             spawn = getattr(self, "_cube_spawn", None)
-            if spawn:
-                objects = [{"body": "blue-cube", "spawn": spawn}]
-            else:
+            if not spawn:
                 return  # Nothing to reset
+            objects = [{"body": "blue-cube", "spawn": spawn}]
 
-        def _sample(val, default=0.0):
-            """Uniform random if [min, max], fixed if scalar."""
-            if isinstance(val, list) and len(val) == 2:
-                return np.random.uniform(val[0], val[1])
-            return float(val) if val is not None else default
-
-        reset_poses = {}
-        any_reset = False
-
-        for obj_def in objects:
-            body_name = obj_def.get("body", "")
-            spawn = obj_def.get("spawn", {})
-            try:
-                body = self.model.body(body_name)
-                bid = body.id
-                jnt_adr = body.jntadr[0]
-                if jnt_adr == -1:
-                    continue
-                qpos_adr = self.model.jnt_qposadr[jnt_adr]
-                dof_adr = self.model.jnt_dofadr[jnt_adr]
-
-                # Position: only write axes that are specified
-                if any(k in spawn for k in ("x", "y", "z")):
-                    x = _sample(spawn.get("x"), self.data.qpos[qpos_adr + 0])
-                    y = _sample(spawn.get("y"), self.data.qpos[qpos_adr + 1])
-                    z = _sample(spawn.get("z"), self.data.qpos[qpos_adr + 2])
-                    self.data.qpos[qpos_adr:qpos_adr + 3] = [x, y, z]
-
-                # Orientation
-                quat = spawn.get("quat", [1, 0, 0, 0])
-                self.data.qpos[qpos_adr + 3:qpos_adr + 7] = quat
-
-                # Zero velocities
-                ndof = self.model.jnt_type[self.model.body_jntadr[bid]]
-                num_dof = 6 if ndof == 0 else 1  # mjtJoint.mjJNT_FREE = 0
-                self.data.qvel[dof_adr:dof_adr + num_dof] = 0
-
-                pos_arr = self.data.qpos[qpos_adr:qpos_adr + 3].copy()
-                quat_arr = self.data.qpos[qpos_adr + 3:qpos_adr + 7].copy()
-                reset_poses[body_name] = (pos_arr, quat_arr)
-                any_reset = True
-                print(f"[Reset] {body_name} → ({pos_arr[0]:.2f}, {pos_arr[1]:.2f}, {pos_arr[2]:.2f})")
-            except Exception as e:
-                print(f"[Reset] Skip '{body_name}': {e}")
-
-        if any_reset:
-            mujoco.mj_forward(self.model, self.data)
-
-        # ── Joint reset (hinge/slide joints declared under `joints:` in scenes.yaml) ──
-        for jnt_def in self._scene_joints:
-            jnt_name = jnt_def.get("name", "")
-            target_qpos = float(jnt_def.get("qpos", 0.0))
-            try:
-                jnt_id = self.model.joint(jnt_name).id
-                qpos_adr = self.model.jnt_qposadr[jnt_id]
-                dof_adr = self.model.jnt_dofadr[jnt_id]
-                self.data.qpos[qpos_adr] = target_qpos
-                self.data.qvel[dof_adr] = 0.0
-                print(f"[Reset] Joint '{jnt_name}' → {target_qpos:.3f} rad")
-            except Exception as e:
-                print(f"[Reset] Skip joint '{jnt_name}': {e}")
-
-        if self._scene_joints:
-            mujoco.mj_forward(self.model, self.data)
+        if getattr(self, "_randomizer", None) is None:
+            self._randomizer = SceneRandomizer(objects, self._scene_joints, scene_entry(self.model_path))
+        layout = self._randomizer.sample(self.model, self.data, side=side, door_xy=door_xy)
+        apply_layout(self.model, self.data, layout)
+        self.scene_layout = layout
+        self.scene_layout_version = getattr(self, "scene_layout_version", 0) + 1
 
     def set_object_poses(self, poses: dict):
         """Force one or more objects to specific poses.

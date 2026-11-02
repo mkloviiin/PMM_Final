@@ -101,7 +101,6 @@ class iCubTeleop(Teleoperator):
         # Reset scenario state — generic for any scene objects from scenes.yaml
         self._scene_objects: list[dict] = getattr(self.config, "scene_objects", []) or []
         self._scene_joints: list[dict] = getattr(self.config, "scene_joints", []) or []
-        self._last_reset_poses: dict[str, tuple] = {}  # {body_name: (pos, quat)}
         self._reset_request = False
         self._pending_visual_reset = False
 
@@ -846,90 +845,21 @@ class iCubTeleop(Teleoperator):
         mujoco.mj_forward(self.model, self.data)
 
     def _reset_scenario(self):
-        """Randomize all declared scene objects (driven by scenes.yaml).
+        """Pide un reset de la escena (tecla N, botón Y). Lo sortea el núcleo MuJoCo del robot,
+        dueño de la física (play_mujoco.py lo atiende vía _reset_request), y este viewer
+        aplica el mismo layout con apply_scene_layout."""
+        self._reset_request = True
 
-        Falls back to legacy cube_spawn config if no scene_objects are declared
-        but a blue-cube body exists in the model.
-        """
-        objects = self._scene_objects
+    def apply_scene_layout(self, layout: dict) -> None:
+        """Copia en el viewer el layout que sorteó el robot (dependencies/scene_reset.py):
+        lado y posición de la puerta, joints y objetos."""
+        from dependencies.scene_reset import apply_layout
 
-        # Legacy fallback: only when BOTH scene_objects AND scene_joints are absent.
-        # Joint-only scenes (e.g. door) must not trigger this or they'd try to reset
-        # a 'blue-cube' that doesn't exist in the model.
-        if not objects and not self._scene_joints:
-            spawn = getattr(self.config, "cube_spawn", None)
-            if spawn:
-                objects = [{"body": "blue-cube", "spawn": spawn}]
-            else:
-                return  # Nothing to reset
-
-        def _sample(val, default=0.0):
-            """Uniform random if [min, max], fixed if scalar."""
-            if isinstance(val, list) and len(val) == 2:
-                return np.random.uniform(val[0], val[1])
-            return float(val) if val is not None else default
-
-        reset_poses = {}
-        any_reset = False
-
-        for obj_def in objects:
-            body_name = obj_def.get("body", "")
-            spawn = obj_def.get("spawn", {})
-            try:
-                body = self.model.body(body_name)
-                bid = body.id
-                jnt_adr = body.jntadr[0]
-                if jnt_adr == -1:
-                    continue
-                qpos_adr = self.model.jnt_qposadr[jnt_adr]
-                dof_adr = self.model.jnt_dofadr[jnt_adr]
-
-                # Position: only write axes that are specified
-                if any(k in spawn for k in ("x", "y", "z")):
-                    x = _sample(spawn.get("x"), self.data.qpos[qpos_adr + 0])
-                    y = _sample(spawn.get("y"), self.data.qpos[qpos_adr + 1])
-                    z = _sample(spawn.get("z"), self.data.qpos[qpos_adr + 2])
-                    self.data.qpos[qpos_adr:qpos_adr + 3] = [x, y, z]
-
-                # Orientation
-                quat = spawn.get("quat", [1, 0, 0, 0])
-                self.data.qpos[qpos_adr + 3:qpos_adr + 7] = quat
-
-                # Zero velocities
-                ndof = self.model.jnt_type[self.model.body_jntadr[bid]]
-                # freejoint = 6 DOF, hinge = 1 DOF
-                num_dof = 6 if ndof == 0 else 1  # mjtJoint.mjJNT_FREE = 0
-                self.data.qvel[dof_adr:dof_adr + num_dof] = 0
-
-                pos_arr = self.data.qpos[qpos_adr:qpos_adr + 3].copy()
-                quat_arr = self.data.qpos[qpos_adr + 3:qpos_adr + 7].copy()
-                reset_poses[body_name] = (pos_arr, quat_arr)
-                any_reset = True
-                print(f"[Teleop] Reset {body_name} → ({pos_arr[0]:.2f}, {pos_arr[1]:.2f}, {pos_arr[2]:.2f})")
-            except Exception as e:
-                print(f"[Teleop] Reset skip '{body_name}': {e}")
-
-        if any_reset:
-            self._last_reset_poses = reset_poses
-            self._reset_request = True
-            mujoco.mj_forward(self.model, self.data)
-
-        # ── Joint reset (hinge/slide joints declared under `joints:` in scenes.yaml) ──
-        for jnt_def in self._scene_joints:
-            jnt_name = jnt_def.get("name", "")
-            target_qpos = float(jnt_def.get("qpos", 0.0))
-            try:
-                jnt_id = self.model.joint(jnt_name).id
-                qpos_adr = self.model.jnt_qposadr[jnt_id]
-                dof_adr = self.model.jnt_dofadr[jnt_id]
-                self.data.qpos[qpos_adr] = target_qpos
-                self.data.qvel[dof_adr] = 0.0
-                print(f"[Teleop] Reset joint '{jnt_name}' → {target_qpos:.3f} rad")
-            except Exception as e:
-                print(f"[Teleop] Reset joint skip '{jnt_name}': {e}")
-
-        if self._scene_joints:
-            mujoco.mj_forward(self.model, self.data)
+        if self.viewer is not None:
+            with self.viewer.lock():
+                apply_layout(self.model, self.data, layout, verbose=False)
+        else:
+            apply_layout(self.model, self.data, layout, verbose=False)
 
     def _set_grip(self, side: str, level: float) -> None:
         """Fracción de cierre pedida desde aquí (teclado o VR); queda pendiente hasta que el
