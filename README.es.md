@@ -149,6 +149,10 @@ pixi install
 pixi run hub            # http://localhost:7860
 ```
 
+Ícono en el escritorio (Ubuntu / GNOME): `src/hub_dataset/hub_launcher.sh install` crea
+*Multimodal Experimentation Hub* en el escritorio. Al hacer clic inicia el Hub y abre el navegador;
+si el Hub ya está abierto, pregunta si abrirlo en el navegador o cerrarlo.
+
 ### Con Docker
 
 Una sola imagen contiene el Hub, MuJoCo, Gazebo y el cliente YARP para el robot real:
@@ -166,7 +170,8 @@ docker compose up                     # inicia el Hub en http://localhost:7860
 El Hub sigue el orden de sus pestañas numeradas. En la pantalla de inicio se elige la
 plataforma, en **1. Configuración** se prepara y lanza la sesión (tarea, brazos, solver, VR),
 en **2. Control de episodios** se graban los episodios con las gafas VR y en
-**3. Visualizar y curar** se revisa, cura y publica el dataset. El recorrido completo, con
+**3. Visualizar y curar** se revisa, cura y publica el dataset, y en **4. Train** se entrena
+una política SmolVLA con él. El recorrido completo, con
 capturas de cada pestaña, está en el [Manual de usuario](docs/MANUAL.es.md).
 
 Desde la línea de comandos, `play.py` graba (o solo teleopera, con `--no-record`) de la misma forma:

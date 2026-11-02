@@ -11,6 +11,7 @@ dataset on Hugging Face. Installation and the VR headset setup are covered in th
 - [1. Configuration](#1-configuration)
 - [2. Episode Control](#2-episode-control)
 - [3. Visualize & Curate](#3-visualize--curate)
+- [4. Train](#4-train)
 - [Where the data is saved](#where-the-data-is-saved)
 - [Troubleshooting](#troubleshooting)
 
@@ -153,6 +154,35 @@ dataset, for example failed attempts.
 
 ---
 
+## 4. Train
+
+Trains a **SmolVLA** policy on a recorded or curated dataset.
+
+1. **Dataset.** Pick it from the list (`data/` by default; use the folder button for
+   `data_curated/`). The summary shows episodes, dimensions, cameras and task.
+2. **Run.** The run name, job name, W&B project and model repo are suggested from the dataset
+   name, and you can edit them. The run is saved in `output/train/<run name>/`. Steps, batch
+   size and checkpoint frequency start at the values used so far (20000 steps, batch 22).
+3. **Logging and upload.** Turn on Weights & Biases and/or pushing the model to Hugging Face
+   (private or public repo) and paste your keys. They are only used for this run and are not saved to disk. Leave the
+   W&B key empty to use the account already logged in on the PC. The Hugging Face token and
+   repo are checked before the training starts.
+4. **Advanced settings** (folded) holds the rest of the hyperparameters: base model, chunk
+   size, max state/action dims (set from the dataset), learning rate, workers, seed, etc.
+
+Press **Start training**. The panel shows the step, loss, elapsed and remaining time, and
+the full log is under *Training log*. Training takes almost all the GPU memory, so **while it
+runs the rest of the Hub is locked**. Training keeps going if you close the Hub; when you open
+it again, it goes straight to this tab.
+
+**Stop training** asks for confirmation: the run ends and its folder (with any checkpoints
+saved so far) is moved to the trash. A failed run is also moved to the trash. The log is kept
+in `src/hub_dataset/logs/training/`. When it finishes, the panel shows the path of the model
+(`checkpoints/last/pretrained_model`) to use with `eval_policy.py`. When the Hub is opened again,
+the tab starts from *Waiting to start* unless a training is still running.
+
+---
+
 ## Where the data is saved
 
 | Location | Contents |
@@ -160,7 +190,8 @@ dataset, for example failed attempts.
 | `data/<repo_id>_<date>/` | Recorded dataset in LeRobot format |
 | `data/<repo_id>_<date>/hub_session/` | Per-episode metrics and logbook notes |
 | `data_curated/` | Curated datasets |
-| `src/hub_dataset/logs/` | Full log of each Hub run |
+| `output/train/<run name>/` | Trained policies (checkpoints) |
+| `src/hub_dataset/logs/` | Full log of each Hub run (training logs in `training/`) |
 
 The upload to Hugging Face includes the `data/`, `meta/` and `videos/` folders.
 
@@ -176,3 +207,4 @@ The upload to Hugging Face includes the `data/`, `meta/` and `videos/` folders.
 | The Gazebo or MuJoCo window does not open in Docker | Run `xhost +SI:localuser:$(id -un)` before `docker compose up` |
 | The robot does not move in Gazebo / real | Check that the simulation (or the robot connection) and the YARP module are both green in *Robot stack* |
 | The upload is blocked | There are curation changes without packaging. Package the dataset first |
+| All tabs except *Train* are disabled | A training run is in progress. Wait for it to finish or stop it in *Train* |

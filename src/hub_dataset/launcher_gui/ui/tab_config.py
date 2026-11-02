@@ -15,14 +15,15 @@ ROBOT_HIDDEN = ["robot-col", "robot-hidden"]
 
 
 def build_config_tab():
-    """Devuelve (columns, forms):
+    """Devuelve (columns, forms, tab):
       columns = {robot_id: gr.Column}      -- para alternar visibilidad
       forms   = {robot_id: {campo: componente}}  -- para el wiring de cada robot
+      tab     = la pestaña (app.py la bloquea mientras se entrena)
     """
     columns: dict[str, gr.Column] = {}
     forms: dict[str, dict] = {}
 
-    with gr.Tab("1. Configuration", id=CONFIG_TAB_ID):
+    with gr.Tab("1. Configuration", id=CONFIG_TAB_ID) as tab:
         available = [r for r in REGISTRY if r.available and r.build_config_form]
         for robot in available:
             # Todas "visibles" para Gradio y ocultas con la clase CSS .robot-hidden; el botón del
@@ -33,4 +34,4 @@ def build_config_tab():
                 forms[robot.id] = robot.build_config_form()
             columns[robot.id] = col
 
-    return columns, forms
+    return columns, forms, tab

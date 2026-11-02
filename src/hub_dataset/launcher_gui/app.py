@@ -14,15 +14,19 @@ from __future__ import annotations
 
 import gradio as gr
 
-from . import curation, hub_push, session, state
+from . import curation, hub_push, session, state, training
 from .robots.registry import REGISTRY
 from .ui.tab_config import CONFIG_TAB_ID, ROBOT_HIDDEN, ROBOT_SHOWN, build_config_tab
 from .ui.tab_curation import CURATION_TAB_ID, build_curation_tab
 from .ui import tab_episodes
 from .ui.tab_episodes import EPISODES_CSS, EPISODES_JS, EPISODES_TAB_ID, build_episodes_tab
+from .ui.tab_train import TRAIN_CSS, TRAIN_TAB_ID, build_train_tab
 from .ui.welcome import build_welcome_screen
 from .ui.input_filters import INPUT_FILTER_JS
 from .video_sync import PLAYER_CSS, SYNC_JS
+
+# Nombre del Hub: genérico, no de un robot (a futuro hay más robots en robots/registry.py)
+HUB_TITLE = "Multimodal Experimentation Hub"
 
 WELCOME_CSS = """
 .welcome-screen {
@@ -186,7 +190,7 @@ button.btn-red:hover, .btn-red button:hover {
     box-sizing: border-box !important;
 }
 """
-WELCOME_CSS += PLAYER_CSS + EPISODES_CSS
+WELCOME_CSS += PLAYER_CSS + EPISODES_CSS + TRAIN_CSS
 
 
 def _checkbox_filter_js(elem_id: str) -> str:
@@ -205,7 +209,7 @@ def _checkbox_filter_js(elem_id: str) -> str:
 
 def build_ui() -> gr.Blocks:
     # El CSS se pasa a launch() (hub_experimentacion.py): Gradio 6 ya no lo toma aquí
-    with gr.Blocks(title="iCub Experimentation Hub") as demo:
+    with gr.Blocks(title=HUB_TITLE) as demo:
         welcome_col, welcome_buttons = build_welcome_screen()
         # Sincroniza los videos de "Visualize & Curate" y dibuja el cursor de
         # tiempo sobre los graficos (ver video_sync.py).
@@ -219,14 +223,35 @@ def build_ui() -> gr.Blocks:
 
         with gr.Column(visible=False) as main_col:
             back_btn = gr.Button("⬅ Back to robot selection", size="sm")
-            gr.Markdown("# iCub  —  Experimentation Hub")
+            # Nombre del Hub (no de un robot) + el robot elegido en la bienvenida (_select_robot)
+            header_md = gr.Markdown(f"# {HUB_TITLE}")
 
             with gr.Tabs() as main_tabs:
-                config_columns, config_forms = build_config_tab()
+                config_columns, config_forms, config_tab = build_config_tab()
 
                 available_robots = [r for r in REGISTRY if r.available and r.build_config_form]
                 episodes = build_episodes_tab()
                 c = build_curation_tab()
+                build_train_tab()
+
+        # ── Entrenamiento en curso: el resto del Hub queda bloqueado (training.py) ──
+        # lock_state = último valor enviado a este navegador: solo se mandan cambios. Al abrir
+        # el Hub con un entrenamiento en curso se salta directo a "Train". "Back to robot
+        # selection" lo bloquea el poller de Episode Control.
+        lock_state = gr.State(None)
+        locked_tabs = [config_tab, episodes["tab"], c["tab"]]
+
+        def _training_lock(prev):
+            active = training.is_active()
+            if active == prev:
+                return (prev,) + (gr.update(),) * (len(locked_tabs) + 3)
+            nav = ((gr.update(visible=False), gr.update(visible=True), gr.update(selected=TRAIN_TAB_ID))
+                   if active else (gr.update(),) * 3)
+            return (active, *(gr.update(interactive=not active) for _ in locked_tabs), *nav)
+
+        lock_outputs = [lock_state, *locked_tabs, welcome_col, main_col, main_tabs]
+        demo.load(fn=_training_lock, inputs=[lock_state], outputs=lock_outputs)
+        gr.Timer(1.0).tick(fn=_training_lock, inputs=[lock_state], outputs=lock_outputs)
 
         # ── Navegacion bienvenida <-> configuracion ───────────────────────
         back_btn.click(
@@ -242,13 +267,14 @@ def build_ui() -> gr.Blocks:
                 # salido desde Visualize & Curate o Episode Control). Si es otra plataforma que la
                 # anterior, Episode Control queda como nuevo (no muestra la sesión de la otra);
                 # con una sesión activa "Back" está deshabilitado, así que no se corta nada.
-                def _select_robot(num_eps, robot_id=robot.id):
+                def _select_robot(num_eps, robot_id=robot.id, robot_label=robot.label):
                     switched = state.hub_robot_id not in (None, robot_id)
                     state.hub_robot_id = robot_id
                     cleared = switched and session.reset_episode_control(num_eps)
                     if not switched:
                         session.set_planned_episodes(num_eps)
                     return [
+                        gr.update(value=f"# {HUB_TITLE}  —  {robot_label}"),
                         gr.update(visible=False), gr.update(visible=True),
                         gr.update(selected=CONFIG_TAB_ID),
                         *(gr.update(elem_classes=ROBOT_SHOWN if rid == robot_id else ROBOT_HIDDEN)
@@ -257,7 +283,7 @@ def build_ui() -> gr.Blocks:
                         gr.update(value="") if cleared else gr.update(),  # nota sin agregar
                     ]
                 btn.click(fn=_select_robot, inputs=[config_forms[robot.id]["num_eps"]],
-                          outputs=[welcome_col, main_col, main_tabs, *config_columns.values(),
+                          outputs=[header_md, welcome_col, main_col, main_tabs, *config_columns.values(),
                                    episodes["cmd_feedback"], episodes["note_tb"]])
             else:
                 label = robot.label

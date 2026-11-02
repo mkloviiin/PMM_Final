@@ -11,6 +11,7 @@ dataset en Hugging Face. La instalación y la configuración de las gafas VR est
 - [1. Configuration](#1-configuration)
 - [2. Episode Control](#2-episode-control)
 - [3. Visualize & Curate](#3-visualize--curate)
+- [4. Train](#4-train)
 - [Dónde se guardan los datos](#dónde-se-guardan-los-datos)
 - [Solución de problemas](#solución-de-problemas)
 
@@ -153,6 +154,36 @@ fuera del dataset final, por ejemplo los intentos fallidos.
 
 ---
 
+## 4. Train
+
+Entrena una política **SmolVLA** con un dataset grabado o curado.
+
+1. **Dataset.** Se elige de la lista (`data/` por defecto; con el botón de carpeta, también
+   `data_curated/`). El resumen muestra episodios, dimensiones, cámaras y tarea.
+2. **Run.** El nombre de la corrida, el job, el proyecto de W&B y el repo del modelo se
+   sugieren a partir del nombre del dataset y se pueden editar. La corrida se guarda en
+   `output/train/<run name>/`. Steps, batch size y frecuencia de checkpoints parten con los
+   valores usados hasta ahora (20000 steps, batch 22).
+3. **Logging and upload.** Activa Weights & Biases y/o la subida del modelo a Hugging Face
+   (repo privado o público) y pega tus claves. Solo se usan en esta corrida y no se guardan en disco. Con la clave de W&B
+   vacía se usa la cuenta que ya tenga sesión en el PC. El token y el repo de Hugging Face se
+   revisan antes de empezar.
+4. **Advanced settings** (plegado) tiene el resto de hiperparámetros: modelo base, chunk size,
+   dimensiones máximas de estado y acción (salen del dataset), learning rate, workers, semilla, etc.
+
+Con **Start training** parte el entrenamiento. El panel muestra el step, la loss y el tiempo
+transcurrido y restante, y el log completo está en *Training log*. Entrenar ocupa casi toda la
+memoria de la GPU, así que **mientras entrena el resto del Hub queda bloqueado**. Si se cierra
+el Hub el entrenamiento sigue, y al volver a abrirlo se va directo a esta pestaña.
+
+**Stop training** pide confirmación: la corrida termina y su carpeta (con los checkpoints que
+alcanzó a guardar) se manda a la papelera. Una corrida que falla también se manda a la
+papelera. El log queda en `src/hub_dataset/logs/training/`. Al terminar, el panel muestra la
+ruta del modelo (`checkpoints/last/pretrained_model`) para usarlo con `eval_policy.py`. Al volver
+a abrir el Hub, la pestaña parte en *Waiting to start* salvo que siga un entrenamiento en curso.
+
+---
+
 ## Dónde se guardan los datos
 
 | Ubicación | Contenido |
@@ -160,7 +191,8 @@ fuera del dataset final, por ejemplo los intentos fallidos.
 | `data/<repo_id>_<fecha>/` | Dataset grabado en formato LeRobot |
 | `data/<repo_id>_<fecha>/hub_session/` | Métricas por episodio y notas de la bitácora |
 | `data_curated/` | Datasets curados |
-| `src/hub_dataset/logs/` | Registro completo de cada ejecución del Hub |
+| `output/train/<run name>/` | Políticas entrenadas (checkpoints) |
+| `src/hub_dataset/logs/` | Registro completo de cada ejecución del Hub (los de entrenamiento en `training/`) |
 
 La subida a Hugging Face incluye las carpetas `data/`, `meta/` y `videos/`.
 
@@ -176,3 +208,4 @@ La subida a Hugging Face incluye las carpetas `data/`, `meta/` y `videos/`.
 | La ventana de Gazebo o MuJoCo no abre en Docker | Ejecuta `xhost +SI:localuser:$(id -un)` antes de `docker compose up` |
 | El robot no se mueve en Gazebo / real | Revisa que la simulación (o la conexión al robot) y el módulo YARP estén ambos en verde en *Robot stack* |
 | La subida está bloqueada | Hay cambios de curación sin empaquetar. Empaqueta el dataset primero |
+| Todas las pestañas salvo *Train* están deshabilitadas | Hay un entrenamiento en curso. Espera a que termine o detenlo en *Train* |
