@@ -11,9 +11,10 @@ __pycache__/
 dist/
 build/
 
-# Datasets and outputs
+# Datasets, models and outputs
 data/
 data_curated/
+/models/
 output/
 outputs/
 logs/

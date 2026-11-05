@@ -1,7 +1,5 @@
 # Experimentation Hub
 
-**English** | [Español](README.es.md)
-
 Web platform to **record, review, curate and publish robotics datasets** in
 [LeRobot](https://github.com/huggingface/lerobot) format. Designed for **any robot**:
 recording, episode review, curation and the upload to Hugging Face are shared, and each
@@ -18,6 +16,11 @@ with a virtual reality headset (Meta Quest 2) using BeaVR, or interactively usin
 - [Console controls](#console-controls)
 - [Installation](#installation)
 - [How to use it](#how-to-use-it)
+  - [MuJoCo](#mujoco)
+  - [Gazebo / Real](#gazebo--real)
+  - [Working with datasets (Hugging Face & local)](#working-with-datasets-hugging-face--local)
+  - [Replaying a dataset in MuJoCo (reproducibility check)](#replaying-a-dataset-in-mujoco-reproducibility-check)
+  - [Downloading & evaluating a trained policy](#downloading--evaluating-a-trained-policy)
 - [Architecture](#architecture)
 - [Hub modules](#hub-modules)
 - [How to add a robot (Pending validation)](#how-to-add-a-robot-pending-validation)
@@ -218,7 +221,7 @@ pixi run python play.py --backend mujoco --controller id --impedance --control-a
 
 To teleoperate the iCub in Gazebo Sim with both arms:
 
-#### Paso 1: Launch Gazebo Sim (Terminal 1)
+#### Step 1: Launch Gazebo Sim (Terminal 1)
 
 ```bash
 ./gazebo_sim/scripts/launch_sim.sh --world manip
@@ -233,7 +236,7 @@ To teleoperate the iCub in Gazebo Sim with both arms:
 | `--stop`, `--kill` | flag | Stop and cleanup any running Gazebo Sim (`gz sim`) and YARP (`yarpserver`) processes |
 | `-h, --help` | flag | Show usage help and exit |
 
-#### Paso 2: Launch Teleoperation (Terminal 2)
+#### Step 2: Launch Teleoperation (Terminal 2)
 
 ```bash
 # 1. With QP Inverse Kinematics (TSIK - iCubWholeBodyIK):
@@ -248,21 +251,195 @@ pixi run python play.py --backend gazebo --controller id --impedance --control-a
 
 *(Note: If `teleop_module_sm.py` is not already running on YARP, `play.py` automatically launches it in the background with the selected solver).*
 
-### Evaluating a policy
+---
 
-`eval_policy.py` runs a trained LeRobot policy on any platform, with the same solver options,
-and measures the task's success with robosuite's criterion ([metrics/README.md](metrics/README.md)):
-at some step and at the end of each episode. Every episode starts at home with the scene reset;
-the cameras, arms and state order come from the checkpoint and its training dataset.
+### Working with datasets (Hugging Face & local)
+
+#### Hugging Face authentication (for private repositories)
+
+If you are accessing private datasets or checkpoints (for example under the `CAMADA-UTFSM` organization), authenticate once in the Pixi environment or export an access token:
 
 ```bash
-pixi run python eval_policy.py --checkpoint outputs/train/<run>/checkpoints/020000/pretrained_model \
-    --scene "Door Opening" --num-episodes 20
-pixi run python eval_policy.py --checkpoint ... --backend gazebo --scene "Block Lifting" --controller id --impedance
+# Option 1: Interactive login cached on your machine
+pixi run hf auth login
+
+# Option 2: Environment variable for the current shell session
+export HF_TOKEN=hf_...
 ```
 
-Results go to `outputs/eval/<run>_<backend>_<date>/` (`eval.log`, `summary.json`). On the real
-robot the operator places the objects and answers whether each episode succeeded.
+#### Option A: Download a dataset from Hugging Face
+
+Download any LeRobot dataset into `data/<folder_name>` so that the **Experimentation Hub** web GUI (**3. Visualize & Curate** and **4. Train** after clicking **Refresh list**), `metrics/dataset_check.py`, and `replay_mujoco.py` detect it automatically:
+
+```bash
+pixi run hf download CAMADA-UTFSM/BlockStacking_wb_icub \
+    --repo-type dataset \
+    --local-dir data/CAMADA-UTFSM_BlockStacking_wb_icub
+```
+
+You can download any other dataset in the same way into a directory of your choice (e.g. `CAMADA-UTFSM/DoorOpening_wb_icub`, `CAMADA-UTFSM/PickandPlace_wb_icub`), or let `replay_mujoco.py` download it directly via `--repo-id` and `--download-dir` (shown below).
+
+#### Option B: Use a local dataset & verify integrity
+
+Locally recorded sessions live in `data/<repo_id>_<timestamp>/`, and curated packages generated from Tab **3. Visualize & Curate** live in `data_curated/<name>/`. Before replaying or training, you can verify Parquet row counts, monotonic timestamps, frozen-frame ratios, and MP4 camera streams with `metrics/dataset_check.py`:
+
+```bash
+# Full check across all episodes and cameras:
+pixi run python metrics/dataset_check.py data/CAMADA-UTFSM_BlockStacking_wb_icub
+
+# Quick smoke check on the first 5 episodes:
+pixi run python metrics/dataset_check.py data/CAMADA-UTFSM_BlockStacking_wb_icub --max-episodes 5
+```
+
+---
+
+### Replaying a dataset in MuJoCo (reproducibility check)
+
+`replay_mujoco.py` (`pixi run replay ...`) replays recorded demonstrations in MuJoCo to verify physical reproducibility:
+
+1. **Deterministic reset:** Places the iCub at `home_qpos` with open hands and settles physics for `0.5 s` (matching recording and policy evaluation).
+2. **Exact initial scene restoration (`root` → `world`):** Reads frame `0` of `observation.state` (`obj0_pos_*` / `obj0_quat_*`, `obj1_pos_*` / `obj1_quat_*`, etc.), converts each object pose from the recorded iCub `root` frame back to MuJoCo `world` coordinates, and restores all tabletop objects (e.g. `blue-cube` and `red-cube` in *Block Stacking*) or door configuration before stepping actions.
+3. **Whole-body action playback & verification:** Steps the recorded actions through TSIK (`--controller ik`) or TSID (`--controller id [--impedance]`), automatically inferring the scene and active arms (`both`, `right`, or `left`), and reports both task success ([metrics/README.md](metrics/README.md)) and Cartesian end-effector tracking error (`EE RMSE` in mm).
+
+```bash
+# 1. Download a dataset from Hugging Face into a custom folder and replay 5 episodes:
+pixi run python replay_mujoco.py \
+    --repo-id CAMADA-UTFSM/BlockStacking_wb_icub \
+    --download-dir data/CAMADA-UTFSM_BlockStacking_wb_icub \
+    --scene "Block Stacking" \
+    --episodes 5
+
+# 2. Replay specific 0-based episodes from a local dataset (with TSID + impedance):
+pixi run python replay_mujoco.py \
+    --root data/CAMADA-UTFSM_BlockStacking_wb_icub \
+    --episode 0 4 9 \
+    --controller id --impedance
+
+# 3. Fast headless reproducibility audit across ALL episodes (saving a JSON report):
+pixi run python replay_mujoco.py \
+    --root data/CAMADA-UTFSM_BlockStacking_wb_icub \
+    --episodes 0 --no-viewer --fast \
+    --out outputs/replay/block_stacking_repro.json
+```
+
+> [!TIP]
+> - Add `--skip-videos` when downloading with `--repo-id` if you only want to run MuJoCo physics replay without downloading the MP4 camera files.
+> - If you are replaying a curated dataset in `data_curated/` from which `obj{i}_pos_*` / `obj{i}_quat_*` columns were removed, pass `--raw-root data/<original_dataset>` so `replay_mujoco.py` can still restore the exact frame-0 object poses.
+
+#### Arguments supported by `replay_mujoco.py`:
+
+| Option | Values / Default | Description |
+|---|---|---|
+| `--repo-id` | HF dataset ID or `local/*` | Hugging Face dataset repository to download/load (e.g. `CAMADA-UTFSM/BlockStacking_wb_icub`) |
+| `--root` | directory path | Local dataset folder containing `meta/info.json` |
+| `--download-dir` | directory path | Target folder where `--repo-id` is downloaded (default: `data/<org>_<dataset>`) |
+| `--use-hf-cache` | flag | Download `--repo-id` into the standard Hugging Face cache instead of `data/` |
+| `--force-download` | flag | Re-download dataset files from Hugging Face even if already present locally |
+| `--skip-videos` | flag | Skip downloading `videos/**` from Hugging Face (only `meta/` and `data/` are needed for replay) |
+| `--hf-token` | token string | Hugging Face access token for private datasets (falls back to `HF_TOKEN` or `hf auth login`) |
+| `--raw-root` | directory path | Uncurated dataset path to read frame-0 `obj{i}_pos/quat` from when replaying a curated dataset |
+| `--scene` | int or label | Scene from `scenes.yaml` (auto-inferred from dataset task/name when omitted) |
+| `--controller` | `ik`, `id` (default: `ik`) | Whole-body controller: `ik` (TSIK) or `id` (TSID) |
+| `--impedance` | flag | Enable compliant Cartesian impedance mode (requires `--controller id`) |
+| `--control-arms` | `right`, `left`, `both` | Active arm(s) (default: inferred automatically from the dataset's action features) |
+| `--episodes` | int (default: `10`) | Number of episodes to replay starting from `0` (`0` = replay all episodes) |
+| `--episode` | int list (e.g. `0 4 9`) | Specific 0-based episode indices to replay (overrides `--episodes`) |
+| `--fps` | int | Playback rate in Hz (default: dataset's recorded `fps` in `meta/info.json`) |
+| `--fast` | flag | Step simulation at maximum CPU speed without real-time sleep |
+| `--no-viewer` | flag | Run headless without opening the interactive MuJoCo viewer |
+| `--door-side` | `left`, `right`, `auto` (default: `auto`) | Door Opening scene: handle side (`auto` infers it from the active arm trajectory) |
+| `--door-xy` | `X Y` floats | Door Opening scene: world `(X, Y)` center of the door panel |
+| `--out` | JSON file path | Save per-episode reproducibility and tracking metrics to a JSON file |
+
+---
+
+### Downloading & evaluating a trained policy
+
+`eval_policy.py` (`pixi run eval ...`) evaluates a trained LeRobot VLA policy (such as SmolVLA) on **MuJoCo**, **Gazebo**, or the **real iCub**, using the task success criteria in [metrics/README.md](metrics/README.md). Every episode starts from `home` with open hands and randomized (or alternating mirrored) object placements.
+
+#### Option A: Download a trained model from Hugging Face
+
+You can either pre-download a checkpoint into any local folder with `hf download`, or let `eval_policy.py` download it directly via `--checkpoint <org/model> --download-dir <folder>`:
+
+```bash
+# Pre-download a trained checkpoint from Hugging Face into models/:
+pixi run hf download CAMADA-UTFSM/<model_repo> \
+    --repo-type model \
+    --local-dir models/CAMADA-UTFSM_<model_repo>
+```
+
+#### Option B: Use a locally trained checkpoint
+
+Training runs launched from Tab **4. Train** of the Hub save checkpoints under `output/train/<run_name>/checkpoints/last/pretrained_model` (as well as step snapshots such as `checkpoints/020000/pretrained_model`).
+
+#### Running policy evaluation
+
+```bash
+# 1. Evaluate a local checkpoint trained in the Hub (20 episodes in MuJoCo):
+pixi run python eval_policy.py \
+    --checkpoint output/train/<run_name>/checkpoints/last/pretrained_model \
+    --scene "Block Stacking" \
+    --num-episodes 20
+
+# 2. Download a Hugging Face checkpoint into models/ (or reuse if already downloaded) and evaluate:
+pixi run python eval_policy.py \
+    --checkpoint CAMADA-UTFSM/<model_repo> \
+    --download-dir models/CAMADA-UTFSM_<model_repo> \
+    --dataset-meta CAMADA-UTFSM/BlockStacking_wb_icub \
+    --scene "Block Stacking" \
+    --controller ik \
+    --num-episodes 20
+
+# 3. Evaluate in Gazebo Sim with TSID + Cartesian impedance:
+pixi run python eval_policy.py \
+    --checkpoint models/CAMADA-UTFSM_<model_repo> \
+    --backend gazebo \
+    --scene "Block Stacking" \
+    --controller id --impedance \
+    --num-episodes 10
+```
+
+> [!NOTE]
+> When evaluating a checkpoint trained on another machine (or downloaded from Hugging Face), passing `--dataset-meta <local_dataset_dir_or_hf_repo_id>` (e.g. `--dataset-meta data/CAMADA-UTFSM_BlockStacking_wb_icub` or `--dataset-meta CAMADA-UTFSM/BlockStacking_wb_icub`) ensures `eval_policy.py` recovers the exact `observation.state` and `action` feature names even if the checkpoint was trained on a curated feature subset. If omitted, `eval_policy.py` automatically looks up `train_config.json` and local/remote `meta/info.json`.
+
+#### Arguments supported by `eval_policy.py`:
+
+| Option | Values / Default | Description |
+|---|---|---|
+| `--checkpoint` | path or HF model ID (required) | Local checkpoint directory (`.../pretrained_model`) or Hugging Face model repo ID (`CAMADA-UTFSM/...`) |
+| `--download-dir` | directory path | Local folder where a Hugging Face `--checkpoint` repo ID should be downloaded |
+| `--force-download` | flag | Re-download `--checkpoint` from Hugging Face when `--download-dir` is specified |
+| `--dataset-meta` | path or HF dataset ID | Local dataset folder or HF dataset ID used to read exact `observation.state` and `action` feature names |
+| `--hf-token` | token string | Hugging Face token for private models/datasets (falls back to `HF_TOKEN` or `hf auth login`) |
+| `--backend` | `mujoco`, `gazebo`, `real` (default: `mujoco`) | Target evaluation platform |
+| `--controller` | `ik`, `id` (default: `ik`) | Whole-body controller: `ik` (TSIK) or `id` (TSID) |
+| `--impedance` | flag | Enable compliant Cartesian impedance mode (requires `--controller id`) |
+| `--scene` | int or label | Task scene from `scenes.yaml` (e.g. `"Block Stacking"`, `"Block Lifting"`, `"Door Opening"`) |
+| `--task` | string | Override the natural-language task prompt (default: prompt from `scenes.yaml`) |
+| `--control-arms` | `right`, `left`, `both` | Active arm(s) (default: inferred from trained action names or action dimensionality) |
+| `--num-episodes` | int (default: `10`) | Number of rollout episodes |
+| `--episode-len` | int (default: `600`) | Maximum control steps per episode (`600` steps = `20 s` at `30 Hz`) |
+| `--fps` | int (default: `30`) | Control frequency in Hz |
+| `--n-action-steps` | int (`1..chunk_size`) | Number of actions executed per predicted chunk before re-querying the policy |
+| `--side` | `right`, `left` | MuJoCo: fix the task side on every episode instead of alternating |
+| `--mirror` | `alternate`, `random` (default: `alternate`) | MuJoCo two-sided scenes: `alternate` flips right/left every episode; `random` draws 50/50 |
+| `--seed` | int | Random seed for MuJoCo object spawn resets |
+| `--device` | `cuda`, `cpu` (default: `cuda`) | Torch inference device |
+| `--no-viewer` | flag | Run headless without opening MuJoCo or OpenCV camera windows |
+| `--no-video` | flag | Disable saving MP4 recordings of the policy cameras |
+| `--out` | directory path | Output directory (default: `outputs/eval/<name>_<backend>_<YYYYMMDD-HHMMSS>`) |
+
+#### Understanding evaluation outputs
+
+Each evaluation run writes to `outputs/eval/<name>_<backend>_<date>/` (rewritten after every episode so interrupted runs keep partial results):
+
+- **`summary.json`**:
+  - `success_rate` / `results.success_rate_pct`: fraction of episodes where the task criterion held (at any step for general tasks; on the final state for *Block Stacking*).
+  - `success_at_end_rate` / `results.success_at_end_rate_pct`: fraction of episodes where the criterion still holds at the final step.
+  - `results.success_rate_by_side` / `results.success_rate_by_blue_side`: per-side breakdown (`left` vs. `right`) to inspect bimanual symmetry and spatial generalization.
+  - `episodes`: per-episode breakdown including `initial_objects`, `success_step`, `success_time_s`, `infer_ms_mean` / `infer_ms_max`, and `video_start_s` / `video_end_s`.
+- **`videos/<camera>.mp4`**: continuous RGB recordings of what each policy camera observed across all episodes (indexed by `video_start_s` and `video_end_s` in `summary.json`).
+- **`eval.log`**: full console log of the run. On the real robot (`--backend real`), the operator places the objects before each episode and confirms whether the rollout succeeded.
 
 ---
 

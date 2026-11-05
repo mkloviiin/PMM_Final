@@ -68,7 +68,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         required=True,
-        help="Path or HuggingFace repo ID for the trained policy checkpoint",
+        help="Local folder path or Hugging Face model repo ID for the trained policy checkpoint "
+             "(e.g. output/train/<run>/checkpoints/last/pretrained_model or CAMADA-UTFSM/<model_repo>)",
+    )
+    parser.add_argument(
+        "--download-dir",
+        default=None,
+        help="Optional local directory where a Hugging Face --checkpoint repo ID should be downloaded "
+             "(e.g. models/CAMADA-UTFSM_smolvla_stacking)",
+    )
+    parser.add_argument(
+        "--force-download",
+        action="store_true",
+        help="Re-download model files from Hugging Face when --download-dir is used",
+    )
+    parser.add_argument(
+        "--dataset-meta",
+        default=None,
+        help="Optional local dataset directory or Hugging Face dataset repo ID "
+             "(e.g. CAMADA-UTFSM/BlockStacking_wb_icub) to load exact observation.state and action "
+             "feature names when evaluating a checkpoint trained on another machine",
+    )
+    parser.add_argument(
+        "--hf-token",
+        default=None,
+        help="Optional Hugging Face token for private models/datasets (falls back to HF_TOKEN or `hf auth login`)",
     )
     parser.add_argument(
         "--backend",
@@ -137,14 +161,154 @@ class _Tee:
         return getattr(self.stream, name)
 
 
-def training_feature_names(checkpoint: Path) -> tuple[list[str] | None, list[str] | None]:
-    """State / action names of the training dataset (train_config.json -> dataset meta/info.json)."""
-    try:
-        cfg = json.loads((checkpoint / "train_config.json").read_text())
-        feats = json.loads((Path(cfg["dataset"]["root"]).expanduser() / "meta" / "info.json").read_text())["features"]
-        return feats["observation.state"]["names"], feats["action"]["names"]
-    except Exception:  # noqa: BLE001
+def _load_dataset_info_features(
+    dataset_ref: str | Path,
+    token: str | bool | None = None,
+) -> tuple[list[str] | None, list[str] | None]:
+    """Read (state_names, action_names) from a local dataset folder or a Hugging Face dataset repo ID."""
+    cand = Path(dataset_ref).expanduser()
+    info_path = cand / "meta" / "info.json"
+    if info_path.is_file():
+        feats = json.loads(info_path.read_text(encoding="utf-8")).get("features", {})
+        return (
+            feats.get("observation.state", {}).get("names"),
+            feats.get("action", {}).get("names"),
+        )
+    if isinstance(dataset_ref, str) and "/" in dataset_ref and not dataset_ref.startswith("local/") and not cand.exists():
+        try:
+            from huggingface_hub import hf_hub_download
+
+            dl_info = Path(
+                hf_hub_download(
+                    repo_id=dataset_ref,
+                    filename="meta/info.json",
+                    repo_type="dataset",
+                    token=token,
+                )
+            )
+            feats = json.loads(dl_info.read_text(encoding="utf-8")).get("features", {})
+            return (
+                feats.get("observation.state", {}).get("names"),
+                feats.get("action", {}).get("names"),
+            )
+        except Exception:  # noqa: BLE001
+            return None, None
+    return None, None
+
+
+def resolve_checkpoint_source(args: argparse.Namespace) -> tuple[str, str]:
+    """Resolve `--checkpoint` (local folder or Hugging Face repo ID) into `(pretrained_source, run_name)`.
+
+    When `--download-dir` is given alongside a Hugging Face repo ID, downloads the model snapshot into
+    `--download-dir` first so subsequent evaluations run directly from disk.
+    """
+    local_ckpt = Path(args.checkpoint).expanduser()
+    if local_ckpt.exists():
+        resolved = local_ckpt.resolve()
+        if resolved.is_dir() and not (resolved / "config.json").is_file() and (resolved / "pretrained_model" / "config.json").is_file():
+            resolved = resolved / "pretrained_model"
+        run_name = (
+            resolved.parent.parent.name
+            if resolved.is_dir() and resolved.name == "pretrained_model"
+            else resolved.name
+        )
+        return str(resolved), run_name
+
+    # Remote Hugging Face model repo_id (e.g. CAMADA-UTFSM/smolvla_block_stacking)
+    repo_id = args.checkpoint.strip()
+    run_name = repo_id.strip("/").replace("/", "_")
+    if not args.download_dir:
+        return repo_id, run_name
+
+    from huggingface_hub import snapshot_download
+
+    token = args.hf_token or os.environ.get("HF_TOKEN") or True
+    dest = Path(args.download_dir).expanduser().resolve()
+    has_model = (dest / "config.json").is_file() or (dest / "pretrained_model" / "config.json").is_file()
+    if has_model and not args.force_download:
+        print(f"[eval] Using existing downloaded model at '{dest}'")
+    else:
+        dest.mkdir(parents=True, exist_ok=True)
+        print(f"[eval] Downloading model '{repo_id}' from Hugging Face -> '{dest}'...")
+        snapshot_download(
+            repo_id=repo_id,
+            repo_type="model",
+            local_dir=str(dest),
+            token=token,
+            force_download=args.force_download,
+        )
+    if (dest / "pretrained_model" / "config.json").is_file() and not (dest / "config.json").is_file():
+        dest = dest / "pretrained_model"
+    return str(dest), run_name
+
+
+def training_feature_names(
+    checkpoint: str | Path,
+    dataset_meta: str | None = None,
+    token: str | bool | None = None,
+) -> tuple[list[str] | None, list[str] | None]:
+    """Recover `(state_names, action_names)` of the training dataset across local and HF checkpoints."""
+    # 1. Explicit --dataset-meta (local path or HF dataset repo_id)
+    if dataset_meta:
+        s_names, a_names = _load_dataset_info_features(dataset_meta, token=token)
+        if s_names is not None or a_names is not None:
+            return s_names, a_names
+
+    # 2. Read train_config.json from local checkpoint dir or remote HF model repo
+    cfg: dict | None = None
+    ckpt_path = Path(checkpoint).expanduser()
+    if ckpt_path.is_dir() and (ckpt_path / "train_config.json").is_file():
+        try:
+            cfg = json.loads((ckpt_path / "train_config.json").read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            cfg = None
+    elif isinstance(checkpoint, str) and "/" in checkpoint and not ckpt_path.exists():
+        try:
+            from huggingface_hub import hf_hub_download
+
+            tc_file = Path(
+                hf_hub_download(
+                    repo_id=checkpoint,
+                    filename="train_config.json",
+                    repo_type="model",
+                    token=token,
+                )
+            )
+            cfg = json.loads(tc_file.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            cfg = None
+
+    if not cfg or not isinstance(cfg.get("dataset"), dict):
         return None, None
+
+    ds_cfg = cfg["dataset"]
+    # 2a. Try the exact training root path or matching folder name inside data/ or data_curated/
+    ds_root = ds_cfg.get("root")
+    if ds_root:
+        root_p = Path(ds_root).expanduser()
+        for candidate in (
+            root_p,
+            repo_root / "data" / root_p.name,
+            repo_root / "data_curated" / root_p.name,
+        ):
+            s_names, a_names = _load_dataset_info_features(candidate, token=token)
+            if s_names is not None or a_names is not None:
+                return s_names, a_names
+
+    # 2b. Try dataset repo_id (first under local data/ folders, then via HF Hub meta/info.json)
+    ds_repo_id = ds_cfg.get("repo_id")
+    if isinstance(ds_repo_id, str) and ds_repo_id:
+        sanitized = ds_repo_id.replace("/", "_")
+        for candidate in (repo_root / "data" / sanitized, repo_root / "data_curated" / sanitized):
+            s_names, a_names = _load_dataset_info_features(candidate, token=token)
+            if s_names is not None or a_names is not None:
+                return s_names, a_names
+        if not ds_repo_id.startswith("local/"):
+            s_names, a_names = _load_dataset_info_features(ds_repo_id, token=token)
+            if s_names is not None or a_names is not None:
+                return s_names, a_names
+
+    return None, None
 
 
 def arms_of(action_names: list[str] | None) -> str | None:
@@ -153,6 +317,18 @@ def arms_of(action_names: list[str] | None) -> str | None:
     has_r = any(n.startswith("rh_") for n in action_names)
     has_l = any(n.startswith("lh_") for n in action_names)
     return "both" if has_r and has_l else "right" if has_r else "left" if has_l else None
+
+
+def infer_arms_from_dim(policy_cfg) -> str:
+    """Fallback when action feature names are unavailable: >=16 action dims implies bimanual ('both')."""
+    try:
+        act_feat = (getattr(policy_cfg, "output_features", None) or {}).get("action")
+        shape = getattr(act_feat, "shape", None) or (act_feat.get("shape") if isinstance(act_feat, dict) else None)
+        if shape and int(shape[0]) >= 16:
+            return "both"
+    except Exception:  # noqa: BLE001
+        pass
+    return "right"
 
 
 def to_float(value) -> float:
@@ -363,7 +539,7 @@ def write_summary(run_dir: Path, args, scene: str, task_desc: str, success_task,
         "results": results,
         "videos": videos,
         "episodes": episodes,
-        "args": vars(args),
+        "args": {**vars(args), **({"hf_token": "***"} if getattr(args, "hf_token", None) else {})},
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=float))
     return summary
@@ -470,35 +646,44 @@ def main():
         args.impedance = False
     if args.seed is not None:
         np.random.seed(args.seed)
+    if args.hf_token:
+        os.environ["HF_TOKEN"] = args.hf_token
+    hf_token = args.hf_token or os.environ.get("HF_TOKEN") or True
 
-    ckpt = Path(args.checkpoint).expanduser()
-    name = ckpt.parent.parent.name if ckpt.is_dir() and ckpt.name == "pretrained_model" else ckpt.name
+    ckpt_source, name = resolve_checkpoint_source(args)
     run_dir = Path(args.out) if args.out else (
         repo_root / "outputs" / "eval" / f"{name}_{args.backend}_{time.strftime('%Y%m%d-%H%M%S')}")
     run_dir.mkdir(parents=True, exist_ok=True)
     log = open(run_dir / "eval.log", "a", buffering=1)
     sys.stdout, sys.stderr = _Tee(sys.stdout, log), _Tee(sys.stderr, log)
-    print(f"[eval] command: {' '.join(sys.argv)}")
+    safe_argv = [
+        "***" if i > 0 and sys.argv[i - 1] == "--hf-token" else arg
+        for i, arg in enumerate(sys.argv)
+    ]
+    print(f"[eval] command: {' '.join(safe_argv)}")
 
     # ── Policy and its normalization (saved with the checkpoint) ──────────────
-    policy_cfg = PreTrainedConfig.from_pretrained(str(ckpt))
-    policy_cfg.pretrained_path = str(ckpt)
+    policy_cfg = PreTrainedConfig.from_pretrained(ckpt_source)
+    policy_cfg.pretrained_path = ckpt_source
     if args.n_action_steps is not None:
         if not 1 <= args.n_action_steps <= policy_cfg.chunk_size:
             raise SystemExit(f"--n-action-steps must be in 1..{policy_cfg.chunk_size} (chunk_size)")
         policy_cfg.n_action_steps = args.n_action_steps  # policy.reset() rebuilds the action queue
-    policy = get_policy_class(policy_cfg.type).from_pretrained(str(ckpt), config=policy_cfg)
+    policy = get_policy_class(policy_cfg.type).from_pretrained(ckpt_source, config=policy_cfg)
     policy.to(device)
     policy.eval()
-    preprocessor, postprocessor = make_pre_post_processors(policy_cfg=policy_cfg, pretrained_path=str(ckpt))
+    preprocessor, postprocessor = make_pre_post_processors(policy_cfg=policy_cfg, pretrained_path=ckpt_source)
 
-    state_names, action_names = training_feature_names(ckpt)
+    state_names, action_names = training_feature_names(
+        ckpt_source, dataset_meta=args.dataset_meta, token=hf_token
+    )
     if state_names is None:
         print("[eval][warn] Training dataset meta/info.json not found: state/action order falls back "
-              "to the robot's feature order.")
+              "to the robot's feature order. Pass --dataset-meta <dataset_dir_or_hf_repo_id> if the "
+              "policy was trained on a curated state subset.")
     cameras = [k.removeprefix("observation.images.") for k in policy_cfg.input_features
                if k.startswith("observation.images.")]
-    control_arms = args.control_arms or arms_of(action_names) or "right"
+    control_arms = args.control_arms or arms_of(action_names) or infer_arms_from_dim(policy_cfg)
 
     model_path, default_task, scene_objects, scene_joints, _ = _resolve_scene(args.scene, controller=args.controller)
     task_desc = args.task or default_task

@@ -19,6 +19,7 @@ hub = "python src/hub_dataset/hub_experimentacion.py"
 teleop-sm = "python src/interfaces/teleop_module_sm.py --controller ik"
 play-mj = "python play.py --backend mujoco --controller ik --no-record"
 play-gz = "python play.py --backend gazebo --controller ik --no-record"
+replay = "python replay_mujoco.py"
 eval = "python eval_policy.py"
 
 [dependencies]

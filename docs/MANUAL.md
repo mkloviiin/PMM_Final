@@ -1,6 +1,6 @@
 # User manual · Experimentation Hub
 
-**English** | [Español](MANUAL.es.md) · [Back to README](../README.md)
+[← Back to README](../README.md)
 
 This manual walks through a complete session, from choosing the platform to publishing the
 dataset on Hugging Face. Installation and the VR headset setup are covered in the
@@ -122,6 +122,13 @@ When you have recorded all the episodes, press **End session**.
 Select a dataset from the list and load it. From here you can also delete a dataset, which
 sends it to the system trash after asking for confirmation.
 
+> [!TIP]
+> **Inspecting a dataset from Hugging Face:** Download it into `data/` (after `pixi run hf auth login` for private orgs) and click **Refresh list**:
+> ```bash
+> pixi run hf download CAMADA-UTFSM/BlockStacking_wb_icub --repo-type dataset --local-dir data/CAMADA-UTFSM_BlockStacking_wb_icub
+> ```
+> To physically replay episodes in MuJoCo and verify reproducibility, see [Replaying a dataset in MuJoCo](../README.md#replaying-a-dataset-in-mujoco-reproducibility-check).
+
 ![Dataset selection](images/dataset_final.png)
 
 ### Review the episodes
@@ -178,7 +185,9 @@ it again, it goes straight to this tab.
 **Stop training** asks for confirmation: the run ends and its folder (with any checkpoints
 saved so far) is moved to the trash. A failed run is also moved to the trash. The log is kept
 in `src/hub_dataset/logs/training/`. When it finishes, the panel shows the path of the model
-(`checkpoints/last/pretrained_model`) to use with `eval_policy.py`. When the Hub is opened again,
+(`output/train/<run name>/checkpoints/last/pretrained_model`) to use with `eval_policy.py`
+(see [Downloading & evaluating a trained policy](../README.md#downloading--evaluating-a-trained-policy)
+for local and Hugging Face checkpoints). When the Hub is opened again,
 the tab starts from *Waiting to start* unless a training is still running.
 
 ---
@@ -187,10 +196,12 @@ the tab starts from *Waiting to start* unless a training is still running.
 
 | Location | Contents |
 |---|---|
-| `data/<repo_id>_<date>/` | Recorded dataset in LeRobot format |
+| `data/<repo_id>_<date>/` | Recorded (or downloaded Hugging Face) dataset in LeRobot format |
 | `data/<repo_id>_<date>/hub_session/` | Per-episode metrics and logbook notes |
 | `data_curated/` | Curated datasets |
-| `output/train/<run name>/` | Trained policies (checkpoints) |
+| `output/train/<run name>/` | Policies trained from the Hub (checkpoints) |
+| `models/` | Recommended folder for models downloaded from Hugging Face |
+| `outputs/eval/<name>_<backend>_<date>/` | Policy evaluation logs, `summary.json`, and `videos/*.mp4` |
 | `src/hub_dataset/logs/` | Full log of each Hub run (training logs in `training/`) |
 
 The upload to Hugging Face includes the `data/`, `meta/` and `videos/` folders.
