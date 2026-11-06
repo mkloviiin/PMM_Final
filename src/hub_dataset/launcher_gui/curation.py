@@ -50,6 +50,14 @@ def _extract_repo_id(dataset_path: str) -> str:
         return state.last_repo_id
 
     try:
+        with open(path / "meta" / "control_config.json", encoding="utf-8") as f:
+            cfg = json.load(f)
+        if cfg.get("repo_id"):
+            return str(cfg["repo_id"]).strip()
+    except Exception:
+        pass
+
+    try:
         with open(path / "meta" / "info.json", encoding="utf-8") as f:
             info = json.load(f)
         rid = info.get("repo_id") or info.get("name")
@@ -61,7 +69,9 @@ def _extract_repo_id(dataset_path: str) -> str:
     name = path.name
     m = re.match(r'^(.+)_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$', name)
     base = m.group(1) if m else name
-    if '_' in base:
+    if base.startswith("local_"):
+        return "local/" + base[6:]
+    if '_' in base and not base.startswith("icub_"):
         idx = base.index('_')
         return base[:idx] + '/' + base[idx + 1:]
     return base
@@ -497,7 +507,6 @@ def run_packaging(dataset_path, whole_kept, action_kept, state_kept,
         return gr.update(value="Load a dataset first.")
 
     rid = (new_repo_id.strip() or f"{_extract_repo_id(dataset_path)}_curated")
-    rid = rid if "/" in rid else f"local/{rid}"
 
     features = state.viz_info.get("features", {})
     all_whole = [k for k in features if k not in state.RESERVED_FEATURES]

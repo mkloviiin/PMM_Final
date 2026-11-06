@@ -304,6 +304,28 @@ def package_dataset(
             _log("Applying Language Instruction changes...")
             modify_tasks(current, new_task=task_global, episode_tasks=episode_tasks)
 
+        # Propagate and update control metadata (meta/control_config.json)
+        src_meta_json = source_root / "meta" / "control_config.json"
+        if src_meta_json.is_file():
+            dst_meta_dir = final_root / "meta"
+            dst_meta_dir.mkdir(parents=True, exist_ok=True)
+            dst_meta_json = dst_meta_dir / "control_config.json"
+            try:
+                import json
+                from datetime import datetime, timezone
+                with open(src_meta_json, "r", encoding="utf-8") as f:
+                    ctrl_meta = json.load(f)
+                ctrl_meta.setdefault("recording", {})
+                ctrl_meta["recording"]["total_episodes"] = int(current.num_episodes)
+                ctrl_meta.setdefault("provenance", {})
+                ctrl_meta["provenance"]["curated_from"] = source_root.name
+                ctrl_meta["provenance"]["curated_at"] = datetime.now(timezone.utc).isoformat()
+                with open(dst_meta_json, "w", encoding="utf-8") as f:
+                    json.dump(ctrl_meta, f, indent=2, ensure_ascii=False)
+                _log(f"Propagated and updated control metadata to: {dst_meta_json}")
+            except Exception as exc:
+                _log(f"Warning: Failed to update control_config.json in curated dataset: {exc}")
+
         shutil.rmtree(tmp_root, ignore_errors=True)
         _log(f"Curated dataset at: {final_root}")
         return final_root

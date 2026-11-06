@@ -76,7 +76,7 @@
         mirror_y: true
     - body: "red-cube"
       spawn:
-        x: [0.3025, 0.40]
+        x: [0.3125, 0.40]
         y: [0.02, 0.09]          # el brazo derecho lo apila bien hasta y = 0.09; desde 0.12 pierde
                                  # orientación y desde 0.15 no llega (hasta el 2026-10-26: [0.05, 0.20])
         z: 0.745

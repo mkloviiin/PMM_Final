@@ -21,6 +21,7 @@ with a virtual reality headset (Meta Quest 2) using BeaVR, or interactively usin
   - [Working with datasets (Hugging Face & local)](#working-with-datasets-hugging-face--local)
   - [Replaying a dataset in MuJoCo (reproducibility check)](#replaying-a-dataset-in-mujoco-reproducibility-check)
   - [Downloading & evaluating a trained policy](#downloading--evaluating-a-trained-policy)
+  - [Controller metadata & naming conventions (`control_config.json`)](#controller-metadata--naming-conventions-control_configjson)
 - [Architecture](#architecture)
 - [Hub modules](#hub-modules)
 - [How to add a robot (Pending validation)](#how-to-add-a-robot-pending-validation)
@@ -299,21 +300,22 @@ pixi run python metrics/dataset_check.py data/CAMADA-UTFSM_BlockStacking_wb_icub
 
 1. **Deterministic reset:** Places the iCub at `home_qpos` with open hands and settles physics for `0.5 s` (matching recording and policy evaluation).
 2. **Exact initial scene restoration (`root` → `world`):** Reads frame `0` of `observation.state` (`obj0_pos_*` / `obj0_quat_*`, `obj1_pos_*` / `obj1_quat_*`, etc.), converts each object pose from the recorded iCub `root` frame back to MuJoCo `world` coordinates, and restores all tabletop objects (e.g. `blue-cube` and `red-cube` in *Block Stacking*) or door configuration before stepping actions.
-3. **Whole-body action playback & verification:** Steps the recorded actions through TSIK (`--controller ik`) or TSID (`--controller id [--impedance]`), automatically inferring the scene and active arms (`both`, `right`, or `left`), and reports both task success ([metrics/README.md](metrics/README.md)) and Cartesian end-effector tracking error (`EE RMSE` in mm).
+3. **Whole-body action playback & verification:** Automatically reads the exact controller configuration (`tsik` vs `tsid`, mode, and impedance) from `meta/control_config.json`, steps recorded actions through the matching solver, automatically infers the scene and active arms (`both`, `right`, or `left`), and reports both task success ([metrics/README.md](metrics/README.md)) and Cartesian end-effector tracking error (`EE RMSE` in mm).
+
+> [!IMPORTANT]
+> `replay_mujoco.py` strictly requires `meta/control_config.json` inside the dataset directory. If missing, replay aborts immediately with a fatal error to prevent executing demonstrations under mismatched controller physics.
 
 ```bash
-# 1. Download a dataset from Hugging Face into a custom folder and replay 5 episodes:
+# 1. Download a dataset from Hugging Face into data/ and replay 5 episodes (controller auto-configured):
 pixi run python replay_mujoco.py \
     --repo-id CAMADA-UTFSM/BlockStacking_wb_icub \
     --download-dir data/CAMADA-UTFSM_BlockStacking_wb_icub \
-    --scene "Block Stacking" \
     --episodes 5
 
-# 2. Replay specific 0-based episodes from a local dataset (with TSID + impedance):
+# 2. Replay specific 0-based episodes from a local dataset (controller auto-configured from meta/control_config.json):
 pixi run python replay_mujoco.py \
     --root data/CAMADA-UTFSM_BlockStacking_wb_icub \
-    --episode 0 4 9 \
-    --controller id --impedance
+    --episode 0 4 9
 
 # 3. Fast headless reproducibility audit across ALL episodes (saving a JSON report):
 pixi run python replay_mujoco.py \
@@ -375,7 +377,7 @@ Training runs launched from Tab **4. Train** of the Hub save checkpoints under `
 #### Running policy evaluation
 
 ```bash
-# 1. Evaluate a local checkpoint trained in the Hub (20 episodes in MuJoCo):
+# 1. Evaluate a local checkpoint trained in the Hub (20 episodes in MuJoCo, controller auto-configured):
 pixi run python eval_policy.py \
     --checkpoint output/train/<run_name>/checkpoints/last/pretrained_model \
     --scene "Block Stacking" \
@@ -387,17 +389,18 @@ pixi run python eval_policy.py \
     --download-dir models/CAMADA-UTFSM_<model_repo> \
     --dataset-meta CAMADA-UTFSM/BlockStacking_wb_icub \
     --scene "Block Stacking" \
-    --controller ik \
     --num-episodes 20
 
-# 3. Evaluate in Gazebo Sim with TSID + Cartesian impedance:
+# 3. Evaluate in Gazebo Sim:
 pixi run python eval_policy.py \
     --checkpoint models/CAMADA-UTFSM_<model_repo> \
     --backend gazebo \
     --scene "Block Stacking" \
-    --controller id --impedance \
     --num-episodes 10
 ```
+
+> [!IMPORTANT]
+> `eval_policy.py` strictly requires `control_config.json` in the checkpoint root directory (or retrieved via `--dataset-meta`). If missing, evaluation aborts immediately with a fatal error to guarantee the policy is never evaluated with incompatible control dynamics.
 
 > [!NOTE]
 > When evaluating a checkpoint trained on another machine (or downloaded from Hugging Face), passing `--dataset-meta <local_dataset_dir_or_hf_repo_id>` (e.g. `--dataset-meta data/CAMADA-UTFSM_BlockStacking_wb_icub` or `--dataset-meta CAMADA-UTFSM/BlockStacking_wb_icub`) ensures `eval_policy.py` recovers the exact `observation.state` and `action` feature names even if the checkpoint was trained on a curated feature subset. If omitted, `eval_policy.py` automatically looks up `train_config.json` and local/remote `meta/info.json`.
@@ -440,6 +443,87 @@ Each evaluation run writes to `outputs/eval/<name>_<backend>_<date>/` (rewritten
   - `episodes`: per-episode breakdown including `initial_objects`, `success_step`, `success_time_s`, `infer_ms_mean` / `infer_ms_max`, and `video_start_s` / `video_end_s`.
 - **`videos/<camera>.mp4`**: continuous RGB recordings of what each policy camera observed across all episodes (indexed by `video_start_s` and `video_end_s` in `summary.json`).
 - **`eval.log`**: full console log of the run. On the real robot (`--backend real`), the operator places the objects before each episode and confirms whether the rollout succeeded.
+
+---
+
+### Controller metadata & naming conventions (`control_config.json`)
+
+To ensure physical reproducibility between teleoperation, replay, training, and policy evaluation, every dataset and trained model checkpoint is paired with a strictly validated controller configuration file.
+
+#### 1. Why controller metadata is critical
+The whole-body controllers in `config/control_config.yaml` differ fundamentally in action dynamics:
+- **TSIK (`ik`)**: Solves a kinematic Quadratic Program producing joint velocities $\dot{q}^*$, streamed directly to position actuators (`position_direct`).
+- **TSID (`id`)**: Solves a dynamic QP producing motor torques $\tau^*$ (`torque`), or integrates Cartesian task compliance (`impedance`).
+
+Evaluating a policy trained on TSID torques inside an IK environment (or vice-versa) leads to uncontrollable instability or frozen joints. Persisting controller metadata guarantees that any downstream evaluation or replay script automatically configures the exact solver without human error.
+
+#### 2. File locations and schema
+- **In Datasets**: Stored at `<dataset_root>/meta/control_config.json`.
+- **In Model Checkpoints**: Stored at `<checkpoint_root>/control_config.json`.
+
+```json
+{
+  "schema_version": "1.0",
+  "control": {
+    "type": "tsid",
+    "mode": "torque",
+    "impedance_enabled": false
+  },
+  "parameters": {
+    "tasks": {
+      "torso": {"weight": 10.0, "kp": 50.0, "kd": 14.14},
+      "root_link": {"weight": 100.0, "kp": 100.0, "kd": 20.0},
+      "l_hand": {"weight": 1000.0, "kp": 100.0, "kd": 20.0},
+      "r_hand": {"weight": 1000.0, "kp": 100.0, "kd": 20.0}
+    },
+    "regularization": {"weight": 0.001}
+  },
+  "provenance": {
+    "task": "Block Stacking",
+    "backend": "mujoco",
+    "recorded_fps": 30,
+    "total_episodes": 50,
+    "timestamp": "2026-11-05T15:20:00Z"
+  }
+}
+```
+
+##### Supported controller modes:
+- **`tsik`**:
+  - `"position_direct"`: Integrated QP velocities streamed directly to actuators without minimum-jerk interpolation (standard nominal mode).
+  - `"position"`: Minimum-jerk trajectory generator (`positionMove`).
+  - `"velocity"`: Classical closed-loop velocity control.
+  - `"velocity_direct"`: Direct velocity streaming.
+- **`tsid`**:
+  - `"torque"`: Nominal whole-body inverse dynamics producing motor torques $\tau^*$.
+  - `"impedance"`: Compliant Cartesian impedance control active.
+
+#### 3. Strict enforcement policy (zero tolerance for uncharacterized assets)
+To prevent uncharacterized or corrupted runs:
+- **`train_policy.py`**: Verifies that `meta/control_config.json` exists in the dataset before training starts. If missing, it immediately cancels execution. Upon successful training, it copies `control_config.json` into the output checkpoint directory.
+- **`replay_mujoco.py`**: Aborts immediately with exit code 1 if `meta/control_config.json` is missing.
+- **`eval_policy.py`**: Aborts immediately with exit code 1 if `control_config.json` is missing from the checkpoint (or unretrievable via `--dataset-meta`).
+
+#### 4. Standardized naming taxonomy
+For clarity locally and on Hugging Face Hub (`CAMADA-UTFSM`), datasets and models follow a deterministic naming pattern:
+
+##### Dataset naming convention:
+```
+<Org>/<Robot>_<Sim>_<Controller>_<Mode>_<Task>_<Demos>eps
+```
+Examples:
+- `CAMADA-UTFSM/icub_mujoco_tsid_torque_block-stacking_50eps`
+- `CAMADA-UTFSM/icub_mujoco_tsik_position-direct_door-opening_100eps`
+- `CAMADA-UTFSM/icub_gazebo_tsid_impedance_two-arm-lifting_50eps`
+
+##### Model checkpoint naming convention:
+```
+<Org>/<BaseModel>-<Robot>_<Sim>_<Controller>_<Mode>_<Task>_<Demos>eps_<Epochs>ep
+```
+Examples:
+- `CAMADA-UTFSM/smolvla-icub_mujoco_tsid_torque_block-stacking_50eps_20ep`
+- `CAMADA-UTFSM/smolvla-icub_mujoco_tsik_position-direct_door-opening_100eps_50ep`
+- `CAMADA-UTFSM/smolvla-icub_mujoco_tsid_torque_multitask_300eps_50ep`
 
 ---
 

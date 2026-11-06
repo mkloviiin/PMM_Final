@@ -651,6 +651,42 @@ def main():
     hf_token = args.hf_token or os.environ.get("HF_TOKEN") or True
 
     ckpt_source, name = resolve_checkpoint_source(args)
+
+    # Strictly require control_config.json in checkpoint or dataset_meta (Option 4.B)
+    control_config_file = Path(ckpt_source) / "control_config.json"
+    if not control_config_file.is_file() and args.dataset_meta:
+        dm_path = Path(args.dataset_meta).expanduser().resolve()
+        if (dm_path / "meta" / "control_config.json").is_file():
+            control_config_file = dm_path / "meta" / "control_config.json"
+
+    if not control_config_file.is_file():
+        print(
+            f"\n[eval][FATAL ERROR] Checkpoint at '{ckpt_source}' is missing required 'control_config.json'.\n"
+            "Uncharacterized models without control metadata are strictly not allowed.\n",
+            file=sys.stderr,
+            flush=True,
+        )
+        sys.exit(1)
+
+    try:
+        with open(control_config_file, "r", encoding="utf-8") as f:
+            control_meta = json.load(f)
+    except Exception as e:
+        print(f"[eval][FATAL ERROR] Failed to parse {control_config_file}: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    ctrl_type = control_meta.get("control", {}).get("type", "tsid")
+    args.controller = "id" if ctrl_type in ("id", "tsid") else "ik"
+    args.impedance = bool(control_meta.get("control", {}).get("impedance_enabled", False))
+    print(
+        f"[eval] Auto-configured from control_config.json: "
+        f"Controller={args.controller.upper()} ({ctrl_type}), Mode={control_meta.get('control', {}).get('mode')}, "
+        f"Impedance={args.impedance}"
+    )
+
+    if args.impedance and args.controller != "id":
+        args.impedance = False
+
     run_dir = Path(args.out) if args.out else (
         repo_root / "outputs" / "eval" / f"{name}_{args.backend}_{time.strftime('%Y%m%d-%H%M%S')}")
     run_dir.mkdir(parents=True, exist_ok=True)

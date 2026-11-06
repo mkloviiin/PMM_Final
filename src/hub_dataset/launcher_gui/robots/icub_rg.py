@@ -38,7 +38,8 @@ from .. import ports, procman, session
 from ..paths import ASSETS_DIR, REPO_ROOT, PLAY_SCRIPT
 from ..ui.dir_picker import dir_textbox
 from .base import RobotBackend
-from .solver import SOLVERS, solver_argv, solver_dropdown
+from .solver import SOLVERS, solver_argv, solver_dropdown, _yaml_solver
+from interfaces.control_metadata import generate_standard_dataset_name
 
 # ── Rutas de simulación y control ────────────────────────────────────────────
 _SCENES_DIR = REPO_ROOT / "mujoco_sim" / "assets" / "scenes"
@@ -267,8 +268,25 @@ def _bridge_play(argv, *, cmd_source, on_status, dataset_root: Path | None = Non
 
 
 # ── Formulario de configuración ──────────────────────────────────────────────
+def _standard_repo_id_for_rg(mode_val: str, scene_label: str, solver_label: str, num_eps: float | int) -> str:
+    sim = "gazebo" if mode_val == MODE_GAZEBO else "real"
+    ctrl, imp = SOLVERS.get(solver_label, ("ik", False))
+    mode = "position-direct" if ctrl == "ik" else ("impedance" if imp else "torque")
+    return generate_standard_dataset_name(
+        robot="icub",
+        sim=sim,
+        controller=ctrl,
+        mode=mode,
+        task_label=scene_label or (list(SCENES)[0] if SCENES else "task"),
+        num_episodes=int(num_eps or 50),
+    )
+
+
 def build_config_form() -> dict[str, gr.components.Component]:
     scene_choices = list(SCENES) or ["(no tasks)"]
+    initial_scene = scene_choices[0]
+    initial_solver = _yaml_solver(_CFG_PATH)
+    initial_repo_id = _standard_repo_id_for_rg(MODE_GAZEBO, initial_scene, initial_solver, 50)
 
     gr.Markdown("### 1. Session settings")
     # .cfg-row (app.py): con "Enable VR" marcado, las dos columnas quedan de la misma altura
@@ -280,14 +298,14 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 info="Gazebo → robot_name=icubSim · Real → robot_name=icub",
             )
             scene_dd = gr.Dropdown(
-                choices=scene_choices, value=scene_choices[0],
+                choices=scene_choices, value=initial_scene,
                 label="Tasks",
                 info="Instruction to record. The MuJoCo mirror always shows the empty "
                      "table; objects are placed in the real world / Gazebo.",
             )
             repo_id_tb = gr.Textbox(
-                value="local/icub_gazebo_demo", label="Repo ID",
-                info="Dataset name (e.g. local/my_dataset)",
+                value=initial_repo_id, label="Repo ID",
+                info="Standardized dataset name (auto-configured from mode/task/solver/episodes, editable)",
             )
             num_eps_nb = gr.Number(
                 value=50, label="Number of episodes (Default: 50)",
@@ -330,6 +348,13 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 label="VR headset IP",
                 elem_classes=["ip-input", "vr-extra"],
             )
+
+    for comp in (mode_dd, scene_dd, solver_dd, num_eps_nb):
+        comp.change(
+            fn=_standard_repo_id_for_rg,
+            inputs=[mode_dd, scene_dd, solver_dd, num_eps_nb],
+            outputs=[repo_id_tb],
+        )
 
     gr.Markdown("---")
     gr.Markdown("### 2. Robot stack — start each part in order")
@@ -498,8 +523,7 @@ def launch(mode, scene_name, repo_id, num_eps, fps, ep_time,
     if not _PLAY.exists():
         return f"play.py not found: {_PLAY}"
 
-    rid = (repo_id.strip() or "local/icub_gazebo_demo")
-    rid = rid if "/" in rid else f"local/{rid}"
+    rid = (repo_id.strip() or _standard_repo_id_for_rg(mode, scene_name, solver, num_eps))
     robot_name = _robot_name(mode)
     if mode == MODE_GAZEBO:
         _prepare_gazebo_scene(scene_name)

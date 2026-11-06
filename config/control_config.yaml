@@ -211,7 +211,7 @@ vr_help: true
 # head_cam). The real eye FOV (38.55 deg) looks too close in the lenses. Only what is seen in the
 # VR changes, not what is recorded. null = same as head_cam. Gazebo uses its own vr camera
 # (gazebo_sim/models/iCubGazeboV2_5_visuomanip_camada/vr_camera_nws.xml).
-vr_head_fovy: 60
+vr_head_fovy: null
 
 # Default fallback spawn range for objects if not specified in scenes.yaml
 cube_spawn:

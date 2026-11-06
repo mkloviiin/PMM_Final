@@ -184,7 +184,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run interactive teleoperation only without recording a LeRobot dataset",
     )
-    parser.add_argument("--repo-id", default="local/icub_demo", help="Dataset repository / experiment name")
+    parser.add_argument("--repo-id", default=None, help="Dataset repository / experiment name")
     parser.add_argument("--root", default=str(repo_root / "data"), help="Dataset output directory")
     parser.add_argument("--dataset-root", default=None, help="Explicit dataset output path")
     parser.add_argument("--fps", type=int, default=30, help="Control & recording FPS (default: 30)")
@@ -471,7 +471,22 @@ def _record_loop(args, session, *, scene_task: str, cameras: list[str]) -> None:
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
 
     dataset = dataset_root = None
-    repo_id = args.repo_id if "/" in args.repo_id else f"local/{args.repo_id}"
+    if args.repo_id:
+        repo_id = str(args.repo_id).strip()
+    else:
+        from interfaces.control_metadata import generate_standard_dataset_name
+        ctrl_type = "tsik" if str(args.controller).lower() in ("ik", "tsik") else "tsid"
+        mode_val = "position-direct" if ctrl_type == "tsik" else ("impedance" if args.impedance else "torque")
+        scene_slug = getattr(args, "scene", None) or (Path(args.model).stem if getattr(args, "model", None) else "task")
+        repo_id = generate_standard_dataset_name(
+            robot="icub",
+            sim=str(session.backend).lower(),
+            controller=ctrl_type,
+            mode=mode_val,
+            task_label=str(scene_slug),
+            num_episodes=args.num_episodes,
+        )
+
     if not args.no_record:
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
         from lerobot.datasets.pipeline_features import aggregate_pipeline_dataset_features, create_initial_features
@@ -496,6 +511,29 @@ def _record_loop(args, session, *, scene_task: str, cameras: list[str]) -> None:
             features=dataset_features, use_videos=has_cameras,
         )
         print(f"[Manual] dataset root: {dataset_root}")
+
+        try:
+            from interfaces.control_metadata import build_control_metadata, save_dataset_control_metadata
+            scene_name_clean = str(args.scene) if getattr(args, "scene", None) else (
+                Path(args.model).stem if getattr(args, "model", None) else "Unknown"
+            )
+            ctrl_meta = build_control_metadata(
+                controller=args.controller,
+                impedance=bool(args.impedance),
+                config_yaml_path=args.config,
+                robot_type="icub",
+                arms=getattr(robot.config, "control_arms", "both") or "both",
+                use_gaze=bool(getattr(session, "use_head_control", True)),
+                backend=session.backend,
+                scene=scene_name_clean,
+                task=scene_task,
+                scene_file=Path(args.model).name if args.model else None,
+                fps=args.fps,
+                repo_id=repo_id,
+            )
+            save_dataset_control_metadata(dataset_root, ctrl_meta)
+        except Exception as e:  # noqa: BLE001
+            print(f"[Manual][warn] Failed to initialize control_config.json: {e}", flush=True)
 
     fm = _make_metrics(
         backend=session.backend, fps=args.fps,
@@ -639,6 +677,29 @@ def _record_loop(args, session, *, scene_task: str, cameras: list[str]) -> None:
             else:
                 try:
                     dataset.finalize()
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    from interfaces.control_metadata import build_control_metadata, save_dataset_control_metadata
+                    scene_name_clean = str(args.scene) if getattr(args, "scene", None) else (
+                        Path(args.model).stem if getattr(args, "model", None) else "Unknown"
+                    )
+                    final_meta = build_control_metadata(
+                        controller=args.controller,
+                        impedance=bool(args.impedance),
+                        config_yaml_path=args.config,
+                        robot_type="icub",
+                        arms=getattr(robot.config, "control_arms", "both") or "both",
+                        use_gaze=bool(getattr(session, "use_head_control", True)),
+                        backend=session.backend,
+                        scene=scene_name_clean,
+                        task=scene_task,
+                        scene_file=Path(args.model).name if args.model else None,
+                        fps=args.fps,
+                        repo_id=repo_id,
+                        total_episodes=recorded,
+                    )
+                    save_dataset_control_metadata(dataset_root, final_meta)
                 except Exception:  # noqa: BLE001
                     pass
 

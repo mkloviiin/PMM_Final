@@ -53,6 +53,42 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
 
+    # 1. Strictly verify presence of meta/control_config.json before training
+    ds_root = Path(args.dataset_root).expanduser().resolve()
+    clean_id = args.dataset_repo_id.replace("local/", "").replace("/", "_")
+    candidates = [
+        Path(args.dataset_repo_id).expanduser().resolve(),
+        ds_root / args.dataset_repo_id,
+        ds_root / args.dataset_repo_id.replace("/", "_"),
+        ds_root / clean_id,
+    ]
+    candidates.extend(ds_root.glob(f"{args.dataset_repo_id.replace('/', '_')}_*"))
+    candidates.extend(ds_root.glob(f"{clean_id}_*"))
+    candidates.extend(ds_root.glob(f"local_{clean_id}_*"))
+
+    found_dataset_dir: Path | None = None
+    for cand in candidates:
+        if cand.is_dir() and (cand / "meta" / "info.json").is_file():
+            found_dataset_dir = cand
+            break
+
+    if found_dataset_dir is None:
+        print(f"[train][error] Dataset '{args.dataset_repo_id}' not found under '{args.dataset_root}'.", file=sys.stderr)
+        sys.exit(1)
+
+    control_config_file = found_dataset_dir / "meta" / "control_config.json"
+    if not control_config_file.is_file():
+        print(
+            f"\n[train][FATAL ERROR] Dataset at '{found_dataset_dir}' is missing required 'meta/control_config.json'.\n"
+            "All datasets must be characterized with controller and solver parameters before training.\n"
+            "Training is cancelled.\n",
+            file=sys.stderr,
+            flush=True,
+        )
+        sys.exit(1)
+
+    print(f"[train] Verified dataset control metadata: {control_config_file}")
+
     cmd = [
         sys.executable,
         "-m",
@@ -82,6 +118,19 @@ def main():
     env["PYTHONPATH"] = f"{str(repo_root)}:{env.get('PYTHONPATH', '')}"
 
     result = subprocess.run(cmd, env=env)
+
+    if result.returncode == 0:
+        out_dir = Path(args.output_dir).expanduser().resolve()
+        if out_dir.is_dir():
+            import shutil
+            shutil.copy2(control_config_file, out_dir / "control_config.json")
+            ckpts_dir = out_dir / "checkpoints"
+            if ckpts_dir.is_dir():
+                for ckpt_dir in ckpts_dir.glob("*"):
+                    if ckpt_dir.is_dir():
+                        shutil.copy2(control_config_file, ckpt_dir / "control_config.json")
+            print(f"[train] Control metadata successfully propagated to '{out_dir}'.")
+
     sys.exit(result.returncode)
 
 

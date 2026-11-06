@@ -228,21 +228,30 @@ def resolve_or_download_dataset(args: argparse.Namespace) -> Path:
             "(e.g. --repo-id CAMADA-UTFSM/BlockStacking_wb_icub)."
         )
 
-    # Case 2: local/* pattern lookup under data/ and data_curated/
-    if args.repo_id.startswith("local/"):
-        pattern = f"{args.repo_id.replace('/', '_')}_*"
+    # Case 2: Local lookup under data/ and data_curated/ (handles clean names, local/*, and timestamped dirs)
+    if not args.force_download:
+        clean_name = args.repo_id.replace("local/", "").replace("/", "_")
+        patterns = [
+            f"{clean_name}",
+            f"{clean_name}_*",
+            f"local_{clean_name}_*",
+            f"{args.repo_id.replace('/', '_')}_*",
+        ]
         candidates: list[Path] = []
         for folder in (repo_root / "data", repo_root / "data_curated", repo_root.parent / "data"):
             if folder.is_dir():
-                candidates.extend(
-                    p for p in folder.glob(pattern) if (p / "meta" / "info.json").is_file()
-                )
+                for pat in patterns:
+                    for p in folder.glob(pat):
+                        if (p / "meta" / "info.json").is_file() and p not in candidates:
+                            candidates.append(p)
         if candidates:
             candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            print(f"[replay] Resolved local dataset: {candidates[0]}")
             return candidates[0].resolve()
-        raise FileNotFoundError(
-            f"No local dataset matching '{args.repo_id}' found under data/ or data_curated/."
-        )
+        if args.repo_id.startswith("local/"):
+            raise FileNotFoundError(
+                f"No local dataset matching '{args.repo_id}' found under data/ or data_curated/."
+            )
 
     # Case 3: Remote Hugging Face dataset repo_id
     from huggingface_hub import snapshot_download
@@ -554,11 +563,39 @@ def reset_and_restore_episode(
 
 def main() -> None:
     args = parse_args()
-    if args.impedance and args.controller != "id":
-        print("[replay] --impedance only applies to --controller id: ignored.")
-        args.impedance = False
 
     dataset_dir = resolve_or_download_dataset(args)
+
+    # Strictly require meta/control_config.json (Option 4.B)
+    control_config_file = dataset_dir / "meta" / "control_config.json"
+    if not control_config_file.is_file():
+        print(
+            f"\n[replay][FATAL ERROR] Dataset at '{dataset_dir}' is missing required 'meta/control_config.json'.\n"
+            "Uncharacterized datasets without control metadata are strictly not allowed.\n",
+            file=sys.stderr,
+            flush=True,
+        )
+        sys.exit(1)
+
+    try:
+        with open(control_config_file, "r", encoding="utf-8") as f:
+            control_meta = json.load(f)
+    except Exception as e:
+        print(f"[replay][FATAL ERROR] Failed to parse {control_config_file}: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+
+    ctrl_type = control_meta.get("control", {}).get("type", "tsid")
+    args.controller = "id" if ctrl_type in ("id", "tsid") else "ik"
+    args.impedance = bool(control_meta.get("control", {}).get("impedance_enabled", False))
+    print(
+        f"[replay] Auto-configured from meta/control_config.json: "
+        f"Controller={args.controller.upper()} ({ctrl_type}), Mode={control_meta.get('control', {}).get('mode')}, "
+        f"Impedance={args.impedance}"
+    )
+
+    if args.impedance and args.controller != "id":
+        args.impedance = False
+
     ds = ParquetReplayDataset(dataset_dir)
     raw_ds = ParquetReplayDataset(Path(args.raw_root).expanduser()) if args.raw_root else None
 

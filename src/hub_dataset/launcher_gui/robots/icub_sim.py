@@ -23,7 +23,8 @@ from ..paths import ASSETS_DIR, REPO_ROOT, PLAY_SCRIPT
 from ..ui.dir_picker import dir_textbox
 from .base import RobotBackend
 from .icub_rg import _bridge_play
-from .solver import solver_argv, solver_dropdown
+from .solver import solver_argv, solver_dropdown, SOLVERS, _yaml_solver
+from interfaces.control_metadata import generate_standard_dataset_name
 
 PROJECT_ROOT = REPO_ROOT
 
@@ -78,19 +79,36 @@ def _load_scenes() -> dict[str, tuple[str, str, list, list, list | None]]:
 SCENES = _load_scenes()
 
 
+def _standard_repo_id_for_sim(scene_label: str, solver_label: str, num_eps: float | int) -> str:
+    ctrl, imp = SOLVERS.get(solver_label, ("ik", False))
+    mode = "position-direct" if ctrl == "ik" else ("impedance" if imp else "torque")
+    return generate_standard_dataset_name(
+        robot="icub",
+        sim="mujoco",
+        controller=ctrl,
+        mode=mode,
+        task_label=scene_label or (list(SCENES)[0] if SCENES else "task"),
+        num_episodes=int(num_eps or 50),
+    )
+
+
 def build_config_form() -> dict[str, gr.components.Component]:
+    initial_scene = list(SCENES)[0] if SCENES else "Block Stacking"
+    initial_solver = _yaml_solver(_CFG_PATH)
+    initial_repo_id = _standard_repo_id_for_sim(initial_scene, initial_solver, 50)
+
     gr.Markdown("### 1. Session settings")
     # .cfg-row (app.py): con "Enable VR" marcado, las dos columnas quedan de la misma altura
     with gr.Row(elem_classes=["cfg-row"]):
         with gr.Column(scale=1):
             scene_dd = gr.Dropdown(
-                choices=list(SCENES), value=list(SCENES)[0],
+                choices=list(SCENES), value=initial_scene,
                 label="Tasks",
                 info="Determines the MuJoCo XML and the task",
             )
             repo_id_tb = gr.Textbox(
-                value="local/icub_mujoco_demo", label="Repo ID",
-                info="Dataset name (e.g. local/my_dataset)",
+                value=initial_repo_id, label="Repo ID",
+                info="Standardized dataset name (auto-configured from task/solver/episodes, editable)",
             )
             num_eps_nb = gr.Number(
                 value=50, label="Number of episodes (Default: 50)",
@@ -133,6 +151,22 @@ def build_config_form() -> dict[str, gr.components.Component]:
                 label="VR headset IP",
                 elem_classes=["ip-input", "vr-extra"],
             )
+
+    scene_dd.change(
+        fn=_standard_repo_id_for_sim,
+        inputs=[scene_dd, solver_dd, num_eps_nb],
+        outputs=[repo_id_tb],
+    )
+    solver_dd.change(
+        fn=_standard_repo_id_for_sim,
+        inputs=[scene_dd, solver_dd, num_eps_nb],
+        outputs=[repo_id_tb],
+    )
+    num_eps_nb.change(
+        fn=_standard_repo_id_for_sim,
+        inputs=[scene_dd, solver_dd, num_eps_nb],
+        outputs=[repo_id_tb],
+    )
 
     gr.Markdown("---")
     gr.Markdown("### 2. Launch session")
@@ -204,8 +238,7 @@ def launch(scene_name, repo_id, num_eps, fps, ep_time, vr, vr_ip, vr_cable, cont
     if not cfg_path.exists():
         return f"Config not found: {cfg_path}"
 
-    rid = (repo_id.strip() or "local/icub_mujoco_demo")
-    rid = rid if "/" in rid else f"local/{rid}"
+    rid = (repo_id.strip() or _standard_repo_id_for_sim(scene_name, solver, num_eps))
 
     resolved_vr_ip = vr_ip.strip() if vr_ip else None
     resolved_vr = bool(vr)
