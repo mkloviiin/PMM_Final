@@ -19,6 +19,16 @@ TAXELS_PER_FINGER = 12
 
 QUAT_HEMISPHERE = "hand_y<=0,obj_w>=0"
 
+# Hand joints (9 per hand) without a {joint}_torque feature: Gazebo's controlboards do not publish
+# finger torques (always 0) and the real iCub has no finger torque sensing, so MuJoCo's finger
+# actuator forces would be a feature that never transfers (sim2sim2real). Same set in both plugins.
+HAND_JOINT_SUFFIXES = ("hand_finger", "thumb_oppose", "thumb_proximal", "thumb_distal", "index_proximal",
+                       "index_distal", "middle_proximal", "middle_distal", "pinky")
+
+
+def has_torque_feature(joint: str) -> bool:
+    return joint.split("_", 1)[-1] not in HAND_JOINT_SUFFIXES
+
 
 def canonicalize_quats(values: dict) -> dict:
     """Pasa al hemisferio de QUAT_HEMISPHERE cada cuaternión {prefijo}_quat_{w,x,y,z}
@@ -128,7 +138,7 @@ class iCub(Robot):
             for ax in ("w", "x", "y", "z"):
                 features[f"obj{i}_quat_{ax}"] = float
 
-        for name in self.actuator_list:
+        for name in filter(has_torque_feature, self.actuator_list):
             features[f"{name}_torque"] = float
 
         features.update(self._cameras_ft)
@@ -436,7 +446,7 @@ class iCub(Robot):
         for name in self.actuator_list:
             obs[f"{name}_vel"] = torch.tensor(vals[block + index[name]], dtype=torch.float32)
 
-        for name in self.actuator_list:
+        for name in filter(has_torque_feature, self.actuator_list):
             tau = vals[2 * block + index[name]]
             if math.isnan(tau):
                 tau = 0.0

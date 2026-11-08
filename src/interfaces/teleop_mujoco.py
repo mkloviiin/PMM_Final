@@ -301,6 +301,9 @@ class MuJoCoTeleop:
         self._q_home_20 = self.home_qpos[self._upper_qpos_idxs].copy()
         self.solver.set_posture_reference(self._q_home_20)
         self._q_cmd_20 = self._q_home_20.copy()
+        # IK position setpoint ramp of the current control period (_command_upper_positions)
+        self._ramp_from: Optional[np.ndarray] = None
+        self._ramp_to: Optional[np.ndarray] = None
 
         # Sync solver state with initial MuJoCo state
         self._update_solver_from_mj()
@@ -662,20 +665,46 @@ class MuJoCoTeleop:
                 self._upper_jnt_min,
                 self._upper_jnt_max,
             )
-            self.data.ctrl[self._upper_act_ids] = self._q_cmd_20
+            self._command_upper_positions(self._q_cmd_20)
 
     _solve_ik = _solve_whole_body
+
+    def _command_upper_positions(self, q_target: np.ndarray) -> None:
+        """IK / go home: new position setpoint of the 20 upper-body joints for this control period.
+
+        It is not written to data.ctrl at once: _ramp_upper_ctrl moves the setpoint linearly from the
+        previous one over the physics substeps of the period, so the joints move continuously, as in
+        Gazebo and on the real iCub (their controlboards follow position_direct references at 1 kHz).
+        With one step setpoint per period the stiff position actuators reached it and stopped inside
+        the period: the joints moved in pulses and qvel read at the observation was ~0 (or of the
+        opposite sign), unlike the velocities Gazebo / the real robot report (sim2sim2real).
+        """
+        self._ramp_from = self.data.ctrl[self._upper_act_ids].copy()
+        self._ramp_to = np.array(q_target, dtype=np.float64)
+
+    def _ramp_upper_ctrl(self, k: int, n: int) -> None:
+        """Setpoint of physics substep k (0..n-1) of the control period; substep n-1 reaches the target
+        and ends the ramp (direct ctrl writes outside a ramp, e.g. resets, are left untouched)."""
+        if self._ramp_to is None:
+            return
+        a = (k + 1) / n
+        self.data.ctrl[self._upper_act_ids] = self._ramp_from + (self._ramp_to - self._ramp_from) * a
+        if k + 1 >= n:
+            self._ramp_from = self._ramp_to = None
 
     def _step_physics(self):
         """
         Advance MuJoCo physics by `self.frame_skip` substeps.
-        When `controller_type == 'id'` (TSID), computes optimal torques tau* at every physics substep.
+        When `controller_type == 'id'` (TSID), computes optimal torques tau* at every physics substep;
+        with 'ik', ramps the position setpoint over the substeps (_command_upper_positions).
         """
-        for _ in range(self.frame_skip):
+        for k in range(self.frame_skip):
             if self.controller_type == "id":
                 self._update_solver_from_mj()
                 tau_opt = self.solver.step()
                 self.data.ctrl[self._upper_act_ids] = tau_opt
+            else:
+                self._ramp_upper_ctrl(k, self.frame_skip)
             mujoco.mj_step(self.model, self.data)
 
     # ========================= GO HOME =====================================
@@ -692,7 +721,7 @@ class MuJoCoTeleop:
         """Advance one step of the minimum-jerk go-home trajectory."""
         if self._home_step >= self._home_total_steps:
             if self.controller_type == "ik":
-                self.data.ctrl[self._upper_act_ids] = self._home_target_q
+                self._command_upper_positions(self._home_target_q)
                 self._q_cmd_20 = self._home_target_q.copy()
             else:
                 self.solver.set_posture_reference(self._home_target_q)
@@ -705,7 +734,7 @@ class MuJoCoTeleop:
         s = 10.0 * (tau ** 3) - 15.0 * (tau ** 4) + 6.0 * (tau ** 5)
         q_des = self._home_start_q + (self._home_target_q - self._home_start_q) * s
         if self.controller_type == "ik":
-            self.data.ctrl[self._upper_act_ids] = q_des
+            self._command_upper_positions(q_des)
             self._q_cmd_20 = q_des.copy()
         else:
             # Update FK targets along q_des for smooth TSID homing

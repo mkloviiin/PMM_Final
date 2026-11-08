@@ -19,6 +19,16 @@ from .config_icub_mujoco import iCubMuJoCoConfig
 
 QUAT_HEMISPHERE = "hand_y<=0,obj_w>=0"
 
+# Hand joints (9 per hand) without a {joint}_torque feature: Gazebo's controlboards do not publish
+# finger torques (always 0) and the real iCub has no finger torque sensing, so MuJoCo's finger
+# actuator forces would be a feature that never transfers (sim2sim2real). Same set in both plugins.
+HAND_JOINT_SUFFIXES = ("hand_finger", "thumb_oppose", "thumb_proximal", "thumb_distal", "index_proximal",
+                       "index_distal", "middle_proximal", "middle_distal", "pinky")
+
+
+def has_torque_feature(joint: str) -> bool:
+    return joint.split("_", 1)[-1] not in HAND_JOINT_SUFFIXES
+
 
 def canonicalize_quats(values: dict) -> dict:
     """Pasa al hemisferio de QUAT_HEMISPHERE cada cuaternión {prefijo}_quat_{w,x,y,z}
@@ -169,8 +179,8 @@ class iCubMuJoCo(Robot):
             for ax in ("w", "x", "y", "z"):
                 features[f"obj{i}_quat_{ax}"] = float
 
-        # Joint torques
-        for name in self.actuator_list:
+        # Joint torques (arms, torso, head; not the hands: has_torque_feature)
+        for name in filter(has_torque_feature, self.actuator_list):
             features[f"{name}_torque"] = float
 
         # Cameras
@@ -444,8 +454,6 @@ class iCubMuJoCo(Robot):
         else:
             self._set_targets_from_action(action)
 
-        dt = self.teleop_core.model.opt.timestep
-        sim_steps_needed = max(1, int(round(self.config.control_dt / dt)))
         t_phys = time.perf_counter()
 
         if self.teleop_core.state == "going_home":
@@ -454,15 +462,12 @@ class iCubMuJoCo(Robot):
             self.teleop_core._solve_whole_body()
         self.teleop_core._interpolate_hands()
 
-        for _ in range(sim_steps_needed):
-            if self.teleop_core.controller_type == "id":
-                self.teleop_core._update_solver_from_mj()
-                tau_opt = self.teleop_core.solver.step()
-                self.teleop_core.data.ctrl[self.teleop_core._upper_act_ids] = tau_opt
-            mujoco.mj_step(self.teleop_core.model, self.teleop_core.data)
+        # frame_skip = control_dt / timestep substeps: TSID torques per substep, or the TSIK position
+        # setpoint ramped over the substeps (continuous joint motion, as in Gazebo / the real iCub)
+        self.teleop_core._step_physics()
 
         self.metrics_meta["physics_ms"] = (time.perf_counter() - t_phys) * 1000.0
-        self.metrics_meta["sim_steps"] = sim_steps_needed
+        self.metrics_meta["sim_steps"] = self.teleop_core.frame_skip
 
         self._last_action = {
             k: self._to_float(v) if isinstance(v, torch.Tensor) else float(v)
@@ -639,7 +644,7 @@ class iCubMuJoCo(Robot):
                     obs[f"{prefix}_{suffix}"] = torch.tensor(0.0, dtype=torch.float32)
 
         # 7. Joint torques
-        for name in self.actuator_list:
+        for name in filter(has_torque_feature, self.actuator_list):
             if name in self._actuator_id_by_name:
                 aid = self._actuator_id_by_name[name]
                 torque = float(data.actuator_force[aid])
