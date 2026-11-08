@@ -257,6 +257,33 @@ def load_checkpoint_control_metadata(checkpoint_dir: Path | str) -> dict[str, An
     return data
 
 
+def find_model_control_config(checkpoint_dir: Path | str, dataset_meta: Path | str | None = None) -> Path | None:
+    """Locate the control metadata of a trained model, without copying it at training time.
+
+    Search order: `control_config.json` in the checkpoint, then `meta/control_config.json` of the
+    dataset it was trained on (`dataset.root` in the checkpoint's `train_config.json`), then
+    `meta/control_config.json` of `dataset_meta`. Returns None if none exists.
+    """
+    ckpt = Path(checkpoint_dir).expanduser()
+    candidates = [ckpt / "control_config.json"]
+    try:
+        root = json.loads((ckpt / "train_config.json").read_text(encoding="utf-8"))["dataset"]["root"]
+        if root:
+            candidates.append(Path(root).expanduser() / "meta" / "control_config.json")
+    except (OSError, KeyError, TypeError, ValueError):
+        pass
+    if dataset_meta:
+        candidates.append(Path(dataset_meta).expanduser().resolve() / "meta" / "control_config.json")
+    return next((c for c in candidates if c.is_file()), None)
+
+
+def controller_from_metadata(metadata: dict[str, Any]) -> tuple[str, bool]:
+    """(controller, impedance) for the runtime: 'id' for TSID, 'ik' otherwise; impedance only with ID."""
+    ctrl = metadata.get("control", {})
+    controller = "id" if str(ctrl.get("type", "tsid")).lower() in ("id", "tsid") else "ik"
+    return controller, controller == "id" and bool(ctrl.get("impedance_enabled", False))
+
+
 def copy_control_metadata_to_checkpoint(
     source_dataset_root_or_file: Path | str,
     target_checkpoint_dir: Path | str,

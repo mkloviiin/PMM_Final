@@ -321,7 +321,7 @@ pixi run python replay_mujoco.py \
 pixi run python replay_mujoco.py \
     --root data/CAMADA-UTFSM_BlockStacking_wb_icub \
     --episodes 0 --no-viewer --fast \
-    --out outputs/replay/block_stacking_repro.json
+    --out output/replay/block_stacking_repro.json
 ```
 
 > [!TIP]
@@ -364,10 +364,10 @@ pixi run python replay_mujoco.py \
 You can either pre-download a checkpoint into any local folder with `hf download`, or let `eval_policy.py` download it directly via `--checkpoint <org/model> --download-dir <folder>`:
 
 ```bash
-# Pre-download a trained checkpoint from Hugging Face into models/:
+# Pre-download a trained checkpoint from Hugging Face into output/models/:
 pixi run hf download CAMADA-UTFSM/<model_repo> \
     --repo-type model \
-    --local-dir models/CAMADA-UTFSM_<model_repo>
+    --local-dir output/models/CAMADA-UTFSM_<model_repo>
 ```
 
 #### Option B: Use a locally trained checkpoint
@@ -383,17 +383,17 @@ pixi run python eval_policy.py \
     --scene "Block Stacking" \
     --num-episodes 20
 
-# 2. Download a Hugging Face checkpoint into models/ (or reuse if already downloaded) and evaluate:
+# 2. Download a Hugging Face checkpoint into output/models/ (or reuse if already downloaded) and evaluate:
 pixi run python eval_policy.py \
     --checkpoint CAMADA-UTFSM/<model_repo> \
-    --download-dir models/CAMADA-UTFSM_<model_repo> \
+    --download-dir output/models/CAMADA-UTFSM_<model_repo> \
     --dataset-meta CAMADA-UTFSM/BlockStacking_wb_icub \
     --scene "Block Stacking" \
     --num-episodes 20
 
 # 3. Evaluate in Gazebo Sim:
 pixi run python eval_policy.py \
-    --checkpoint models/CAMADA-UTFSM_<model_repo> \
+    --checkpoint output/models/CAMADA-UTFSM_<model_repo> \
     --backend gazebo \
     --scene "Block Stacking" \
     --num-episodes 10
@@ -430,11 +430,11 @@ pixi run python eval_policy.py \
 | `--device` | `cuda`, `cpu` (default: `cuda`) | Torch inference device |
 | `--no-viewer` | flag | Run headless without opening MuJoCo or OpenCV camera windows |
 | `--no-video` | flag | Disable saving MP4 recordings of the policy cameras |
-| `--out` | directory path | Output directory (default: `outputs/eval/<name>_<backend>_<YYYYMMDD-HHMMSS>`) |
+| `--out` | directory path | Output directory (default: `output/eval/<name>_<backend>_<YYYYMMDD-HHMMSS>`) |
 
 #### Understanding evaluation outputs
 
-Each evaluation run writes to `outputs/eval/<name>_<backend>_<date>/` (rewritten after every episode so interrupted runs keep partial results):
+Each evaluation run writes to `output/eval/<name>_<backend>_<date>/` (rewritten after every episode so interrupted runs keep partial results):
 
 - **`summary.json`**:
   - `success_rate` / `results.success_rate_pct`: fraction of episodes where the task criterion held (at any step for general tasks; on the final state for *Block Stacking*).

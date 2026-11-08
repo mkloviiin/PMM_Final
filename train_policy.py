@@ -38,8 +38,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default=str(repo_root / "outputs" / "train"),
-        help="Directory to save checkpoints and logs",
+        default=None,
+        help="Run directory for checkpoints and logs (must not exist; default: output/train/<dataset>_<policy>)",
     )
     parser.add_argument("--batch-size", type=int, default=8, help="Training batch size")
     parser.add_argument("--training-steps", type=int, default=20000, help="Total training steps")
@@ -89,26 +89,49 @@ def main():
 
     print(f"[train] Verified dataset control metadata: {control_config_file}")
 
+    if args.output_dir is None:
+        base = repo_root / "output" / "train" / f"{found_dataset_dir.name}_{args.policy_type}"
+        out, n = base, 2
+        while out.exists():  # lerobot aborta si output_dir ya existe (salvo --resume)
+            out, n = base.with_name(f"{base.name}_{n}"), n + 1
+        args.output_dir = str(out)
+
+    # SmolVLA: igual que el tab Train del Hub. Por defecto lerobot recorta el estado a 32 dims y
+    # no carga los pesos del VLM.
+    policy_extra: list[str] = []
+    if args.policy_type == "smolvla":
+        import json
+        feats = json.loads((found_dataset_dir / "meta" / "info.json").read_text())["features"]
+        policy_extra = [
+            "--policy.load_vlm_weights=true",
+            f"--policy.max_state_dim={max(32, feats['observation.state']['shape'][0])}",
+            f"--policy.max_action_dim={max(32, feats['action']['shape'][0])}",
+        ]
+
+    # lerobot-train sin cambios. eval_policy.py lee los metadatos de control desde el dataset
+    # (dataset.root en train_config.json de cada checkpoint).
     cmd = [
         sys.executable,
         "-m",
-        "lerobot.scripts.train",
-        f"--dataset.repo_id={args.dataset_repo_id}",
-        f"--dataset.root={args.dataset_root}",
+        "lerobot.scripts.lerobot_train",
+        f"--dataset.repo_id=local/{found_dataset_dir.name}",
+        f"--dataset.root={found_dataset_dir}",
         f"--policy.type={args.policy_type}",
+        f"--policy.device={args.device}",
+        "--policy.push_to_hub=false",
+        *policy_extra,
         f"--output_dir={args.output_dir}",
-        f"--training.batch_size={args.batch_size}",
-        f"--training.steps={args.training_steps}",
-        f"--training.save_checkpoint_interval={args.save_freq}",
-        f"--training.log_freq={args.log_freq}",
-        f"--device={args.device}",
+        f"--batch_size={args.batch_size}",
+        f"--steps={args.training_steps}",
+        f"--save_freq={args.save_freq}",
+        f"--log_freq={args.log_freq}",
         f"--wandb.enable={'true' if args.wandb else 'false'}",
     ]
 
     print("\n=======================================================")
     print(f" Starting LeRobot Policy Training")
     print(f" Policy:    {args.policy_type.upper()}")
-    print(f" Dataset:   {args.dataset_repo_id} (root: {args.dataset_root})")
+    print(f" Dataset:   {found_dataset_dir}")
     print(f" Steps:     {args.training_steps} (batch size: {args.batch_size})")
     print(f" Output:    {args.output_dir}")
     print(f" Command:   {' '.join(cmd)}")
@@ -118,19 +141,6 @@ def main():
     env["PYTHONPATH"] = f"{str(repo_root)}:{env.get('PYTHONPATH', '')}"
 
     result = subprocess.run(cmd, env=env)
-
-    if result.returncode == 0:
-        out_dir = Path(args.output_dir).expanduser().resolve()
-        if out_dir.is_dir():
-            import shutil
-            shutil.copy2(control_config_file, out_dir / "control_config.json")
-            ckpts_dir = out_dir / "checkpoints"
-            if ckpts_dir.is_dir():
-                for ckpt_dir in ckpts_dir.glob("*"):
-                    if ckpt_dir.is_dir():
-                        shutil.copy2(control_config_file, ckpt_dir / "control_config.json")
-            print(f"[train] Control metadata successfully propagated to '{out_dir}'.")
-
     sys.exit(result.returncode)
 
 

@@ -22,7 +22,7 @@ Examples:
   # 3. Fast headless reproducibility check across all episodes:
   pixi run python replay_mujoco.py \\
       --root data/CAMADA-UTFSM_BlockStacking_wb_icub \\
-      --episodes 0 --no-viewer --fast --out outputs/replay/block_stacking_check.json
+      --episodes 0 --no-viewer --fast --out output/replay/block_stacking_check.json
 """
 
 from __future__ import annotations
