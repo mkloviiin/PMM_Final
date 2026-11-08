@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import gradio as gr
 
-from . import curation, hub_push, session, state, training
+from . import curation, evaluation, hub_push, session, state, training
 from .robots.registry import REGISTRY
 from .ui.tab_config import CONFIG_TAB_ID, ROBOT_HIDDEN, ROBOT_SHOWN, build_config_tab
 from .ui.tab_curation import CURATION_TAB_ID, build_curation_tab
 from .ui import tab_episodes
 from .ui.tab_episodes import EPISODES_CSS, EPISODES_JS, EPISODES_TAB_ID, build_episodes_tab
+from .ui.tab_eval import EVAL_TAB_ID, build_eval_tab
 from .ui.tab_train import TRAIN_CSS, TRAIN_TAB_ID, build_train_tab
 from .ui.welcome import build_welcome_screen
 from .ui.input_filters import INPUT_FILTER_JS
@@ -232,24 +233,32 @@ def build_ui() -> gr.Blocks:
                 available_robots = [r for r in REGISTRY if r.available and r.build_config_form]
                 episodes = build_episodes_tab()
                 c = build_curation_tab()
-                build_train_tab()
+                train = build_train_tab()
+                evaluation_tab = build_eval_tab()
 
-        # ── Entrenamiento en curso: el resto del Hub queda bloqueado (training.py) ──
-        # lock_state = último valor enviado a este navegador: solo se mandan cambios. Al abrir
-        # el Hub con un entrenamiento en curso se salta directo a "Train". "Back to robot
-        # selection" lo bloquea el poller de Episode Control.
+        # ── Entrenamiento o evaluación en curso: el resto del Hub queda bloqueado ──
+        # (training.py / evaluation.py). Solo queda usable la pestaña del trabajo en curso.
+        # lock_state = último valor enviado a este navegador (None o el id de esa pestaña): solo
+        # se mandan cambios. Al abrir el Hub con un trabajo en curso se salta directo a su
+        # pestaña. "Back to robot selection" lo bloquea el poller de Episode Control.
+        # Pollers de Train / Evaluate: fuera de gr.Tabs (un Timer dentro cuenta como pestaña)
+        for job in (train, evaluation_tab):
+            gr.Timer(1.0).tick(fn=job["poll"], outputs=job["poll_outputs"])
+
         lock_state = gr.State(None)
-        locked_tabs = [config_tab, episodes["tab"], c["tab"]]
+        tabs = {CONFIG_TAB_ID: config_tab, EPISODES_TAB_ID: episodes["tab"], CURATION_TAB_ID: c["tab"],
+                TRAIN_TAB_ID: train["tab"], EVAL_TAB_ID: evaluation_tab["tab"]}
 
         def _training_lock(prev):
-            active = training.is_active()
-            if active == prev:
-                return (prev,) + (gr.update(),) * (len(locked_tabs) + 3)
-            nav = ((gr.update(visible=False), gr.update(visible=True), gr.update(selected=TRAIN_TAB_ID))
-                   if active else (gr.update(),) * 3)
-            return (active, *(gr.update(interactive=not active) for _ in locked_tabs), *nav)
+            busy = (TRAIN_TAB_ID if training.is_active() else
+                    EVAL_TAB_ID if evaluation.is_active() else None)
+            if busy == prev:
+                return (prev,) + (gr.update(),) * (len(tabs) + 3)
+            nav = ((gr.update(visible=False), gr.update(visible=True), gr.update(selected=busy))
+                   if busy else (gr.update(),) * 3)
+            return (busy, *(gr.update(interactive=busy in (None, tid)) for tid in tabs), *nav)
 
-        lock_outputs = [lock_state, *locked_tabs, welcome_col, main_col, main_tabs]
+        lock_outputs = [lock_state, *tabs.values(), welcome_col, main_col, main_tabs]
         demo.load(fn=_training_lock, inputs=[lock_state], outputs=lock_outputs)
         gr.Timer(1.0).tick(fn=_training_lock, inputs=[lock_state], outputs=lock_outputs)
 

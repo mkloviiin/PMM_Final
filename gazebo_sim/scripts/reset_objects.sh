@@ -5,6 +5,10 @@
 #   guardada en $ICUB_SCENE_FILE (por defecto /tmp/icub_lerobot_scene); la escribe el Hub al lanzar
 #   la sesion. Sin ese archivo: Block Lifting con el cubo azul en x [-0.5, -0.3], y [-0.1, 0.2]
 #   (marco Gazebo).
+# Lado: $ICUB_SCENE_SIDE = right | left (opcional, lo pasa eval_policy.py en cada episodio) fija el
+#   lado de la tarea como en MuJoCo (src/tools/scene_reset.py): en escenas con `sides`, "left"
+#   espeja en y todos los objetos; en las que solo tienen mirror_y, esos objetos. Sin la variable:
+#   el sorteo 50/50 de mirror_y (`sides` no se usa). La puerta es fija en Gazebo (no cambia de lado).
 # Posiciones: al azar dentro de los rangos de scenes.yaml (marco MuJoCo: x hacia adelante, y a la
 #   izquierda del robot), convertidas al marco de Gazebo, donde el iCub mira hacia -x: (x, y) -> (-x, -y).
 # Cada objeto del yaml necesita su modelo en gazebo_sim/models/<body>/model.sdf; si falta, avisa y lo
@@ -32,6 +36,7 @@ import os, random, sys
 import yaml
 
 yaml_path, scene_file, fixtures_path = sys.argv[1], sys.argv[2], sys.argv[3]
+forced_side = os.environ.get("ICUB_SCENE_SIDE", "").strip().lower()
 LEGACY = ["blue-cube", "blue-cylinder", "red-ball"]      # se borran siempre, aunque no esten en scenes.yaml
 Z_GAZEBO = {"blue-cube": 0.745, "red-cube": 0.745, "pick-cube": 0.74}   # tapa 0.72 + semialtura
 
@@ -56,10 +61,14 @@ else:
     # spawn.mirror_y: un solo sorteo por reset para todos esos objetos; si sale, y cambia de signo
     mirror = -1 if any(o["spawn"].get("mirror_y") for o in scene.get("objects", [])) \
              and random.random() < 0.5 else 1
+    with_sides = scene.get("sides") is not None
+    if forced_side in ("right", "left"):                                  # lado fijado (eval_policy.py)
+        mirror = -1 if forced_side == "left" else 1
     for obj in scene.get("objects", []):
         sp = obj["spawn"]
+        mirrored = sp.get("mirror_y") or (with_sides and forced_side in ("right", "left"))
         x = -pick(sp["x"])                                                # marco MuJoCo -> marco Gazebo
-        y = -pick(sp["y"]) * (mirror if sp.get("mirror_y") else 1)
+        y = -pick(sp["y"]) * (mirror if mirrored else 1)
         z = Z_GAZEBO.get(obj["body"], pick(sp["z"]))
         spawns.append((obj["body"], round(x, 3), round(y, 3), round(z, 3)))
     for fx in fixtures.get(label, []):                                    # piezas fijas de la escena

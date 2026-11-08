@@ -14,7 +14,7 @@ import html
 
 import gradio as gr
 
-from .. import live_view, session, session_log, state, training
+from .. import evaluation, live_view, session, session_log, state, training
 
 EPISODES_TAB_ID = "episodes"
 
@@ -280,7 +280,7 @@ def poll():
     return (
         state_panel_html(), progress_html(), m["fps"], m["latency_ms"], m["size_mb"],
         plot_upd, notes_upd, log_text, log_open, review,
-        gr.update(interactive=not (state.running or training.is_active())),  # "Back to robot selection"
+        gr.update(interactive=not (state.running or training.is_active() or evaluation.is_active())),  # "Back to robot selection"
     )
 
 

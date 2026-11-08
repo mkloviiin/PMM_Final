@@ -21,6 +21,10 @@ D = training.DEFAULTS
 # botón y el log. "Refresh" es un botón cuadrado con ícono, en la fila del título "1. Dataset".
 TRAIN_CSS = """
 .train-status .html-container { padding: 0 !important; }
+/* Nombres y rutas largas (corrida, carpeta de resultados) se cortan dentro del panel */
+.train-status .rec-state { min-width: 0; overflow-wrap: anywhere; }
+.train-status .rec-run-name { font-weight: 700; font-size: 1rem; margin-top: 2px; }
+.train-status code { white-space: normal !important; overflow-wrap: anywhere; word-break: break-all; }
 .train-ds-head { align-items: center !important; }
 button.train-refresh, .train-refresh button {
     width: 34px !important; height: 34px !important; min-width: 34px !important; max-width: 34px !important;
@@ -103,7 +107,7 @@ def build_train_tab():
                 load_vlm_cb = gr.Checkbox(value=D["load_vlm_weights"], label="Load its pretrained weights",
                                           info="Start from the pretrained model instead of random weights")
                 amp_cb = gr.Checkbox(value=D["use_amp"], label="Mixed precision (AMP)",
-                                     info="Half-precision math: faster and uses less GPU memory")
+                                     info="Saved in the model: half-precision when running the policy (training speed is unaffected)")
             with gr.Row():
                 chunk_nb = gr.Number(value=D["chunk_size"], label="Chunk size", precision=0, minimum=1,
                                      info="Future actions predicted at once")
@@ -190,6 +194,6 @@ def build_train_tab():
                 gr.update(interactive=not active),
                 gr.update(visible=bool(run and run.get("status") == "running")))
 
-    gr.Timer(1.0).tick(fn=_poll, outputs=[status_html, log_box, start_btn, stop_btn])
-
-    return dict(tab=train_tab)
+    # El gr.Timer lo crea app.py fuera de gr.Tabs: dentro, Gradio lo cuenta como hijo de Tabs y
+    # descuadra el orden de las pestañas siguientes (aparecían duplicadas)
+    return dict(tab=train_tab, poll=_poll, poll_outputs=[status_html, log_box, start_btn, stop_btn])

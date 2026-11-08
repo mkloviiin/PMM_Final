@@ -12,6 +12,7 @@ dataset on Hugging Face. Installation and the VR headset setup are covered in th
 - [2. Episode Control](#2-episode-control)
 - [3. Visualize & Curate](#3-visualize--curate)
 - [4. Train](#4-train)
+- [5. Evaluate](#5-evaluate)
 - [Where the data is saved](#where-the-data-is-saved)
 - [Troubleshooting](#troubleshooting)
 
@@ -169,7 +170,7 @@ Trains a **SmolVLA** policy on a recorded or curated dataset.
    `data_curated/`). The summary shows episodes, dimensions, cameras and task.
 2. **Run.** The run name, job name, W&B project and model repo are suggested from the dataset
    name, and you can edit them. The run is saved in `output/train/<run name>/`. Steps, batch
-   size and checkpoint frequency start at the values used so far (20000 steps, batch 22).
+   size and checkpoint frequency start at SmolVLA's fine-tuning recipe (20000 steps, batch 64: ~3.2 h and ~19 GB on the RTX 5090).
 3. **Logging and upload.** Turn on Weights & Biases and/or pushing the model to Hugging Face
    (private or public repo) and paste your keys. They are only used for this run and are not saved to disk. Leave the
    W&B key empty to use the account already logged in on the PC. The Hugging Face token and
@@ -192,6 +193,41 @@ the tab starts from *Waiting to start* unless a training is still running.
 
 ---
 
+## 5. Evaluate
+
+Runs a trained policy in simulation for a number of episodes and measures its success rate
+(`eval_policy.py`, the same success criteria as robosuite).
+
+1. **Model.** Pick a training run from the list (`output/train/` by default) and its checkpoint
+   (`last` = end of the training), or type a Hugging Face model ID. The summary shows the
+   cameras, arms, chunk size and the dataset the model was trained on. The task and the
+   instruction are set from that dataset.
+2. **Task.** Choose the simulator and the task (scene). The controller is not chosen: it is the one the
+   model's dataset was recorded with (`meta/control_config.json`), so the tab refuses models without it. The *task instruction*
+   is the sentence given to the policy, the one it was trained with by default. Set the number
+   of episodes and their maximum length (600 steps = 20 s). In MuJoCo, *Side of the task* sets
+   where the object or the door handle is: alternating every episode (default), random, or
+   always on one side (for a policy trained on one side only). *Show the simulation window*
+   opens the MuJoCo viewer.
+   - **Gazebo:** nothing has to be started in *Configuration*. The evaluation starts the
+     simulation (if it is not running), waits for it, starts the YARP module with the model's arms
+     and controller, and at the end closes what it started. The panel shows each step.
+     The side of the task alternates as in MuJoCo (the door is fixed in Gazebo). The real robot is
+     not available in this tab (the operator has to place the objects and judge the success).
+3. **Advanced settings** (folded): action steps per inference (fewer = more closed-loop
+   corrections), control rate, seed of the object positions and results folder.
+
+Press **Start evaluation**. The panel shows the episode, the success rate so far (total, at the
+end of the episode and per side), and *Results per episode* lists each episode. While it runs
+**the rest of the Hub is locked**, and the evaluation keeps going if you close the Hub.
+
+**Stop evaluation** asks for confirmation. Unlike training, the results are **not** deleted:
+the finished episodes stay in the results folder and only the current one is dropped. Each
+evaluation saves `summary.json`, `eval.log` and `videos/<camera>.mp4` (every episode in a row)
+in `output/eval/<model>_<simulator>_<date>/`.
+
+---
+
 ## Where the data is saved
 
 | Location | Contents |
@@ -199,10 +235,10 @@ the tab starts from *Waiting to start* unless a training is still running.
 | `data/<repo_id>_<date>/` | Recorded (or downloaded Hugging Face) dataset in LeRobot format |
 | `data/<repo_id>_<date>/hub_session/` | Per-episode metrics and logbook notes |
 | `data_curated/` | Curated datasets |
-| `output/train/<run name>/` | Policies trained from the Hub (checkpoints) |
-| `models/` | Recommended folder for models downloaded from Hugging Face |
-| `outputs/eval/<name>_<backend>_<date>/` | Policy evaluation logs, `summary.json`, and `videos/*.mp4` |
-| `src/hub_dataset/logs/` | Full log of each Hub run (training logs in `training/`) |
+| `output/train/<run name>/` | Policies trained from the Hub or `train_policy.py` (checkpoints) |
+| `output/models/` | Models downloaded from Hugging Face |
+| `output/eval/<name>_<backend>_<date>/` | Policy evaluation logs, `summary.json`, and `videos/*.mp4` |
+| `src/hub_dataset/logs/` | Full log of each Hub run (training logs in `training/`, evaluation logs in `eval/`) |
 
 The upload to Hugging Face includes the `data/`, `meta/` and `videos/` folders.
 
@@ -219,3 +255,5 @@ The upload to Hugging Face includes the `data/`, `meta/` and `videos/` folders.
 | The robot does not move in Gazebo / real | Check that the simulation (or the robot connection) and the YARP module are both green in *Robot stack* |
 | The upload is blocked | There are curation changes without packaging. Package the dataset first |
 | All tabs except *Train* are disabled | A training run is in progress. Wait for it to finish or stop it in *Train* |
+| All tabs except *Evaluate* are disabled | An evaluation is in progress. Wait for it to finish or stop it in *Evaluate* |
+| A Gazebo evaluation fails while starting | The panel and the *Evaluation log* say which step failed; the YARP module log is in `src/hub_dataset/logs/eval/<run>_yarp_module.log` and Gazebo's in `/tmp/tmux_output_pipe_gz_server` |

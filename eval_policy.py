@@ -13,13 +13,15 @@ success rate per side of the blue cube (MuJoCo alternates the mirrored layout ev
 fingertip contact sensors, door joint states); on the real robot the operator answers.
 
 Each episode starts at home with the hands open and the scene reset (scenes.yaml ranges; in
-MuJoCo, tools/scene_reset.py: the side of the task alternates every episode).
-Results: outputs/eval/<checkpoint>_<backend>_<date>/:
+MuJoCo, tools/scene_reset.py; in Gazebo, gazebo_sim/scripts/reset_objects.sh). In two-sided scenes
+the side of the task alternates every episode in both simulators (--side / --mirror); the Gazebo
+door is fixed.
+Results: output/eval/<model>_<backend>_<date>/ (<model>: folder above checkpoints/):
   eval.log, summary.json (success rate total / at the end / cumulative / per side, per-episode
   metrics), videos/<camera>.mp4 (one video per policy camera with every episode in a row; each
   episode's start / end in summary.json)
 
-    pixi run python eval_policy.py --checkpoint outputs/train/.../pretrained_model --scene "Block Lifting"
+    pixi run python eval_policy.py --checkpoint output/train/.../pretrained_model --scene "Block Lifting"
     pixi run python eval_policy.py --checkpoint ... --backend gazebo --scene 3 --controller id --impedance
 """
 
@@ -29,6 +31,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 
@@ -57,10 +60,11 @@ from lerobot.policies.factory import get_policy_class, make_pre_post_processors 
 from lerobot.utils.device_utils import get_safe_torch_device  # noqa: E402
 
 import task_success  # noqa: E402
-from play import _resolve_scene  # noqa: E402
+from play import _load_scene_entries, _resolve_scene  # noqa: E402
 
 # Gazebo: time for go_home + reset_objects.sh before the episode starts [s]
 GAZEBO_RESET_WAIT_S = 4.0
+GAZEBO_RESET_SCRIPT = repo_root / "gazebo_sim" / "scripts" / "reset_objects.sh"
 
 
 def parse_args() -> argparse.Namespace:
@@ -75,7 +79,7 @@ def parse_args() -> argparse.Namespace:
         "--download-dir",
         default=None,
         help="Optional local directory where a Hugging Face --checkpoint repo ID should be downloaded "
-             "(e.g. models/CAMADA-UTFSM_smolvla_stacking)",
+             "(e.g. output/models/CAMADA-UTFSM_smolvla_stacking)",
     )
     parser.add_argument(
         "--force-download",
@@ -131,14 +135,20 @@ def parse_args() -> argparse.Namespace:
                         help="Door scene (MuJoCo): handle side (default: --mirror, i.e. alternate). "
                              "The old scenario: --door-side left --door-xy 0.47 -0.13")
     parser.add_argument("--side", choices=["right", "left"], default=None,
-                        help="MuJoCo: fixed side of the task (object to pick / door handle) in every "
-                             "episode, e.g. for a policy trained on one side only")
+                        help="Fixed side of the task (object to pick / door handle) in every "
+                             "episode, e.g. for a policy trained on one side only (MuJoCo and Gazebo; "
+                             "the Gazebo door is fixed)")
     parser.add_argument("--mirror", choices=["alternate", "random"], default="alternate",
-                        help="Two-sided scenes (scenes.yaml sides / mirror_y), MuJoCo: alternate = right "
-                             "in odd episodes, left (mirrored) in even ones; random = 50/50 draw")
+                        help="Two-sided scenes (scenes.yaml sides / mirror_y), MuJoCo and Gazebo: "
+                             "alternate = right in odd episodes, left (mirrored) in even ones; random = 50/50")
     parser.add_argument("--no-video", action="store_true",
                         help="Do not save the videos of the policy cameras (run folder videos/<camera>.mp4)")
-    parser.add_argument("--out", default=None, help="Results folder (default: outputs/eval/<name>_<backend>_<date>)")
+    parser.add_argument("--mask-state", default=None, metavar="GROUPS",
+                        help="Comma-separated state features fed as their training mean (normalized 0) "
+                             "instead of the robot's value: vel (*_vel), torque (*_torque), touch "
+                             "(*_touch_*), obj (obj*_), or exact feature names. For sim-to-sim tests: "
+                             "MuJoCo's recorded joint velocities / torques do not mean the same as Gazebo's")
+    parser.add_argument("--out", default=None, help="Results folder (default: output/eval/<name>_<backend>_<date>)")
     parser.add_argument("--config", default=str(repo_root / "config" / "control_config.yaml"), help="Config path")
     return parser.parse_args()
 
@@ -309,6 +319,33 @@ def training_feature_names(
                 return s_names, a_names
 
     return None, None
+
+
+def training_state_mean(checkpoint: Path) -> torch.Tensor | None:
+    """observation.state mean of the checkpoint's normalizer (policy_preprocessor_*normalizer*)."""
+    from safetensors.torch import load_file
+
+    for f in sorted(checkpoint.glob("policy_preprocessor*normalizer*.safetensors")):
+        stats = load_file(str(f))
+        if "observation.state.mean" in stats:
+            return stats["observation.state.mean"].float()
+    return None
+
+
+MASK_GROUPS = {"vel": lambda n: n.endswith("_vel"), "torque": lambda n: n.endswith("_torque"),
+               "touch": lambda n: "_touch_" in n, "obj": lambda n: n.startswith("obj")}
+
+
+def masked_state_indices(spec: str | None, names: list[str]) -> list[int]:
+    """Indices of the state features selected by --mask-state (groups or exact names)."""
+    if not spec:
+        return []
+    keys = [k.strip() for k in spec.split(",") if k.strip()]
+    unknown = [k for k in keys if k not in MASK_GROUPS and k not in names]
+    if unknown:
+        raise SystemExit(f"--mask-state: unknown groups/features {unknown} (groups: {list(MASK_GROUPS)})")
+    return [i for i, n in enumerate(names)
+            if any(MASK_GROUPS[k](n) if k in MASK_GROUPS else n == k for k in keys)]
 
 
 def arms_of(action_names: list[str] | None) -> str | None:
@@ -585,15 +622,19 @@ def make_yarp_robot(args, control_arms, cameras):
     return iCub(robot_cfg)
 
 
+def episode_side(ep: int, mode: str) -> str:
+    """Side of the task in episode ep: fixed (right / left), alternate (right first) or random."""
+    return (mode if mode in ("right", "left") else ("right" if ep % 2 == 0 else "left")
+            if mode == "alternate" else ("right" if np.random.uniform() < 0.5 else "left"))
+
+
 def reset_mujoco_episode(robot, ep: int, args) -> dict:
     """Home pose, hands open, scene reset (tools/scene_reset.py) and targets on the hands.
     Returns the layout of the reset (side, initial object poses, door panel center)."""
     import mujoco
 
     tc = robot.teleop_core
-    mode = args.side or args.door_side or args.mirror
-    side = (mode if mode in ("right", "left") else ("right" if ep % 2 == 0 else "left")
-            if mode == "alternate" else ("right" if np.random.uniform() < 0.5 else "left"))
+    side = episode_side(ep, args.side or args.door_side or args.mirror)
     tc.data.qpos[:] = tc.home_qpos
     tc.data.ctrl[:] = tc.home_ctrl
     tc._apply_home_pose_to_arrays(tc.data.qpos, tc.data.ctrl)
@@ -619,22 +660,47 @@ def reset_mujoco_episode(robot, ep: int, args) -> dict:
             **({"door_panel_xy": np.round(layout["door_xy"], 3).tolist()} if layout["door_xy"] else {})}
 
 
-def reset_yarp_episode(robot, args) -> float:
+def gazebo_reset(scene_file: Path, side: str | None) -> None:
+    """Respawns the scene objects in Gazebo (reset_objects.sh, synchronous) on the given side
+    (ICUB_SCENE_SIDE, the same mirroring as MuJoCo). The scene comes from scene_file, not from
+    the Hub's /tmp/icub_lerobot_scene, so --scene always holds."""
+    env = dict(os.environ, ICUB_SCENE_FILE=str(scene_file), ICUB_SCENE_SIDE=side or "")
+    for attempt in range(3):  # a slow Gazebo can time out creating a model: try again
+        out = subprocess.run(["bash", str(GAZEBO_RESET_SCRIPT)], env=env, capture_output=True, text=True, timeout=60)
+        if "AVISO" not in out.stdout:
+            break
+    # stdout only: gz writes protobuf noise to stderr ("File already exists in database")
+    for line in out.stdout.splitlines():
+        if line.strip() and "listo" not in line:
+            print(line)
+
+
+def reset_yarp_episode(robot, ep: int, args, scene_entry: dict, scene_file: Path) -> tuple[float, dict]:
     """Home pose, hands open, objects respawned (Gazebo) or placed by the operator (real).
-    Returns the time from which object poses are valid."""
+    Returns the time from which object poses are valid, and the side of the task (Gazebo)."""
+    t0 = time.time()
     robot.go_home()
     robot.send_rpc_command("open_right")
     robot.send_rpc_command("open_left")
+    info: dict = {}
     if args.backend == "gazebo":
-        robot.send_rpc_command("reset_scenario")
-        time.sleep(GAZEBO_RESET_WAIT_S)
+        # Two-sided scenes as in MuJoCo; the door is a fixed model in Gazebo (handle side fixed)
+        two_sided = (scene_entry.get("sides") is not None or any(
+            o.get("spawn", {}).get("mirror_y") for o in scene_entry.get("objects", [])))
+        side = (episode_side(ep, args.side or args.mirror)
+                if two_sided and "door" not in scene_entry else None)
+        gazebo_reset(scene_file, side)
+        if side:
+            info["side"] = side
+            print(f"[Reset] side={side}")
+        time.sleep(max(1.0, GAZEBO_RESET_WAIT_S - (time.time() - t0)))
     else:
         input("[eval] Place the objects for the next episode and press Enter...")
     since = time.time()
     robot.start_teleop()
     time.sleep(0.5)
     robot.reset_command_state()
-    return since
+    return since, info
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -652,21 +718,23 @@ def main():
 
     ckpt_source, name = resolve_checkpoint_source(args)
 
-    # Strictly require control_config.json in checkpoint or dataset_meta (Option 4.B)
-    control_config_file = Path(ckpt_source) / "control_config.json"
-    if not control_config_file.is_file() and args.dataset_meta:
-        dm_path = Path(args.dataset_meta).expanduser().resolve()
-        if (dm_path / "meta" / "control_config.json").is_file():
-            control_config_file = dm_path / "meta" / "control_config.json"
+    # Strictly require control metadata (Option 4.B). Search order: control_config.json in the
+    # checkpoint, then meta/control_config.json of the dataset it was trained on (dataset.root in
+    # its train_config.json), then --dataset-meta.
+    from interfaces.control_metadata import controller_from_metadata, find_model_control_config
 
-    if not control_config_file.is_file():
+    control_config_file = find_model_control_config(ckpt_source, args.dataset_meta)
+    if control_config_file is None:
         print(
-            f"\n[eval][FATAL ERROR] Checkpoint at '{ckpt_source}' is missing required 'control_config.json'.\n"
-            "Uncharacterized models without control metadata are strictly not allowed.\n",
+            f"\n[eval][FATAL ERROR] No control metadata for checkpoint '{ckpt_source}'.\n"
+            "Looked for control_config.json in the checkpoint and meta/control_config.json in the training\n"
+            "dataset (dataset.root in train_config.json). If the dataset is elsewhere on this PC, pass\n"
+            "--dataset-meta <dataset_dir>. Uncharacterized models are strictly not allowed.\n",
             file=sys.stderr,
             flush=True,
         )
         sys.exit(1)
+    print(f"[eval] Control metadata: {control_config_file}")
 
     try:
         with open(control_config_file, "r", encoding="utf-8") as f:
@@ -676,8 +744,7 @@ def main():
         sys.exit(1)
 
     ctrl_type = control_meta.get("control", {}).get("type", "tsid")
-    args.controller = "id" if ctrl_type in ("id", "tsid") else "ik"
-    args.impedance = bool(control_meta.get("control", {}).get("impedance_enabled", False))
+    args.controller, args.impedance = controller_from_metadata(control_meta)
     print(
         f"[eval] Auto-configured from control_config.json: "
         f"Controller={args.controller.upper()} ({ctrl_type}), Mode={control_meta.get('control', {}).get('mode')}, "
@@ -688,7 +755,7 @@ def main():
         args.impedance = False
 
     run_dir = Path(args.out) if args.out else (
-        repo_root / "outputs" / "eval" / f"{name}_{args.backend}_{time.strftime('%Y%m%d-%H%M%S')}")
+        repo_root / "output" / "eval" / f"{name}_{args.backend}_{time.strftime('%Y%m%d-%H%M%S')}")
     run_dir.mkdir(parents=True, exist_ok=True)
     log = open(run_dir / "eval.log", "a", buffering=1)
     sys.stdout, sys.stderr = _Tee(sys.stdout, log), _Tee(sys.stderr, log)
@@ -724,6 +791,11 @@ def main():
     model_path, default_task, scene_objects, scene_joints, _ = _resolve_scene(args.scene, controller=args.controller)
     task_desc = args.task or default_task
     success_task = task_success.TASK_BY_SCENE.get(model_path.name)
+    scene_entry = next((s for s in _load_scene_entries() if s.get("file") == model_path.name), {})
+    # Gazebo: scene label for reset_objects.sh (its own file in the run folder)
+    gazebo_scene_file = run_dir / "gazebo_scene.txt"
+    if args.backend == "gazebo":
+        gazebo_scene_file.write_text(scene_entry.get("label", ""))
 
     if args.backend == "mujoco":
         robot = make_mujoco_robot(args, model_path, scene_objects, scene_joints, control_arms, cameras)
@@ -754,6 +826,14 @@ def main():
                   f"{missing[:6]}: fed as 0. Check --scene / --control-arms.")
     if action_names and set(action_names) != set(robot_action_keys):
         print(f"[eval][warn] Action mismatch: trained={action_names}, robot={robot_action_keys}")
+    names = state_names or [k for k in robot.observation_features if k not in cameras]
+    mask_idx = masked_state_indices(args.mask_state, names)
+    state_mean = training_state_mean(Path(ckpt_source)) if mask_idx else None
+    if mask_idx:
+        if state_mean is None or len(state_mean) != len(names):
+            raise SystemExit("--mask-state: the checkpoint's observation.state mean was not found")
+        print(f"[eval] --mask-state: {len(mask_idx)} state features fed as their training mean "
+              f"({', '.join(names[i] for i in mask_idx[:4])}{', ...' if len(mask_idx) > 4 else ''})")
 
     mj_viewer = scene_state = None
     if args.backend == "mujoco":
@@ -780,6 +860,8 @@ def main():
                   "created on reset; otherwise grasps / contacts read as none).")
 
     episodes: list[dict] = []
+    last_img: dict[str, np.ndarray] = {}
+    warned_cams: set[str] = set()
     t_start = time.strftime("%Y-%m-%d %H:%M:%S")
     videos = None if args.no_video else CameraVideos(run_dir, cameras, args.fps)
     video_files = videos.files() if videos is not None else {}
@@ -793,7 +875,7 @@ def main():
             if args.backend == "mujoco":
                 reset_info = reset_mujoco_episode(robot, ep, args)
             else:
-                since = reset_yarp_episode(robot, args)
+                since, reset_info = reset_yarp_episode(robot, ep, args, scene_entry, gazebo_scene_file)
                 if isinstance(scene_state, GazeboSceneState):
                     late = scene_state.wait(since)
                     if late:
@@ -804,6 +886,7 @@ def main():
             ep_success = task_success.EpisodeSuccess(success_task) if scene_state is not None else None
             side = None
             infer_ms: list[float] = []
+            z_sum = z_max = None
             dt = 1.0 / args.fps
             t_episode = time.perf_counter()
             video_start_s = videos.time_s if videos is not None else None
@@ -821,18 +904,30 @@ def main():
                         if side is None and success_task == "stack":
                             side = blue_side(s, args.backend)
 
-                names = state_names or [k for k in robot.observation_features if k not in cameras]
-                batch = {"observation.state": torch.tensor(
-                    [to_float(obs[n]) if n in obs else 0.0 for n in names], dtype=torch.float32).unsqueeze(0)}
+                state = torch.tensor([to_float(obs[n]) if n in obs else 0.0 for n in names], dtype=torch.float32)
+                if mask_idx:
+                    state[mask_idx] = state_mean[mask_idx]
+                batch = {"observation.state": state.unsqueeze(0)}
                 for cam in cameras:
                     img = obs.get(cam)
-                    if img is None:
-                        continue
+                    if img is None:  # dropped frame: the last one (or black until the first)
+                        img = last_img.get(cam)
+                        if cam not in warned_cams:
+                            warned_cams.add(cam)
+                            print(f"[eval][warn] No image from camera '{cam}' (observation keys: "
+                                  f"{sorted(k for k in obs if not k.endswith(('_vel', '_torque')))[:20]})")
+                        if img is None:
+                            img = np.zeros((*policy_cfg.input_features[f'observation.images.{cam}'].shape[1:], 3), np.uint8)
+                    last_img[cam] = img
                     batch[f"observation.images.{cam}"] = (
                         torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float().div(255.0).unsqueeze(0))
                 batch = {k: v.to(device) for k, v in batch.items()}
                 batch["task"] = task_desc
                 batch = preprocessor(batch)
+                # Normalized state = z-score against the training data: how far out of distribution
+                z = batch["observation.state"].detach().abs().float().cpu().ravel()
+                z_sum = z if z_sum is None else z_sum + z
+                z_max = z if z_max is None else torch.maximum(z_max, z)
 
                 t_inf = time.perf_counter()
                 with torch.inference_mode():
@@ -869,6 +964,15 @@ def main():
                 metrics = {"success": None, "success_step": None, "success_at_end": None}
             if side is not None:
                 metrics["blue_side"] = side
+            if z_sum is not None and len(z_sum) == len(names):
+                # State features furthest from the training data (mean |z| over the episode)
+                z_mean = z_sum / max(len(infer_ms), 1)
+                top = z_mean.argsort(descending=True)[:8].tolist()
+                metrics["state_ood"] = {"mean_abs_z": round(float(z_mean.mean()), 2),
+                                        "top": {names[i]: [round(float(z_mean[i]), 1), round(float(z_max[i]), 1)]
+                                                for i in top}}
+                print(f"  state |z| mean {metrics['state_ood']['mean_abs_z']} (training ~0.8); worst "
+                      "[mean, max]: " + ", ".join(f"{n} {v}" for n, v in metrics["state_ood"]["top"].items()))
             metrics = {"episode": ep + 1, **metrics, **reset_info,
                        "success_time_s": (round(metrics["success_step"] / args.fps, 2)
                                           if metrics.get("success_step") is not None else None),

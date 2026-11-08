@@ -3,7 +3,7 @@
 El entrenamiento corre desacoplado del Hub (sesión propia, salida a un archivo de log): si se
 cierra el Hub sigue entrenando, y al volver a abrirlo se detecta por logs/training/current.json.
 Mientras entrena, el resto del Hub queda bloqueado (app.py) porque usa casi toda la GPU
-(~6.6 de 8 GB con batch 22).
+(~19 de 32 GB con batch 64 en la RTX 5090).
 
 Las claves de W&B y Hugging Face las pone el usuario en la pestaña: van al proceso como
 variables de entorno (WANDB_API_KEY, HF_TOKEN), nunca en la línea de comandos ni en disco.
@@ -36,10 +36,16 @@ CURRENT_FILE = TRAIN_LOG_DIR / "current.json"
 DEFAULT_RUNS_DIR = REPO_ROOT / "output" / "train"
 DEFAULT_HF_ORG = "CAMADA-UTFSM"
 
-# Valores por defecto = los de los entrenamientos que ya funcionaron (BlockLifting_wb_icub,
-# stacking_mj_100, ...: RTX 3070 de 8 GB, ~4.8 h para 20k steps)
+# Valores por defecto para la RTX 5090 (32 GB) = receta de fine-tuning de SmolVLA (batch 64,
+# 20k steps), que no cabía en la RTX 3070 de 8 GB (batch 22, ~4.8 h). Medido en la 5090
+# (TwoArmPegInHole_v2, 3 cámaras): el throughput está limitado por la GPU en ~112 muestras/s
+# con cualquier batch (los dataloaders no frenan), así que batch 64 -> ~0.57 s/step, ~3.2 h
+# para 20k steps, pico ~19 GB. Con batch 22 serían ~65 min (mismas muestras/s, 1/3 de los datos).
+# No sirven en este commit de lerobot: --accelerator.mixed_precision=bf16 (~6% más lento: el
+# VLM ya está en bf16) ni --policy.compile_model (loss NaN). --policy.use_amp no cambia el
+# entrenamiento (lerobot solo lo usa al inferir).
 DEFAULTS = dict(
-    steps=20000, batch_size=22, save_freq=20000,
+    steps=20000, batch_size=64, save_freq=20000,
     vlm_model="HuggingFaceTB/SmolVLM2-500M-Video-Instruct", load_vlm_weights=True, use_amp=True,
     chunk_size=60, n_action_steps=60, lr=1e-4, warmup_steps=1000, decay_steps=30000,
     freeze_vision=True, expert_only=True, num_workers=min(32, os.cpu_count() or 4),
@@ -102,6 +108,8 @@ def on_dataset_change(dataset_path: str | None, runs_dir: str):
                f"cameras: {', '.join(cams) or 'none'}")
     if task:
         summary += f"  \nTask: *{html.escape(task)}*"
+    if not (Path(dataset_path) / "meta" / "control_config.json").is_file():
+        summary += "  \n⚠️ **No controller metadata** (meta/control_config.json): training will not start."
     name = base_name(dataset_path)
     job = f"icub_smolvla_{name.lower()}"
     run = _free_run_name(Path(runs_dir or DEFAULT_RUNS_DIR).expanduser(), f"{name}_smolvla")
@@ -291,12 +299,18 @@ def start_training(dataset, runs_dir, run_name, job_name, steps, batch_size, sav
     global _proc
     if is_active():
         return "A training run is already in progress."
+    from . import evaluation  # import local: evaluation.py importa este módulo
+    if evaluation.is_active():
+        return "An evaluation is in progress: wait for it to finish or stop it (Evaluate)."
     if state.running:
         return "Stop the recording session first (Episode Control): training needs the whole GPU."
     if state.curation_running or state.push_running:
         return "Wait for the dataset packaging / upload to finish."
     if dataset_info(dataset) is None:
         return "Select a valid dataset (folder with meta/info.json)."
+    if not (Path(dataset) / "meta" / "control_config.json").is_file():
+        return ("This dataset has no meta/control_config.json (controller metadata), so the model "
+                "could not be evaluated. Record it again with the current version.")
     run_name = (run_name or "").strip()
     job_name = (job_name or "").strip() or run_name
     if not run_name or not re.fullmatch(r"[\w.\-]+", run_name):
