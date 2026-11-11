@@ -135,6 +135,18 @@ def build_train_tab():
                                     info="How often the step and loss are written to the log")
                 seed_nb = gr.Number(value=D["seed"], label="Seed", precision=0, minimum=0,
                                     info="Random seed: same seed, same data order")
+            with gr.Row():
+                aug_cb = gr.Checkbox(value=D["augment"], label="Augment images",
+                                     info="Randomly vary brightness, contrast, saturation, hue and sharpness "
+                                          "of the camera images, so the policy copes with other renderers "
+                                          "and real cameras")
+                aug_affine_cb = gr.Checkbox(value=D["augment_affine"], label="Also shift and rotate images",
+                                            interactive=D["augment"],
+                                            info="Small random shifts (±5%) and rotations (±5°); can hurt "
+                                                 "grasp precision")
+                aug_max_nb = gr.Number(value=D["augment_max"], label="Max image changes per frame", precision=0,
+                                       minimum=1, interactive=D["augment"],
+                                       info="How many of the variations above are applied to each image")
 
         with gr.Accordion("Training log", open=False):
             log_box = gr.Textbox(show_label=False, lines=18, max_lines=18, interactive=False, autoscroll=True)
@@ -157,6 +169,8 @@ def build_train_tab():
                       outputs=[dataset_md, run_tb, job_tb, wandb_proj_tb, hf_repo_tb, max_state_nb, max_action_nb])
     wandb_cb.change(fn=lambda on: gr.update(visible=on), inputs=[wandb_cb], outputs=[wandb_row])
     hf_cb.change(fn=lambda on: gr.update(visible=on), inputs=[hf_cb], outputs=[hf_row])
+    aug_cb.change(fn=lambda on: (gr.update(interactive=on), gr.update(interactive=on)),
+                  inputs=[aug_cb], outputs=[aug_affine_cb, aug_max_nb])
 
     # Sin texto bajo los botones: el panel de estado dice cómo va y los avisos salen como toast
     def _start(*args):
@@ -166,7 +180,8 @@ def build_train_tab():
     start_inputs = [dataset_dd, runs_tb, run_tb, job_tb, steps_nb, batch_nb, save_nb,
                     wandb_cb, wandb_key_tb, wandb_proj_tb, hf_cb, hf_token_tb, hf_repo_tb, hf_private_cb,
                     vlm_tb, load_vlm_cb, amp_cb, chunk_nb, nact_nb, max_state_nb, max_action_nb,
-                    lr_nb, warmup_nb, decay_nb, freeze_cb, expert_cb, workers_nb, logf_nb, seed_nb]
+                    lr_nb, warmup_nb, decay_nb, freeze_cb, expert_cb, workers_nb, logf_nb, seed_nb,
+                    aug_cb, aug_affine_cb, aug_max_nb]
     start_btn.click(fn=_start, inputs=start_inputs)
 
     def _ask_stop():

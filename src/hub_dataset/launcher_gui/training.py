@@ -50,7 +50,28 @@ DEFAULTS = dict(
     chunk_size=60, n_action_steps=60, lr=1e-4, warmup_steps=1000, decay_steps=30000,
     freeze_vision=True, expert_only=True, num_workers=min(32, os.cpu_count() or 4),
     log_freq=30, seed=1000,
+    augment=False, augment_affine=False, augment_max=3,
 )
+
+
+def _augment_args(p: dict) -> list[str]:
+    """Aumento de imágenes de lerobot (--dataset.image_transforms): a cada frame se le aplican
+    hasta `augment_max` transformaciones al azar entre brillo, contraste, saturación, tono y nitidez
+    (rangos por defecto de lerobot), más desplazamiento/rotación pequeños (affine: ±5°, ±5 %) solo si
+    `augment_affine`. El affine va aparte porque mueve el objeto en la imagen respecto de la acción
+    y la tarea exige precisión de agarre. Corre en los workers (CPU): no frena el entrenamiento,
+    que está limitado por la GPU."""
+    if not p["augment"]:
+        return []
+    args = ["--dataset.image_transforms.enable=true",
+            f"--dataset.image_transforms.max_num_transforms={p['augment_max']}"]
+    if not p["augment_affine"]:
+        # draccus no acepta --...tfs.affine.weight=0: el dict tfs va completo como JSON
+        from lerobot.transforms.transforms import ImageTransformsConfig
+        tfs = {k: {"weight": v.weight, "type": v.type, "kwargs": v.kwargs}
+               for k, v in ImageTransformsConfig().tfs.items() if k != "affine"}
+        args.append(f"--dataset.image_transforms.tfs={json.dumps(tfs)}")
+    return args
 
 _lock = threading.Lock()
 _proc: subprocess.Popen | None = None  # solo si lo lanzó este proceso del Hub
@@ -258,6 +279,7 @@ def build_command(p: dict) -> list[str]:
         f"--output_dir={p['output_dir']}",
         f"--job_name={p['job_name']}",
         f"--wandb.enable={b(p['wandb'])}",
+        *_augment_args(p),
     ]
     if p["wandb"]:
         argv.append(f"--wandb.project={p['wandb_project']}")
@@ -294,7 +316,8 @@ def start_training(dataset, runs_dir, run_name, job_name, steps, batch_size, sav
                    wandb_on, wandb_key, wandb_project, hf_on, hf_token, hf_repo, hf_private,
                    vlm_model, load_vlm_weights, use_amp, chunk_size, n_action_steps,
                    max_state_dim, max_action_dim, lr, warmup_steps, decay_steps,
-                   freeze_vision, expert_only, num_workers, log_freq, seed):
+                   freeze_vision, expert_only, num_workers, log_freq, seed,
+                   augment, augment_affine, augment_max):
     """Devuelve el mensaje para el campo de estado."""
     global _proc
     if is_active():
@@ -333,6 +356,8 @@ def start_training(dataset, runs_dir, run_name, job_name, steps, batch_size, sav
             freeze_vision=bool(freeze_vision), expert_only=bool(expert_only),
             num_workers=_int(num_workers, "Dataloader workers", 0), log_freq=_int(log_freq, "Log every"),
             seed=_int(seed, "Seed", 0),
+            augment=bool(augment), augment_affine=bool(augment_affine),
+            augment_max=_int(augment_max, "Max image transforms per frame"),
             wandb=bool(wandb_on), wandb_project=(wandb_project or "").strip() or job_name,
             hf_push=bool(hf_on), hf_repo=(hf_repo or "").strip(), hf_private=bool(hf_private),
         )
