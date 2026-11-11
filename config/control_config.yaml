@@ -51,14 +51,14 @@ joint_limits_deg:
   neck_roll: [-20.0, 20.0]
   neck_yaw: [-45.0, 45.0]
   l_shoulder_pitch: [-95.0, 10.0]
-  l_shoulder_roll: [0.0, 160.0]
+  l_shoulder_roll: [25.0, 160.0]
   l_shoulder_yaw: [-37.0, 80.0]
   l_elbow: [15.0, 106.0]
   l_wrist_prosup: [-60.0, 60.0]
   l_wrist_pitch: [-80.0, 25.0]
   l_wrist_yaw: [-20.0, 25.0]
   r_shoulder_pitch: [-95.0, 10.0]
-  r_shoulder_roll: [0.0, 160.0]
+  r_shoulder_roll: [25.0, 160.0]
   r_shoulder_yaw: [-37.0, 80.0]
   r_elbow: [15.0, 106.0]
   r_wrist_prosup: [-60.0, 60.0]
@@ -71,7 +71,7 @@ tsik:
   kp_angular: 15.0
   weight_hands: 180.0
   weight_head: 5.0
-  weight_posture_torso: 80.0
+  weight_posture_torso: 20.0
   weight_posture_neck: 0.05
   weight_posture_arms: 0.05
   max_joint_velocity: 1.5
@@ -166,24 +166,24 @@ actuators:
 
 # Default working posture [deg]: arms extended over the manipulation table
 home_pose:
-  torso_pitch: 10.0
+  torso_pitch: 0.0
   torso_roll: 0.0
   torso_yaw: 0.0
-  l_shoulder_pitch: -60.0
-  l_shoulder_roll: 20.0
+  l_shoulder_pitch: 10.0
+  l_shoulder_roll: 70.0
   l_shoulder_yaw: 0.0
   l_elbow: 70.0
-  l_wrist_prosup: 0.0
+  l_wrist_prosup: -50.0
   l_wrist_pitch: -10.0
   l_wrist_yaw: 0.0
-  r_shoulder_pitch: -60.0
-  r_shoulder_roll: 20.0
+  r_shoulder_pitch: 10.0
+  r_shoulder_roll: 70.0
   r_shoulder_yaw: 0.0
   r_elbow: 70.0
-  r_wrist_prosup: 0.0
+  r_wrist_prosup: -50.0
   r_wrist_pitch: -10.0
   r_wrist_yaw: 0.0
-  neck_pitch: 15.0
+  neck_pitch: 0.0
   neck_roll: 0.0
   neck_yaw: 0.0
   eyes_tilt: 0.0
@@ -192,9 +192,9 @@ home_pose:
 
 # Hand finger open/close profiles [deg] (9 joints per hand)
 hand_open_values:
-  - [0, 75, 0, 0, 0, 0, 0, 0, 0]
+  - [60, 75, 0, 0, 0, 0, 0, 0, 0]
 hand_close_values:
-  - [0, 40, 40, 50, 75, 75, 75, 75, 0]
+  - [60, 40, 40, 50, 75, 75, 75, 75, 0]
 hand_close_ratio: 0.5
 # Duration of a full hand close [s], same in MuJoCo, Gazebo and the real robot: MuJoCo limits the
 # finger speed with it; Gazebo/real set each hand motor's reference speed to
