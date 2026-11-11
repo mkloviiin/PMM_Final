@@ -393,6 +393,9 @@ class MujocoSceneState:
     def __init__(self, model, task: str):
         self.task = task
         self.bodies = {b: model.body(b).id for b in task_success.BODIES[task]}
+        self.fixtures = {b: model.body(b).id for b in task_success.FIXTURES.get(task, [])}
+        # Palmas (frame DH, como rh_ee / lh_ee): punto de agarre (task_success.grip_point)
+        self.palms = {h: model.site(f"{s}_hand_dh_frame_site").id for h, s in (("rh", "r"), ("lh", "l"))}
         self.geoms = {b: _body_geoms(model, [b]) for b in self.bodies}
         self.table_site = model.site("table_top").id
         self.hands = [
@@ -402,17 +405,27 @@ class MujocoSceneState:
         ]
         self.joints = {j: model.jnt_qposadr[model.joint(j).id] for j in task_success.JOINTS.get(task, [])}
 
-    def __call__(self, data) -> task_success.SceneState:
+    def __call__(self, data, layout: dict | None = None) -> task_success.SceneState:
+        """layout: el del último reset (MuJoCoTeleop.scene_layout), de donde sale la variante."""
+        import mujoco
+
+        grips = []
+        for h, sid in self.palms.items():
+            quat = np.zeros(4)
+            mujoco.mju_mat2Quat(quat, data.site_xmat[sid])
+            grips.append(task_success.grip_point(data.site_xpos[sid], quat, h))
         grasped = {b for b in task_success.GRASP_BODIES.get(self.task, [])
                    if any(_in_contact(data, thumb, self.geoms[b]) and _in_contact(data, fingers, self.geoms[b])
                           for thumb, fingers in self.hands)}
         touching = {frozenset(pair) for pair in task_success.CONTACT_PAIRS.get(self.task, [])
                     if _in_contact(data, self.geoms[pair[0]], self.geoms[pair[1]])}
         return task_success.SceneState(
-            poses={b: (data.xpos[i].copy(), data.xquat[i].copy()) for b, i in self.bodies.items()},
+            poses={b: (data.xpos[i].copy(), data.xquat[i].copy())
+                   for b, i in {**self.bodies, **self.fixtures}.items()},
             table_z=float(data.site_xpos[self.table_site][2]),
             grasped=grasped, touching=touching,
             joints={j: float(data.qpos[adr]) for j, adr in self.joints.items()},
+            variants=dict((layout or {}).get("variants") or {}), grips=grips,
         )
 
 
@@ -424,7 +437,10 @@ class GazeboSceneState:
 
     HANDS = ("rh", "lh")
 
-    def __init__(self, task: str):
+    def __init__(self, task: str, scene_entry: dict | None = None, scene_file: Path | None = None,
+                 root_xyz=(0.0, 0.0, 0.0)):
+        """scene_entry / scene_file: fixtures de scenes.yaml y <scene_file>.variants (la variante que
+        creó reset_objects.sh); root_xyz: origen del frame root del robot en el mundo de Gazebo."""
         from lerobot_robot_icubrg.gz_pose import GzContactReader, GzJointReader, GzPoseReader
 
         self.task = task
@@ -437,6 +453,38 @@ class GazeboSceneState:
         topics = {b: f"/{b}/contact" for _, b in self.pairs}
         self.contacts = GzContactReader(keys + list(topics), topics=topics) if keys or topics else None
         self.joint_reader = GzJointReader("door") if task_success.JOINTS.get(task) else None
+        self.scene_entry, self.scene_file = scene_entry or {}, scene_file
+        self.root_xyz = np.asarray(root_xyz, dtype=float)
+        self.fixtures: dict = {}
+        self.set_side(None)
+
+    def set_side(self, side: str | None) -> None:
+        """Fixtures (cajas, réplicas) en el lado del reset, en el mundo de Gazebo: (x, y) -> (-x, -y)."""
+        from tools.scene_reset import fixture_positions
+
+        identity = np.array([1.0, 0.0, 0.0, 0.0])
+        self.fixtures = {b: (p * [-1, -1, 1], identity)
+                         for b, p in fixture_positions(self.scene_entry, side).items()
+                         if b in task_success.FIXTURES.get(self.task, [])}
+
+    def _variants(self) -> dict:
+        try:
+            return json.loads(Path(f"{self.scene_file}.variants").read_text())
+        except (OSError, TypeError, ValueError):
+            return {}
+
+    def _grips(self, obs: dict | None) -> list:
+        """Puntos de agarre desde rh_ee / lh_ee de la observación (frame root = mundo de Gazebo
+        trasladado en root_xyz, ver GzPoseReader)."""
+        grips = []
+        for h in self.HANDS:
+            try:
+                pos = np.array([to_float(obs[f"{h}_ee_pos_{a}"]) for a in "xyz"]) + self.root_xyz
+                quat = np.array([to_float(obs[f"{h}_ee_quat_{a}"]) for a in "wxyz"])
+            except (KeyError, TypeError):
+                continue
+            grips.append(task_success.grip_point(pos, quat, h))
+        return grips
 
     def start(self) -> list[str]:
         """Starts the readers; returns the contact topics Gazebo does not advertise (yet)."""
@@ -468,14 +516,17 @@ class GazeboSceneState:
             time.sleep(0.05)
         return late
 
-    def __call__(self, since: float) -> task_success.SceneState | None:
+    def __call__(self, since: float, obs: dict | None = None) -> task_success.SceneState | None:
         """Current state, or None while an object has no pose newer than `since`
-        (reset_objects.sh recreates the objects: the previous episode's pose is stale)."""
+        (reset_objects.sh recreates the objects: the previous episode's pose is stale).
+        obs: the robot's observation (hand poses for the grip points)."""
         if any((self.pose_reader.stamp(b) or 0.0) < since for b in self.bodies):
             return None
         return task_success.SceneState(
-            poses={b: self.pose_reader.get(b) for b in self.bodies},
+            poses={**{b: self.pose_reader.get(b) for b in self.bodies}, **self.fixtures},
             table_z=task_success.TABLE_Z,
+            variants=self._variants() if task_success.VARIANT_BODY.get(self.task) else {},
+            grips=self._grips(obs),
             grasped={b for b in self.grasp_bodies if self._grasped(b)},
             touching={frozenset((a, b)) for a, b in self.pairs if self.contacts.touching(b, a)},
             joints={j: self.joint_reader.get(j) or 0.0 for j in task_success.JOINTS.get(self.task, [])}
@@ -656,6 +707,7 @@ def reset_mujoco_episode(robot, ep: int, args) -> dict:
     layout = tc.scene_layout
     # Side only for two-sided scenes (sides / mirror_y in scenes.yaml)
     return {**({"side": layout["side"]} if tc._randomizer.sides_mode else {}),
+            **({"variants": dict(layout["variants"])} if layout.get("variants") else {}),
             "initial_objects": {n: np.round(p, 3).tolist() for n, (p, _) in layout["objects"].items()},
             **({"door_panel_xy": np.round(layout["door_xy"], 3).tolist()} if layout["door_xy"] else {})}
 
@@ -796,6 +848,8 @@ def main():
     gazebo_scene_file = run_dir / "gazebo_scene.txt"
     if args.backend == "gazebo":
         gazebo_scene_file.write_text(scene_entry.get("label", ""))
+        # Lo lee también el plugin del robot: objetos de la escena y <archivo>.variants (obj{i}_id)
+        os.environ["ICUB_SCENE_FILE"] = str(gazebo_scene_file)
 
     if args.backend == "mujoco":
         robot = make_mujoco_robot(args, model_path, scene_objects, scene_joints, control_arms, cameras)
@@ -853,7 +907,8 @@ def main():
             else:
                 mj_viewer.cam.azimuth, mj_viewer.cam.elevation, mj_viewer.cam.distance = 135, -20, 2.0
     elif args.backend == "gazebo" and success_task:
-        scene_state = GazeboSceneState(success_task)
+        scene_state = GazeboSceneState(success_task, scene_entry, gazebo_scene_file,
+                                       robot.config.gazebo_root_xyz)
         late_topics = scene_state.start()
         if late_topics:
             print(f"[eval][warn] Contact topics not advertised yet: {late_topics} (fine for objects "
@@ -877,6 +932,7 @@ def main():
             else:
                 since, reset_info = reset_yarp_episode(robot, ep, args, scene_entry, gazebo_scene_file)
                 if isinstance(scene_state, GazeboSceneState):
+                    scene_state.set_side(reset_info.get("side"))
                     late = scene_state.wait(since)
                     if late:
                         print(f"[eval][warn] No new pose from Gazebo for {late}: success not measured this episode.")
@@ -898,7 +954,8 @@ def main():
                     videos.add(obs)
 
                 if ep_success is not None:
-                    s = scene_state(robot.teleop_core.data) if args.backend == "mujoco" else scene_state(since)
+                    s = (scene_state(robot.teleop_core.data, robot.teleop_core.scene_layout)
+                         if args.backend == "mujoco" else scene_state(since, obs))
                     if s is not None:
                         ep_success.update(step, s)
                         if side is None and success_task == "stack":
@@ -953,7 +1010,8 @@ def main():
 
             if ep_success is not None:
                 # Criterion on the final state too (the last update came before the last action)
-                s = scene_state(robot.teleop_core.data) if args.backend == "mujoco" else scene_state(since)
+                s = (scene_state(robot.teleop_core.data, robot.teleop_core.scene_layout)
+                     if args.backend == "mujoco" else scene_state(since, robot.get_observation()))
                 if s is not None:
                     ep_success.update(args.episode_len, s)
                 metrics = ep_success.summary()

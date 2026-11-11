@@ -53,7 +53,7 @@ import zmq
 from pyquaternion import Quaternion as PyQuaternion
 from interfaces.zmq_image_publisher import ZMQCompressedImageTransmitter
 from interfaces.vr_overlay import VR_PAUSE_TIMEOUT_S, draw_help_hint, draw_help_panel
-from tools.scene_reset import SceneRandomizer, apply_layout, scene_entry
+from tools.scene_reset import SceneRandomizer, apply_layout, init_variants, scene_entry
 
 # Hand actuator names (order matches the actuator block in icub_visuomanip_*_limits.xml)
 RIGHT_HAND_ACTUATORS = [
@@ -124,6 +124,14 @@ def close_all_live() -> int:
 
 
 def load_mujoco_model_for_controller(model_path: str, controller_type: str) -> mujoco.MjModel:
+    """Model of `controller_type` (see _load_model_xml) with the first variant of each scene
+    object with variants active (Pick-and-Place, tools/scene_reset.py)."""
+    model = _load_model_xml(model_path, controller_type)
+    init_variants(model)
+    return model
+
+
+def _load_model_xml(model_path: str, controller_type: str) -> mujoco.MjModel:
     """
     Load the MuJoCo XML model corresponding to `controller_type`:
       - 'ik': uses `icub_visuomanip_ikin_limits.xml` (position actuators on all joints)
@@ -1126,7 +1134,7 @@ class MuJoCoTeleop:
         if side is None and mirror_y is not None:
             side = "left" if mirror_y else "right"
         layout = self._randomizer.sample(self.model, self.data, side=side, door_xy=door_xy)
-        apply_layout(self.model, self.data, layout)
+        apply_layout(self.model, self.data, layout, objects=objects)
         self.scene_layout = layout
         self.scene_layout_version = getattr(self, "scene_layout_version", 0) + 1
 

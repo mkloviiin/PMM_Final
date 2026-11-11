@@ -1,10 +1,20 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!-- GENERADO por src/tools/pickplace_assets.py (no editar a mano): PickPlace de robosuite
+     (single_object_mode=1) a escala del iCub. Lado derecho (origen a la derecha); el lado izquierdo
+     lo pone scene_reset.py espejando en y (scenes.yaml: sides, fixtures). -->
 <mujoco model="scene_icub_pickplace">
 
   <include file="icub_visuomanip_ikin_limits.xml"/>
   <include file="icub_shared_materials.xml"/>
   <include file="icub_room_arena.xml"/>
   <include file="icub_standard_table.xml"/>
+
+  <!-- multiccd: el cilindro de la lata contra la base de la caja (colisión convexa general) da un solo
+       punto de contacto y la lata se balancea sin parar en reposo (~0.5 rad/s); con multiccd tiene
+       varios puntos y queda quieta. Solo añade el flag: el resto de <option> viene del modelo. -->
+  <option>
+    <flag multiccd="enable"/>
+  </option>
 
   <visual>
     <map force="0.1" zfar="30" />
@@ -13,24 +23,65 @@
     <global offwidth="800" offheight="800" />
   </visual>
 
+  <asset>
+    <texture name="pp-tex-light-wood" file="../textures/light-wood.png" type="2d"/>
+    <texture name="pp-tex-dark-wood" file="../textures/dark-wood.png" type="2d"/>
+    <material name="pp-bin-source" texture="pp-tex-light-wood" texrepeat="2 2" texuniform="true"/>
+    <material name="pp-bin-target" texture="pp-tex-dark-wood" texrepeat="2 2" texuniform="true"/>
+    <mesh name="pp-milk" file="../pickplace/milk.obj"/>
+    <texture name="pp-tex-milk" file="../textures/ceramic.png" type="2d"/>
+    <material name="pp-milk" texture="pp-tex-milk" reflectance="0.3"/>
+    <mesh name="pp-bread" file="../pickplace/bread.obj"/>
+    <texture name="pp-tex-bread" file="../textures/bread.png" type="2d"/>
+    <material name="pp-bread" texture="pp-tex-bread" reflectance="0.3"/>
+    <mesh name="pp-cereal" file="../pickplace/cereal.obj"/>
+    <texture name="pp-tex-cereal" file="../textures/cereal.png" type="2d"/>
+    <material name="pp-cereal" texture="pp-tex-cereal" reflectance="0.3"/>
+    <mesh name="pp-can" file="../pickplace/can.obj"/>
+    <texture name="pp-tex-can" file="../textures/soda.png" type="2d"/>
+    <material name="pp-can" texture="pp-tex-can" reflectance="0.3"/>
+  </asset>
+
   <worldbody>
-    <!-- Masas medidas el 20-10-2026 (parametros_fisicos_objetos.txt): cubo de 4 cm, 0.012 kg
-         (antes 0.08 kg), inercia m*a^2/6. Caja de 0.073 kg: density="434" en cada geom para
-         que la inercia salga de la geometría (es hueca). La caja va suelta sobre la mesa, como
-         la real, y el reset la cambia de lugar (scenes.yaml). -->
-    <body name="pick-cube" pos="0.4 -0.12 0.745" quat="0 0 0 1">
-      <inertial pos="0 0 0" mass="0.012" diaginertia="3.2e-06 3.2e-06 3.2e-06" />
-      <geom type="box" size="0.02 0.02 0.02" group="0" name="pick_cube_collision" friction="0.9 0.005 0.0001" condim="4" solimp="0.9 0.95 0.001" solref="0.02 1" />
-      <geom type="box" size="0.02 0.02 0.02" conaffinity="0" contype="0" group="1" name="pick_cube_visual" rgba="0.85 0.1 0.1 1" />
-      <freejoint />
+    <body name="bin-source" pos="0.37 -0.189 0.726">
+      <geom name="bin-source_base" type="box" pos="0 0 0" size="0.08 0.12 0.006" material="pp-bin-source" group="1" friction="1 0.005 0.0001"/>
+      <geom name="bin-source_wall_xp" type="box" pos="0.08 0 0.015" size="0.003 0.12 0.015" material="pp-bin-source" group="1" friction="1 0.005 0.0001"/>
+      <geom name="bin-source_wall_xn" type="box" pos="-0.08 0 0.015" size="0.003 0.12 0.015" material="pp-bin-source" group="1" friction="1 0.005 0.0001"/>
+      <geom name="bin-source_wall_yp" type="box" pos="0 0.12 0.015" size="0.083 0.003 0.015" material="pp-bin-source" group="1" friction="1 0.005 0.0001"/>
+      <geom name="bin-source_wall_yn" type="box" pos="0 -0.12 0.015" size="0.083 0.003 0.015" material="pp-bin-source" group="1" friction="1 0.005 0.0001"/>
     </body>
-    <body name="place-bin" pos="0.4 0.12 0.7225" quat="0 0 0 1">
-      <geom type="box" size="0.06 0.06 0.0025" pos="0 0 0" group="1" conaffinity="1" contype="1" name="place_bin_base" density="434" rgba="0.2 0.6 0.3 1" />
-      <geom type="box" size="0.0025 0.06 0.02" pos="0.0575 0 0.02" group="1" name="place_bin_wall1" density="434" rgba="0.2 0.6 0.3 1" />
-      <geom type="box" size="0.0025 0.06 0.02" pos="-0.0575 0 0.02" group="1" name="place_bin_wall2" density="434" rgba="0.2 0.6 0.3 1" />
-      <geom type="box" size="0.06 0.0025 0.02" pos="0 0.0575 0.02" group="1" name="place_bin_wall3" density="434" rgba="0.2 0.6 0.3 1" />
-      <geom type="box" size="0.06 0.0025 0.02" pos="0 -0.0575 0.02" group="1" name="place_bin_wall4" density="434" rgba="0.2 0.6 0.3 1" />
-      <freejoint />
+    <body name="bin-target" pos="0.37 0.06 0.726">
+      <geom name="bin-target_base" type="box" pos="0 0 0" size="0.08 0.12 0.006" material="pp-bin-target" group="1" friction="1 0.005 0.0001"/>
+      <geom name="bin-target_wall_xp" type="box" pos="0.08 0 0.015" size="0.003 0.12 0.015" material="pp-bin-target" group="1" friction="1 0.005 0.0001"/>
+      <geom name="bin-target_wall_xn" type="box" pos="-0.08 0 0.015" size="0.003 0.12 0.015" material="pp-bin-target" group="1" friction="1 0.005 0.0001"/>
+      <geom name="bin-target_wall_yp" type="box" pos="0 0.12 0.015" size="0.083 0.003 0.015" material="pp-bin-target" group="1" friction="1 0.005 0.0001"/>
+      <geom name="bin-target_wall_yn" type="box" pos="0 -0.12 0.015" size="0.083 0.003 0.015" material="pp-bin-target" group="1" friction="1 0.005 0.0001"/>
+      <geom name="bin-target_divider_x" type="box" pos="0 0 0.015" size="0.003 0.12 0.015" material="pp-bin-target" group="1" friction="1 0.005 0.0001"/>
+      <geom name="bin-target_divider_y" type="box" pos="0 0 0.015" size="0.08 0.003 0.015" material="pp-bin-target" group="1" friction="1 0.005 0.0001"/>
+    </body>
+    <body name="visual-milk" pos="0.41 0 0.804" quat="0 0 0 1">
+      <geom name="visual-milk" type="mesh" mesh="pp-milk" material="pp-milk" contype="0" conaffinity="0" group="1"/>
+    </body>
+    <body name="visual-bread" pos="0.33 0 0.756" quat="0 0 0 1">
+      <geom name="visual-bread" type="mesh" mesh="pp-bread" material="pp-bread" contype="0" conaffinity="0" group="1"/>
+    </body>
+    <body name="visual-cereal" pos="0.41 0.12 0.807" quat="-0.707107 0 0 0.707107">
+      <geom name="visual-cereal" type="mesh" mesh="pp-cereal" material="pp-cereal" contype="0" conaffinity="0" group="1"/>
+    </body>
+    <body name="visual-can" pos="0.33 0.12 0.772" quat="0 0 0 1">
+      <geom name="visual-can" type="mesh" mesh="pp-can" material="pp-can" contype="0" conaffinity="0" group="1"/>
+    </body>
+    <body name="pick-object" pos="0.37 -0.1890 0.8060" quat="0 0 0 1">
+      <freejoint/>
+      <inertial pos="0 0 0" mass="0.0227193" diaginertia="4.22459e-05 4.22459e-05 5.97413e-06"/>
+      <geom name="pick-object-milk-col" type="box" size="0.0198603 0.0198603 0.072" group="3" contype="1" conaffinity="1" friction="0.9 0.005 0.0001" condim="4" solimp="0.9 0.95 0.001" solref="0.02 1" rgba="0.5 0.5 0.5 1"/>
+      <geom name="pick-object-milk-vis" type="mesh" mesh="pp-milk" material="pp-milk" contype="0" conaffinity="0" group="1"/>
+      <geom name="pick-object-bread-col" type="box" size="0.024 0.02 0.024" group="3" contype="1" conaffinity="1" friction="0.9 0.005 0.0001" condim="4" solimp="0.9 0.95 0.001" solref="0.02 1" rgba="0.5 0.5 0.5 1"/>
+      <geom name="pick-object-bread-vis" type="mesh" mesh="pp-bread" material="pp-bread" contype="0" conaffinity="0" group="5"/>
+      <geom name="pick-object-cereal-col" type="box" size="0.05 0.015 0.075" group="3" contype="1" conaffinity="1" friction="0.9 0.005 0.0001" condim="4" solimp="0.9 0.95 0.001" solref="0.02 1" rgba="0.5 0.5 0.5 1"/>
+      <geom name="pick-object-cereal-vis" type="mesh" mesh="pp-cereal" material="pp-cereal" contype="0" conaffinity="0" group="5"/>
+      <geom name="pick-object-can-col" type="cylinder" size="0.025 0.04" group="3" contype="1" conaffinity="1" friction="0.9 0.005 0.0001" condim="4" solimp="0.9 0.95 0.001" solref="0.02 1" rgba="0.5 0.5 0.5 1"/>
+      <geom name="pick-object-can-vis" type="mesh" mesh="pp-can" material="pp-can" contype="0" conaffinity="0" group="5"/>
     </body>
   </worldbody>
 

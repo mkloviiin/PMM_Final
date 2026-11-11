@@ -1,0 +1,13 @@
+<?xml version="1.0" ?>
+<sdf version="1.7">
+  <!-- GENERADO por src/tools/pickplace_assets.py: réplica visual de milk en su compartimento de bin-target (sin colisión) -->
+  <model name="visual-milk">
+    <static>true</static>
+    <link name="link">
+      <pose>0 0 0 0 0 0</pose>
+      <visual name="visual">
+        <geometry><mesh><uri>meshes/milk.obj</uri></mesh></geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

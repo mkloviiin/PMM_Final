@@ -165,6 +165,11 @@ class iCubTeleop(Teleoperator):
         print(f"[Teleop] Loading MuJoCo model from: {self.config.model_path}")
         try:
             self.model = mujoco.MjModel.from_xml_path(self.config.model_path)
+            try:  # Pick-and-Place: una sola variante del objeto activa (tools/scene_reset.py)
+                from tools.scene_reset import init_variants
+                init_variants(self.model)
+            except ImportError:
+                pass
             self.data = mujoco.MjData(self.model)
 
             cfg = load_control_config(self.config.config_path)

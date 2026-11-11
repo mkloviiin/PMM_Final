@@ -9,7 +9,7 @@ from lerobot.robots.robot import Robot
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 import yarp
 
-from .config_icub import iCubConfig, load_control_config
+from .config_icub import iCubConfig, load_control_config, scene_file_path
 from .gz_pose import GzContactReader, GzPoseReader
 
 CAMERA_FIRST_FRAME_TIMEOUT_S = 5.0
@@ -137,6 +137,8 @@ class iCub(Robot):
                 features[f"obj{i}_pos_{ax}"] = float
             for ax in ("w", "x", "y", "z"):
                 features[f"obj{i}_quat_{ax}"] = float
+            if self.config.object_bodies[i] in self.config.object_variants:
+                features[f"obj{i}_id"] = float  # variante activa (robosuite PickPlace obj_id)
 
         for name in filter(has_torque_feature, self.actuator_list):
             features[f"{name}_torque"] = float
@@ -524,6 +526,32 @@ class iCub(Robot):
                     pose = ([0.0] * 3, [0.0] * 4)
                 put(f"obj{i}_pos", "xyz", pose[0])
                 put(f"obj{i}_quat", "wxyz", pose[1])
+        # Variante activa de cada objeto con variants (reset_objects.sh la deja en <escena>.variants);
+        # -1 si aún no hay (también en el robot real, donde el operador pone el objeto)
+        for i, body in enumerate(self.config.object_bodies):
+            names = self.config.object_variants.get(body)
+            if names:
+                active = self._active_variants().get(body)
+                obs[f"obj{i}_id"] = torch.tensor(float(names.index(active)) if active in names else -1.0,
+                                                 dtype=torch.float32)
+
+    def _active_variants(self) -> dict:
+        """{cuerpo: variante} del último reset_objects.sh (<archivo de escena>.variants, JSON);
+        se relee solo si el archivo cambió."""
+        import json
+
+        path = scene_file_path().with_name(scene_file_path().name + ".variants")
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return {}
+        if getattr(self, "_variants_mtime", None) != mtime:
+            try:
+                self._variants = json.loads(path.read_text(encoding="utf-8"))
+                self._variants_mtime = mtime
+            except (OSError, ValueError):
+                return getattr(self, "_variants", {})
+        return self._variants
 
     def _read_camera(self, name: str) -> bool:
         img_yarp = self.img_ports[name].read(False)

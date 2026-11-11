@@ -65,7 +65,7 @@ from eval_policy import MujocoSceneState, arms_of  # noqa: E402
 from play import _load_scene_entries, _resolve_scene  # noqa: E402
 import task_success  # noqa: E402
 from tools.door_scene import place_door, set_handle_side  # noqa: E402
-from tools.scene_reset import has_door, scene_entry  # noqa: E402
+from tools.scene_reset import apply_layout, fixture_positions, has_door, scene_entry  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -549,6 +549,21 @@ def reset_and_restore_episode(
             except KeyError:
                 continue
 
+            # Pick-and-Place: variante grabada (obj{i}_id) y lado (el objeto empieza en bin-source,
+            # a la derecha del robot si y < 0): las cajas y réplicas van a ese lado
+            if obj_def.get("variants") and f"{prefix}_id" in state_idx:
+                vid = int(round(float(first_state[state_idx[f"{prefix}_id"]])))
+                if 0 <= vid < len(obj_def["variants"]):
+                    vname = obj_def["variants"][vid]["name"]
+                    side = "right" if world_pos[1] < 0 else "left"
+                    layout = {"side": side, "variants": {body_name: vname},
+                              "fixtures": fixture_positions(scene_entry(model_path), side)}
+                    apply_layout(model, data, {**layout, "objects": {}, "joints": {}, "door_xy": None},
+                                 verbose=False, objects=scene_objects)
+                    tc.scene_layout = layout
+                    restored_info["variants"] = {body_name: vname}
+                    restored_info["side"] = side
+
         mujoco.mj_forward(model, data)
 
     if scene_objects and not restored_info["restored_objects"]:
@@ -728,7 +743,7 @@ def main() -> None:
                         ee_sq_errors.append(float(np.sum((sim_p - rec_p) ** 2)))
 
                 if ep_success is not None:
-                    ep_success.update(f, scene_state(tc.data))
+                    ep_success.update(f, scene_state(tc.data, getattr(tc, "scene_layout", None)))
 
                 act_vec = actions_2d[f]
                 action_dict = {
@@ -744,7 +759,7 @@ def main() -> None:
                     precise_sleep(max(1.0 / fps - elapsed, 0.0))
 
             if ep_success is not None:
-                ep_success.update(num_frames, scene_state(tc.data))
+                ep_success.update(num_frames, scene_state(tc.data, getattr(tc, "scene_layout", None)))
                 metrics = ep_success.summary()
             else:
                 metrics = {"success": None, "success_step": None, "success_at_end": None}

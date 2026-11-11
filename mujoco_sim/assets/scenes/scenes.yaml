@@ -42,6 +42,15 @@
 #           (Y, N / Reset scene, saved or discarded episode, each eval episode). With `sides`,
 #           MuJoCo ignores mirror_y's 50/50 draw.
 #   door: {panel_xy: [x, y], jitter: m} → door panel center, + uniform ±jitter in x and y.
+#
+# Pick-and-Place keys (MuJoCo: src/tools/scene_reset.py; Gazebo: reset_objects.sh):
+#   variants: [{name, z, radius, mass}] → one of them per reset (uniform), like robosuite's
+#           single_object_mode=1. The body keeps its name (Gazebo: models/<body>-<name>); z replaces
+#           spawn.z and radius shrinks the x/y ranges so the object fits (robosuite
+#           ensure_object_boundary_in_range). The variant index is recorded as obj{i}_id.
+#   spawn.yaw: [min, max] deg → uniform rotation about z, applied after spawn.quat.
+#   fixtures: [{body, pos}] → static bodies (MuJoCo body_pos, Gazebo static models) at their
+#           right-side position; on the left side y is mirrored.
 
 - file: scene_icub_lift.xml
   label: "Block Lifting"
@@ -85,21 +94,31 @@
 
 - file: scene_icub_pickplace.xml
   label: "Pick-and-Place"
-  task: "grasp the object and place it at the target position"
-  sides: alternate               # cubo a la derecha y caja a la izquierda, o al revés (espejo en y)
+  # PickPlace de robosuite con single_object_mode=1, a escala del iCub (escena, modelos de Gazebo y
+  # los valores de abajo: src/tools/pickplace_assets.py). En cada reset aparece uno de los 4 objetos
+  # al azar en bin-source, con giro aleatorio en z, y va a su compartimento de bin-target (el de su
+  # réplica visual). Las cajas son fijas; el lado alterna (origen a la derecha o a la izquierda).
+  task: "pick the object and place it in the bin compartment of the same object"
+  sides: alternate
   objects:
-    - body: "pick-cube"
+    - body: "pick-object"        # se graba como obj0 + obj0_id (índice de la variante, como robosuite)
+      variants:                  # orden de robosuite object_to_id: milk 0, bread 1, cereal 2, can 3
+        - {name: milk, z: 0.8060, radius: 0.0281, mass: 0.02272}
+        - {name: bread, z: 0.7580, radius: 0.0312, mass: 0.00461}
+        - {name: cereal, z: 0.8090, radius: 0.0522, mass: 0.06750}
+        - {name: can, z: 0.7740, radius: 0.0354, mass: 0.01571}
       spawn:
-        x: [0.25, 0.40]
-        y: [-0.20, -0.05]
-        z: 0.725
-        quat: [0, 0, 0, 1]       # 180 deg en z = identidad en el frame root (como Gazebo)
-    - body: "place-bin"          # suelta (0.073 kg); se graba como obj1
-      spawn:
-        x: [0.36, 0.44]
-        y: [0.09, 0.15]          # a la izquierda; con y < 0.09 la pared queda cerca del rango del cubo
-        z: 0.7225                # tapa de la mesa 0.72 + media altura de la base 0.0025
+        x: [0.3100, 0.4300]      # bin-source menos el margen de robosuite (5 cm a la escala de la caja);
+        y: [-0.2850, -0.0930]    # cada variante lo achica en su radio (ensure_object_boundary_in_range)
+        yaw: [-180, 180]         # robosuite z_rotation=None: giro uniforme en z
         quat: [0, 0, 0, 1]
+  fixtures:                      # fijos en el lado derecho; el izquierdo espeja y
+    - {body: "bin-source", pos: [0.3700, -0.1890, 0.7260]}
+    - {body: "bin-target", pos: [0.3700, 0.0600, 0.7260]}
+    - {body: "visual-milk", pos: [0.4100, 0.0000, 0.8040]}     # altos (leche, cereal) al fondo, bajos
+    - {body: "visual-bread", pos: [0.3300, 0.0000, 0.7560]}    # (pan, lata) cerca: así no los tapan
+    - {body: "visual-cereal", pos: [0.4100, 0.1200, 0.8070]}
+    - {body: "visual-can", pos: [0.3300, 0.1200, 0.7720]}
 
 - file: scene_icub_door.xml
   label: "Door Opening"

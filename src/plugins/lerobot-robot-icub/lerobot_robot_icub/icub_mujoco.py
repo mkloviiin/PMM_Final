@@ -178,6 +178,8 @@ class iCubMuJoCo(Robot):
                 features[f"obj{i}_pos_{ax}"] = float
             for ax in ("w", "x", "y", "z"):
                 features[f"obj{i}_quat_{ax}"] = float
+            if i < len(scene_objects) and scene_objects[i].get("variants"):
+                features[f"obj{i}_id"] = float  # variante activa (robosuite PickPlace obj_id)
 
         # Joint torques (arms, torso, head; not the hands: has_torque_feature)
         for name in filter(has_torque_feature, self.actuator_list):
@@ -642,6 +644,12 @@ class iCubMuJoCo(Robot):
                 absent_objects.append(prefix)
                 for suffix in ("pos_x", "pos_y", "pos_z", "quat_w", "quat_x", "quat_y", "quat_z"):
                     obs[f"{prefix}_{suffix}"] = torch.tensor(0.0, dtype=torch.float32)
+            if obj_def.get("variants"):
+                # Índice de la variante activa (scenes.yaml variants; la primera hasta el primer reset)
+                layout = getattr(self.teleop_core, "scene_layout", None) or {}
+                names = [v["name"] for v in obj_def["variants"]]
+                active = (layout.get("variants") or {}).get(body_name, names[0])
+                obs[f"{prefix}_id"] = torch.tensor(float(names.index(active)), dtype=torch.float32)
 
         # 7. Joint torques
         for name in filter(has_torque_feature, self.actuator_list):

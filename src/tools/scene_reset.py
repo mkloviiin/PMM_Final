@@ -14,6 +14,12 @@ Claves de scenes.yaml que usa (además de objects/joints), por ahora solo en MuJ
       Sin sides, los objetos con spawn.mirror_y siguen con el sorteo 50/50 (como en Gazebo).
   door: {panel_xy: [x, y], jitter: m}
       Centro de la hoja de la puerta, más un uniforme de ±jitter en x y en y.
+  objects[].variants: [{name, z, radius, mass}]  (Pick-and-Place, robosuite single_object_mode=1)
+      Una variante al azar por reset; el cuerpo tiene la colisión y la malla de todas y
+      set_variant deja activa una. z reemplaza spawn.z y radius achica los rangos x/y.
+  objects[].spawn.yaw: [min, max] grados, giro uniforme en z (después de spawn.quat).
+  fixtures: [{body, pos}]
+      Cuerpos fijos en su posición del lado derecho; en el izquierdo se espeja y.
 """
 
 from __future__ import annotations
@@ -27,6 +33,19 @@ import yaml
 from tools.door_scene import handle_side, place_door, set_handle_side
 
 SCENES_YAML = Path(__file__).resolve().parents[2] / "mujoco_sim" / "assets" / "scenes" / "scenes.yaml"
+
+
+def _model_objects(model) -> list:
+    """Entradas `objects` de scenes.yaml de la escena cargada en `model` (por el nombre del modelo)."""
+    try:
+        entries = yaml.safe_load(SCENES_YAML.read_text(encoding="utf-8")) or []
+    except Exception:
+        return []
+    model_name = bytes(model.names).split(b"\x00", 1)[0].decode()  # <mujoco model="..."> = nombre del XML
+    for e in entries:
+        if Path(e.get("file", "")).stem == model_name:
+            return e.get("objects") or []
+    return []
 
 
 def scene_entry(model_path) -> dict:
@@ -44,6 +63,66 @@ def _sample(val, default=0.0) -> float:
     if isinstance(val, (list, tuple)) and len(val) == 2:
         return float(np.random.uniform(val[0], val[1]))
     return float(val) if val is not None else float(default)
+
+
+def _yaw_quat(quat, yaw_deg: float) -> np.ndarray:
+    """quat (w, x, y, z) seguido de un giro de yaw_deg en z (marco del cuerpo)."""
+    h = np.radians(yaw_deg) / 2
+    out = np.zeros(4)
+    mujoco.mju_mulQuat(out, np.asarray(quat, dtype=float), np.array([np.cos(h), 0.0, 0.0, np.sin(h)]))
+    return out
+
+
+def fixture_positions(entry: dict, side: str | None) -> dict[str, np.ndarray]:
+    """Posición (marco MuJoCo) de los fixtures de la escena en ese lado ("left" espeja y)."""
+    out = {}
+    for fx in entry.get("fixtures") or []:
+        pos = np.array(fx["pos"], dtype=float)
+        if side == "left":
+            pos[1] = -pos[1]
+        out[fx["body"]] = pos
+    return out
+
+
+def variant_names(obj: dict) -> list[str]:
+    return [v["name"] for v in obj.get("variants") or []]
+
+
+def set_variant(model, body: str, variants: list[dict], name: str) -> None:
+    """Deja activa la variante `name` del cuerpo: su colisión y su malla (las demás sin contactos y
+    en el grupo 5, que no se dibuja), y su masa e inercia (primitiva de colisión uniforme)."""
+    for v in variants:
+        on = v["name"] == name
+        col = model.geom(f"{body}-{v['name']}-col").id
+        vis = model.geom(f"{body}-{v['name']}-vis").id
+        model.geom_contype[col] = model.geom_conaffinity[col] = int(on)
+        model.geom_group[vis] = 1 if on else 5
+        if not on:
+            continue
+        m = float(v["mass"])
+        size = model.geom_size[col]
+        if model.geom_type[col] == mujoco.mjtGeom.mjGEOM_BOX:
+            a, b, c = 2 * size
+            inertia = m / 12 * np.array([b * b + c * c, a * a + c * c, a * a + b * b])
+        else:  # cilindro: radio, media altura
+            r, h = size[0], 2 * size[1]
+            inertia = np.array([m * (3 * r * r + h * h) / 12] * 2 + [m * r * r / 2])
+        bid = model.body(body).id
+        model.body_mass[bid] = m
+        model.body_inertia[bid] = inertia
+        model.body_ipos[bid] = model.geom_pos[col]
+        model.body_iquat[bid] = [1, 0, 0, 0]
+
+
+def init_variants(model) -> None:
+    """Al cargar un modelo: primera variante de cada objeto con `variants` (el XML compila todas
+    las colisiones activas, ver src/tools/pickplace_assets.py)."""
+    for o in _model_objects(model):
+        if o.get("variants"):
+            try:
+                set_variant(model, o["body"], o["variants"], o["variants"][0]["name"])
+            except KeyError:
+                pass
 
 
 def has_door(model) -> bool:
@@ -67,6 +146,7 @@ class SceneRandomizer:
         if self.sides_mode is None and self.mirrored:
             self.sides_mode = "random"
         self.door = entry.get("door")
+        self.entry = entry
         self.side = "left" if self.sides_mode == "left" else "right" if self.sides_mode else None
         self._sampled = False
 
@@ -82,9 +162,20 @@ class SceneRandomizer:
         """Layout nuevo. side / door_xy fuerzan el lado o el centro de la hoja (eval_policy.py);
         un lado forzado no avanza la alternancia."""
         side = side or self._next_side()
-        layout = {"side": side, "objects": {}, "joints": {}, "door_xy": None}
+        layout = {"side": side, "objects": {}, "joints": {}, "door_xy": None, "variants": {},
+                  "fixtures": fixture_positions(self.entry, side)}
         for obj in self.objects:
-            name, spawn = obj.get("body", ""), obj.get("spawn", {})
+            name, spawn = obj.get("body", ""), dict(obj.get("spawn", {}))
+            variant = None
+            if obj.get("variants"):
+                # robosuite single_object_mode=1: una al azar; z propia y rangos achicados en su radio
+                variant = obj["variants"][np.random.randint(len(obj["variants"]))]
+                r = float(variant.get("radius", 0.0))
+                spawn["z"] = variant["z"]
+                for ax in "xy":
+                    if isinstance(spawn.get(ax), (list, tuple)):
+                        lo, hi = spawn[ax]
+                        spawn[ax] = [lo + r, hi - r] if hi - lo > 2 * r else [(lo + hi) / 2] * 2
             try:
                 body = model.body(name)
             except KeyError:
@@ -98,7 +189,11 @@ class SceneRandomizer:
             if side == "left" and name in self.mirrored and "y" in spawn:
                 pos[1] = -pos[1]
             quat = np.array(spawn.get("quat", [1, 0, 0, 0]), dtype=float)
+            if spawn.get("yaw") is not None:
+                quat = _yaw_quat(quat, _sample(spawn["yaw"]))
             layout["objects"][name] = (pos, quat)
+            if variant is not None:
+                layout["variants"][name] = variant["name"]
         for jnt in self.joints:
             layout["joints"][jnt.get("name", "")] = float(jnt.get("qpos", 0.0))
         if has_door(model):
@@ -110,9 +205,23 @@ class SceneRandomizer:
         return layout
 
 
-def apply_layout(model, data, layout: dict, verbose: bool = True) -> None:
-    """Escribe el layout en model/data: lado y posición de la puerta (modelo), joints de la
-    escena y poses de los objetos (qpos, con velocidad cero)."""
+def apply_layout(model, data, layout: dict, verbose: bool = True, objects: list | None = None) -> None:
+    """Escribe el layout en model/data: lado y posición de la puerta (modelo), fixtures (modelo),
+    variante de cada objeto (modelo; `objects` = entradas de scenes.yaml con sus variants), joints
+    de la escena y poses de los objetos (qpos, con velocidad cero)."""
+    for name, pos in (layout.get("fixtures") or {}).items():
+        try:
+            model.body_pos[model.body(name).id] = pos
+        except KeyError:
+            continue
+    variant_defs = {o.get("body"): o.get("variants") for o in objects or [] if o.get("variants")}
+    for body, vname in (layout.get("variants") or {}).items():
+        defs = variant_defs.get(body)
+        if defs is None:
+            # sin las entradas (p. ej. el viewer del teleoperador): las de scenes.yaml del modelo
+            defs = next((o["variants"] for o in _model_objects(model) if o.get("body") == body), None)
+        if defs:
+            set_variant(model, body, defs, vname)
     for name, qpos in layout["joints"].items():
         try:
             jid = model.joint(name).id
@@ -136,6 +245,7 @@ def apply_layout(model, data, layout: dict, verbose: bool = True) -> None:
     mujoco.mj_forward(model, data)
     if verbose:
         desc = [f"side={layout['side']}"]
+        desc += [f"{b}={v}" for b, v in (layout.get("variants") or {}).items()]
         desc += [f"{n} → ({p[0]:.2f}, {p[1]:.2f}, {p[2]:.2f})" for n, (p, _) in layout["objects"].items()]
         if has_door(model):
             desc.append(f"handle={handle_side(model)}")

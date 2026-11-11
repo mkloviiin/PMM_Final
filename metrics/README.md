@@ -111,7 +111,7 @@ un episodio cuenta como éxito si el criterio se cumple **en algún paso**. Adem
 |---|---|---|
 | Block Lifting | `Lift` | centro del cubo azul > mesa + 4 cm |
 | Block Stacking | `Stack` | azul > mesa + 4 cm, tocando el rojo y sin agarrar |
-| Pick-and-Place | `PickPlace` | centro del cubo dentro de la caja (±6 cm en su frame, de la base a +10 cm) y sin agarrar |
+| Pick-and-Place | `PickPlace` (`single_object_mode=1`) | centro del objeto en su compartimento (el cuarto de la caja con su réplica, de la tapa a +10 cm) y los puntos de agarre de las dos manos a más de 4,24 cm |
 | Door Opening | `Door` | bisagra > 0,3 rad |
 | Two-Arm Lifting | `TwoArmLift` | fondo de la olla > mesa + 10 cm |
 | Two-Arm Peg-In-Hole | `TwoArmPegInHole` | d < 3,6 cm, −12 ≤ t ≤ 14 cm, cos > 0,95 (eje de la clavija vs. agujero) |
@@ -125,9 +125,16 @@ manos. Son los eslabones `*_hand_{thumb,index,middle}_3`: en Gazebo tienen senso
 (`gazebo_sim/models/red-cube`, que publica en `/red-cube/contact`).
 
 **Adaptaciones respecto de robosuite:**
-- *PickPlace:* robosuite exige además que la pinza quede a más de 4,2 cm del objeto, como señal de
-  que lo soltó. En el iCub el sitio de la mano está en la palma, a unos 5 cm de un cubo tomado, así
-  que se usa la misma prueba de agarre que en Stack.
+- *PickPlace:* escena de `src/tools/pickplace_assets.py`: los 4 objetos de robosuite (leche, pan,
+  cereal, lata; uno al azar por reset) a su tamaño y las cajas a 0,4 × 0,48 en planta (16 × 24 cm,
+  lo que alcanza el brazo del iCub y ven sus ojos), con paredes a 0,3 (3 cm). Los objetos altos
+  (leche, cereal) van en la fila lejana de compartimentos y los bajos en la cercana (al revés que
+  robosuite), para que las réplicas altas no tapen a las bajas en la vista de los ojos.
+  El soltado es el de robosuite: `r_reach = 1 − tanh(10 d) < 0,6`, o sea d > 4,24 cm, con d desde el
+  punto de agarre de cada mano. Ese punto es la palma (frame DH) más `GRIP_OFFSET`, donde queda el
+  centro de un cubo tomado (dataset de lifting, ±1 cm), el análogo del `grip_site` de la pinza de
+  robosuite; medido desde la palma, un objeto tomado ya está a ~6,4 cm. La altura del compartimento
+  es la de robosuite (0,1 m).
 - *PegInHole:* la clavija mide 0,13 m, igual que en robosuite, así que t y cos no cambian. El
   agujero mide 6 cm y no 10, por lo que d se escala: 0,06 × 0,03 / 0,05.
 - *Umbrales de altura:* se usan tal cual (4 y 10 cm). El cubo del iCub mide 5 cm y el de robosuite

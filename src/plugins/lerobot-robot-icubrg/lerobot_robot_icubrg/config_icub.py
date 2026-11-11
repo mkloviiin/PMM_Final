@@ -119,17 +119,28 @@ def _extra_camera_ports(robot_name: str) -> dict[str, str]:
     return {}
 
 
-def _scene_object_bodies() -> list[str]:
-    scene_file = Path(os.environ.get("ICUB_SCENE_FILE", "/tmp/icub_lerobot_scene"))
+def scene_file_path() -> Path:
+    """Etiqueta de la escena (la escribe el Hub o eval_policy.py); al lado, `<archivo>.variants`
+    con la variante de cada objeto que creó reset_objects.sh (Pick-and-Place)."""
+    return Path(os.environ.get("ICUB_SCENE_FILE", "/tmp/icub_lerobot_scene"))
+
+
+def _scene_objects() -> list[dict]:
     scenes_yaml = _project_root() / "mujoco_sim" / "assets" / "scenes" / "scenes.yaml"
     try:
-        label = scene_file.read_text(encoding="utf-8").strip()
+        label = scene_file_path().read_text(encoding="utf-8").strip()
         scenes = yaml.safe_load(scenes_yaml.read_text(encoding="utf-8")) or []
-        scene = next(s for s in scenes if s.get("label") == label)
-        bodies = [obj["body"] for obj in scene.get("objects", [])]
+        return next(s for s in scenes if s.get("label") == label).get("objects", [])
     except Exception:
-        bodies = []
-    return bodies or ["blue-cube"]
+        return []
+
+
+def _scene_object_bodies() -> list[str]:
+    return [obj["body"] for obj in _scene_objects()] or ["blue-cube"]
+
+
+def _scene_object_variants() -> dict[str, list[str]]:
+    return {obj["body"]: [v["name"] for v in obj["variants"]] for obj in _scene_objects() if obj.get("variants")}
 
 
 @dataclass
@@ -156,6 +167,8 @@ class iCubConfig(RobotConfig):
     remote_touch_port: str = "/teleop/touch:o"
     touch_threshold: float = 100.0 / 12.0
     object_bodies: list[str] = field(default_factory=list)
+    # cuerpo -> nombres de sus variantes (scenes.yaml variants): se graba obj{i}_id
+    object_variants: dict = field(default_factory=dict)
     gazebo_root_xyz: tuple[float, float, float] = (0.0, 0.0, 0.73)
     gripper_legacy: bool = False
 
@@ -238,3 +251,5 @@ class iCubConfig(RobotConfig):
         self.gazebo_root_xyz = tuple(cfg.get("gazebo_root_xyz", self.gazebo_root_xyz))
         if not self.object_bodies:
             self.object_bodies = cfg.get("object_bodies") or _scene_object_bodies()
+            if not self.object_variants:
+                self.object_variants = _scene_object_variants()

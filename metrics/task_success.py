@@ -39,12 +39,17 @@ TASK_BY_SCENE = {
 BODIES = {
     "lift": ["blue-cube"],
     "stack": ["blue-cube", "red-cube"],
-    "pickplace": ["pick-cube", "place-bin"],
+    "pickplace": ["pick-object"],
     "door": [],
     "twoarmlift": ["lift-pot"],
     "peginhole": ["peg", "hole-board"],
 }
-GRASP_BODIES = {"stack": ["blue-cube"], "pickplace": ["pick-cube"]}
+GRASP_BODIES = {"stack": ["blue-cube"], "pickplace": ["pick-object"]}
+# Cuerpos fijos que usa el criterio (MuJoCo: su xpos; Gazebo: scenes.yaml fixtures según el lado)
+PICKPLACE_VARIANTS = ("milk", "bread", "cereal", "can")
+FIXTURES = {"pickplace": ["bin-target", *(f"visual-{v}" for v in PICKPLACE_VARIANTS)]}
+# Cuerpo cuya variante decide el criterio (scenes.yaml variants)
+VARIANT_BODY = {"pickplace": "pick-object"}
 CONTACT_PAIRS = {"stack": [("blue-cube", "red-cube")]}
 JOINTS = {"door": ["door_hinge"]}
 
@@ -68,10 +73,19 @@ DOOR_HINGE_RAD = 0.3
 # 6 cm bajo su origen (base de 1 cm en z = -0.055, scene_icub_twoarmlift.xml / models/lift-pot)
 TWOARMLIFT_MARGIN_M = 0.10
 POT_BOTTOM_OFFSET_M = 0.06
-# PickPlace.not_in_bin: centro del objeto dentro del contenedor en xy y entre su base y 10 cm
-# más arriba. place-bin mide 12 x 12 cm (semiancho 0.06) y su origen es el centro de la base.
-BIN_HALF_XY_M = 0.06
+# PickPlace (robosuite, single_object_mode=1), escena de src/tools/pickplace_assets.py:
+#  - not_in_bin: el centro del objeto en el compartimento de su variante (el cuarto de bin-target
+#    donde está su réplica visual) y entre el centro de la tapa y BIN_HEIGHT más arriba. bin-target
+#    mide 16 x 24 cm (robosuite 40 x 50 a escala 0.4 x 0.48) y su origen es el centro de la tapa; la
+#    altura es la de robosuite (0.1), porque los objetos están a su tamaño (el cereal de pie, 15 cm).
+#  - _check_success: además la pinza lejos del objeto, r_reach = 1 - tanh(10 d) < 0.6, o sea
+#    d > atanh(0.4) / 10 = 4.24 cm. d se mide desde el punto de agarre de cada mano: la palma (frame
+#    DH, rh_ee / lh_ee) más GRIP_OFFSET, donde queda el centro del cubo agarrado (mediana del dataset
+#    block-lifting_50eps, ±1 cm); el análogo del grip_site entre los dedos de la pinza de robosuite.
+BIN_HALF_XY_M = (0.08, 0.12)
 BIN_HEIGHT_M = 0.10
+RELEASE_DIST_M = float(np.arctanh(0.4) / 10)
+GRIP_OFFSET = {"rh": (0.037, -0.015, 0.050), "lh": (0.037, -0.015, -0.050)}
 # TwoArmPegInHole._check_success: d < 0.06, -0.12 <= t <= 0.14, cos > 0.95. La clavija mide
 # 0.13 m como en robosuite (t y cos sin cambios); el agujero es de 6 x 6 cm y no de 10 x 10, así
 # que d se escala con él: 0.06 * 0.03 / 0.05 (con 0.06 el eje podría pasar fuera del agujero).
@@ -96,12 +110,15 @@ def quat_to_mat(quat) -> np.ndarray:
 @dataclass
 class SceneState:
     """poses: cuerpo -> (pos, quat wxyz); grasped: cuerpos tomados por una mano; touching:
-    pares de cuerpos en contacto; joints: articulación -> ángulo [rad]."""
+    pares de cuerpos en contacto; joints: articulación -> ángulo [rad]; variants: cuerpo ->
+    variante; grips: punto de agarre de cada mano, en el mismo marco que las poses."""
     poses: dict = field(default_factory=dict)
     table_z: float = TABLE_Z
     grasped: set = field(default_factory=set)
     touching: set = field(default_factory=set)
     joints: dict = field(default_factory=dict)
+    variants: dict = field(default_factory=dict)   # cuerpo -> variante activa (Pick-and-Place)
+    grips: list = field(default_factory=list)      # punto de agarre de cada mano (grip_point)
 
     def pos(self, body: str) -> np.ndarray:
         return np.asarray(self.poses[body][0], dtype=float)
@@ -111,6 +128,11 @@ class SceneState:
 
     def in_contact(self, a: str, b: str) -> bool:
         return frozenset((a, b)) in self.touching
+
+
+def grip_point(pos, quat, hand: str) -> np.ndarray:
+    """Punto de agarre de la mano `hand` ("rh" / "lh") desde la pose de su palma (frame DH)."""
+    return np.asarray(pos, dtype=float) + quat_to_mat(quat) @ np.asarray(GRIP_OFFSET[hand])
 
 
 def _lift(s: SceneState) -> dict:
@@ -131,13 +153,23 @@ def _stack(s: SceneState) -> dict:
 
 
 def _pickplace(s: SceneState) -> dict:
-    obj, bin_pos = s.pos("pick-cube"), s.pos("place-bin")
-    local = s.mat("place-bin").T @ (obj - bin_pos)
-    in_bin = bool(abs(local[0]) < BIN_HALF_XY_M and abs(local[1]) < BIN_HALF_XY_M
-                  and bin_pos[2] < obj[2] < bin_pos[2] + BIN_HEIGHT_M)
-    grasped = "pick-cube" in s.grasped
-    return {"success": in_bin and not grasped, "in_bin": in_bin, "grasped": grasped,
-            "obj_in_bin_frame": local.round(3).tolist()}
+    """robosuite PickPlace._check_success (single_object_mode=1): el objeto en su compartimento y
+    la mano lejos. Los cuartos de bin-target se cuentan desde su centro, con los ejes de la escena
+    (como robosuite), y el del objeto es el de su réplica: vale en cualquier lado y simulador."""
+    variant = s.variants.get("pick-object")
+    obj, center = s.pos("pick-object"), s.pos("bin-target")
+    d = obj - center
+    in_bin = bool(abs(d[0]) < BIN_HALF_XY_M[0] and abs(d[1]) < BIN_HALF_XY_M[1]
+                  and center[2] < obj[2] < center[2] + BIN_HEIGHT_M)
+    in_compartment = False
+    if variant is not None and f"visual-{variant}" in s.poses:
+        q = s.pos(f"visual-{variant}") - center
+        in_compartment = in_bin and bool(d[0] * q[0] > 0 and d[1] * q[1] > 0)
+    dist = min((float(np.linalg.norm(g - obj)) for g in s.grips), default=float("inf"))
+    released = dist > RELEASE_DIST_M
+    return {"success": in_compartment and released, "variant": variant, "in_compartment": in_compartment,
+            "in_bin": in_bin, "grip_dist": round(dist, 4) if np.isfinite(dist) else None,
+            "grasped": "pick-object" in s.grasped, "obj_minus_bin": d.round(3).tolist()}
 
 
 def _door(s: SceneState) -> dict:
@@ -176,8 +208,9 @@ DESCRIPTION = {
     "lift": f"blue cube center > table + {LIFT_MARGIN_M} m (robosuite Lift)",
     "stack": f"blue cube center > table + {STACK_MIN_Z_M} m, < {STACK_MAX_XY_M} m from the red cube "
              "center in xy and not grasped, at the end of the episode",
-    "pickplace": f"object inside the bin (±{BIN_HALF_XY_M} m, base to +{BIN_HEIGHT_M} m) and not grasped "
-                 "(robosuite PickPlace)",
+    "pickplace": f"object center in its compartment of the bin (the quarter with its replica, base to "
+                 f"+{BIN_HEIGHT_M} m) and both hands' grip points > {RELEASE_DIST_M:.4f} m from it "
+                 "(robosuite PickPlace, single_object_mode=1)",
     "door": f"door_hinge > {DOOR_HINGE_RAD} rad (robosuite Door)",
     "twoarmlift": f"pot bottom > table + {TWOARMLIFT_MARGIN_M} m (robosuite TwoArmLift)",
     "peginhole": f"peg axis d < {PEG_D_MAX_M:.3f} m from the hole, {PEG_T_RANGE_M[0]} <= t <= "
