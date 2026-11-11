@@ -8,6 +8,9 @@
 
 SESSION_NAME="icub_sim"
 GAZEBO_SIM_DIR="$(dirname "$(dirname "$(readlink -f "$0")")")"
+# gz sim (servidor y GUI) va envuelto en tmux_guard.sh: así se cierra también si la sesión tmux se
+# cierra sin stop_sim.sh (gz sim ignora el SIGHUP del panel y quedaba huérfano)
+GUARD="$GAZEBO_SIM_DIR/scripts/tmux_guard.sh"
 PROJECT_ROOT="$(dirname "$GAZEBO_SIM_DIR")"
 WORLD="$GAZEBO_SIM_DIR/worlds/icub_world.sdf"
 PIXI_ENV="${PIXI_ENV:-$PROJECT_ROOT/.pixi/envs/default}"
@@ -39,14 +42,14 @@ tmux send-keys -t $SESSION_NAME:server "yarpserver --write" C-m
 # 2. Servidor de Gazebo (headless: física y sensores)
 tmux new-window -t $SESSION_NAME -n gazebo
 tmux send-keys -t $SESSION_NAME:gazebo "$ENV_CMD" C-m
-tmux send-keys -t $SESSION_NAME:gazebo "sleep 2; $GZ_RENDER_ENV gz sim -s -r $WORLD -v 4" C-m
+tmux send-keys -t $SESSION_NAME:gazebo "sleep 2; $GZ_RENDER_ENV $GUARD gz sim -s -r $WORLD -v 4" C-m
 # '>' (no '>>'): el log se reinicia en cada arranque; con '>>' crece sin límite (llegó a 1.3 GB).
 tmux pipe-pane -o -t $SESSION_NAME:1.0 'cat > /tmp/tmux_output_pipe_gz_server'
 
 # 2.1 GUI de Gazebo en otro panel
 tmux split-window -h -t $SESSION_NAME:gazebo
 tmux send-keys -t $SESSION_NAME:gazebo.1 "$ENV_CMD" C-m
-tmux send-keys -t $SESSION_NAME:gazebo.1 "sleep 3; $GZ_RENDER_ENV gz sim -g" C-m
+tmux send-keys -t $SESSION_NAME:gazebo.1 "sleep 3; $GZ_RENDER_ENV $GUARD gz sim -g" C-m
 tmux pipe-pane -o -t $SESSION_NAME:1.1 'cat > /tmp/tmux_output_pipe_gz_gui'
 
 echo "Sesión de simulación iniciada."

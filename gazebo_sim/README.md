@@ -12,7 +12,8 @@ controlboards que abre el `RobotInterface` del modelo dentro de Gazebo. Ya no se
 ---
 ## Script de inicio del Hub (`scripts/start_sim.sh`)
 
-Es el que usa el Hub en *Configuración → 2.1 Start sim*. Crea en segundo plano una sesión de
+Es el que usa el Hub en *Configuración → 2.1 Start sim* (y la pestaña *5. Evaluate*). Siempre lanza
+`iCubGazeboV2_5_visuomanip` en la mesa (`worlds/icub_world.sdf`). Crea en segundo plano una sesión de
 `tmux` llamada `icub_sim` con:
 
 1. **`server`**: `yarpserver --write`, el servidor de nombres de YARP.
@@ -29,11 +30,42 @@ bash gazebo_sim/scripts/stop_sim.sh
 `GZ_RENDER_ENV=""` desactiva las variables de render con la GPU NVIDIA de un notebook con GPU
 híbrida (PRIME), si no hacen falta.
 
+`gz sim` (servidor y GUI) corre envuelto en `scripts/tmux_guard.sh`. Así Gazebo se cierra también
+si la sesión tmux se cierra sin `stop_sim.sh`: por su cuenta ignora el SIGHUP del panel y quedaba
+huérfano.
+
 ## Lanzador en primer plano (`scripts/launch_sim.sh`)
 
-Alternativa para usar sin el Hub: levanta `yarpserver` (si no hay uno) y `gz sim` con GUI en la
-misma terminal, y permite elegir otros mundos y modelos (`--world empty --model ...`, ver
-`--help`). Con Ctrl+C cierra todo.
+Alternativa desde la terminal: levanta `yarpserver` (si no hay uno) y `gz sim` con GUI en la misma
+terminal. Con Ctrl+C cierra todo. Sin argumentos (`--world manip`) es la misma simulación que
+`start_sim.sh`.
+
+```bash
+./gazebo_sim/scripts/launch_sim.sh                                          # tareas
+./gazebo_sim/scripts/launch_sim.sh --world empty --model iCubGazeboV2_5_fixed   # depuración
+./gazebo_sim/scripts/launch_sim.sh --stop                                   # mata gz sim y yarpserver
+```
+
+## Modelos del iCub
+
+| Mundo (`worlds/`) | Modelo | Uso |
+|---|---|---|
+| `icub_world.sdf` (`--world manip`) | `iCubGazeboV2_5_visuomanip` (manos, ojos y cámaras), en la mesa | **Tareas, grabación y evaluación.** El único que usan el Hub, `start_sim.sh` y `reset_objects.sh` |
+| `icub_visuomanip_fixed.sdf` | `iCubGazeboV2_5_visuomanip`, fijo en el aire | Depuración |
+| `icub_fixed.sdf` | `iCubGazeboV2_5_fixed`, fijo en el aire | Depuración (**sin ojos ni manos**) |
+| `icub_v2_7_fixed.sdf` | `iCubGazeboV2_7_fixed`, fijo en el aire | Depuración (**sin ojos ni manos**) |
+| `icub_v2_5_floating.sdf` | `iCubGazeboV2_5`, base flotante, de pie | Depuración (**sin ojos ni manos**) |
+| `icub_v2_7_floating.sdf` | `iCubGazeboV2_7`, base flotante, de pie | Depuración (**sin ojos ni manos**) |
+
+Los modelos de depuración sirven para comprobar que el control por torque o impedancia del TSID
+funciona en Gazebo (`play.py --backend gazebo --controller id [--impedance] --no-record`). Solo se
+lanzan con `launch_sim.sh --world empty --model ...`. No tienen mesa ni objetos, y sus mundos no se
+llaman `default`, así que `reset_objects.sh` no funciona en ellos. Sin ojos ni manos tampoco hay
+cámaras ni dedos: no sirven para grabar ni evaluar.
+
+`launch_sim.sh` y `start_sim.sh` escriben el modelo en `/tmp/icub_gazebo_model`. De ahí lo leen el
+módulo YARP y `play.py`, que cargan la cinemática de ese modelo y apagan las cámaras si no es
+`visuomanip`. `play.py --robot-model` lo fuerza.
 
 ## Escenas y objetos
 

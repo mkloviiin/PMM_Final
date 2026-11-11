@@ -9,20 +9,26 @@ Launch the iCub humanoid simulation in Gazebo Sim + YARP.
 
 Options:
   -w, --world <WORLD>   Select the world type (default: manip):
-                          * manip : Manipulation arena (table, objects, external camera, iCubGazeboV2_5_visuomanip)
-                          * empty : Empty world with the selected --model
+                          * manip : Manipulation arena (table, task objects, cameras) with
+                                    iCubGazeboV2_5_visuomanip. The only world for tasks,
+                                    recording and evaluation (the same one the Hub launches).
+                          * empty : DEBUG ONLY. The selected --model alone, without table or
+                                    objects (reset_objects.sh does not work here).
   -m, --model <MODEL>   Select the iCub model to launch (default: iCubGazeboV2_5_visuomanip for manip, iCubGazeboV2_5_fixed for empty):
-                          * iCubGazeboV2_5_visuomanip [FIXED BASE]    V2.5 with articulated fingers, eyes & cameras
+                          * iCubGazeboV2_5_visuomanip [FIXED BASE]    V2.5 with articulated fingers, eyes & cameras (tasks)
+                        DEBUG ONLY (no eyes or hands: no cameras, no fingers; to test TSID torque /
+                        impedance control with play.py --controller id [--impedance] --no-record):
                           * iCubGazeboV2_5_fixed      [FIXED BASE]    Standard V2.5 upper-body
                           * iCubGazeboV2_7_fixed      [FIXED BASE]    Standard V2.7 upper-body
                           * iCubGazeboV2_5            [FLOATING BASE] Full-body V2.5 standing on ground
                           * iCubGazeboV2_7            [FLOATING BASE] Full-body V2.7 standing on ground
+                        Any model other than iCubGazeboV2_5_visuomanip implies --world empty.
   --stop, --kill        Stop any running Gazebo Sim (gz sim) and YARP (yarpserver) processes
   -h, --help            Show this help message and exit
 
 Examples:
-  ./gazebo_sim/scripts/launch_sim.sh
-  ./gazebo_sim/scripts/launch_sim.sh --world manip
+  ./gazebo_sim/scripts/launch_sim.sh                     # tasks (= --world manip)
+  # Debug only:
   ./gazebo_sim/scripts/launch_sim.sh --world empty --model iCubGazeboV2_5_fixed
   ./gazebo_sim/scripts/launch_sim.sh --world empty --model iCubGazeboV2_7_fixed
   ./gazebo_sim/scripts/launch_sim.sh --world empty --model iCubGazeboV2_5

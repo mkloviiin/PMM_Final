@@ -16,6 +16,7 @@ with a virtual reality headset (Meta Quest 2) using BeaVR, or interactively usin
 - [Console controls](#console-controls)
 - [Installation](#installation)
 - [How to use it](#how-to-use-it)
+  - [Robot models](#robot-models)
   - [MuJoCo](#mujoco)
   - [Gazebo / Real](#gazebo--real)
   - [Working with datasets (Hugging Face & local)](#working-with-datasets-hugging-face--local)
@@ -179,7 +180,25 @@ in **2. Episode Control** you record episodes with the VR headset, and in
 train a SmolVLA policy on it. The full walkthrough,
 with screenshots of each tab, is in the [User manual](docs/MANUAL.md).
 
-From the command line, `play.py` records (or only teleoperates, with `--no-record`) the same way:
+From the command line, `play.py` records (or only teleoperates, with `--no-record`) the same way.
+
+### Robot models
+
+These are the iCub models used for tasks, recording and evaluation. All of them have
+articulated hands and eyes with cameras:
+
+| Simulator | Model | Actuators | How it is selected |
+|---|---|---|---|
+| MuJoCo | `mujoco_sim/assets/scenes/icub_visuomanip_ikin_limits.xml` | Position on all joints | Hub: *Controller (solver)* = **Whole-Body IK (position)**. Terminal: `play.py --controller ik` |
+| MuJoCo | `mujoco_sim/assets/scenes/icub_visuomanip_idyn_limits.xml` | Torque on the 20 upper-body joints (torso, neck, arms), position on the 18 finger joints | Hub: **Whole-Body ID (torque)** or **Whole-Body ID (torque) + impedance**. Terminal: `play.py --controller id` (plus `--impedance`) |
+| Gazebo | `iCubGazeboV2_5_visuomanip`, at the table of `gazebo_sim/worlds/icub_world.sdf` | Controlboards of the model; the YARP module drives them in position (IK) or torque (ID) | Hub: *2.1 Start sim*. Terminal: `start_sim.sh` or `launch_sim.sh` (default `--world manip`) |
+
+- The MuJoCo task scenes (`scene_icub_*.xml`) include the position model. With `--controller id`,
+  the torque model is loaded in its place, so the model always follows the controller.
+- The other Gazebo models of `launch_sim.sh` (`--world empty --model ...`) are **for debugging
+  only**. They have no eyes or hands, no cameras, and no table or task objects. Use them to check
+  that the TSID torque and impedance control works in Gazebo, never to record or evaluate (see
+  [Debug models](#debug-models-gazebo)).
 
 ### MuJoCo
 
@@ -224,16 +243,28 @@ To teleoperate the iCub in Gazebo Sim with both arms:
 
 #### Step 1: Launch Gazebo Sim (Terminal 1)
 
+**From the Hub:** on the *iCub Real / Gazebo* platform, *1. Configuration → 2.1 Start sim* runs
+`gazebo_sim/scripts/start_sim.sh`, and *Stop sim* runs `stop_sim.sh`. The *5. Evaluate* tab starts
+and stops the same simulation by itself. It always launches `iCubGazeboV2_5_visuomanip` at the table.
+
+**From the terminal**, choose one of two equivalent options for tasks:
+
 ```bash
-./gazebo_sim/scripts/launch_sim.sh --world manip
+# A. Same simulation as the Hub, in the background (tmux session icub_sim):
+bash gazebo_sim/scripts/start_sim.sh
+tmux attach -t icub_sim                  # optional: see the output (Ctrl+b d to detach)
+bash gazebo_sim/scripts/stop_sim.sh      # close it
+
+# B. In the foreground, with the GUI, in this terminal (Ctrl+C closes Gazebo and yarpserver):
+./gazebo_sim/scripts/launch_sim.sh       # = --world manip: iCubGazeboV2_5_visuomanip at the table
 ```
 
 ##### Arguments supported by `launch_sim.sh`:
 
 | Option | Values / Default | Description |
 |---|---|---|
-| `-w, --world` | `manip`, `empty` (default: `manip`) | Simulation world: `manip` (table arena with objects and camera) or `empty` |
-| `-m, --model` | model name | iCub model: `iCubGazeboV2_5_visuomanip` (default for manip), `iCubGazeboV2_5_fixed`, `iCubGazeboV2_7_fixed`, `iCubGazeboV2_5`, `iCubGazeboV2_7` |
+| `-w, --world` | `manip`, `empty` (default: `manip`) | `manip`: table arena with the task objects and cameras, with `iCubGazeboV2_5_visuomanip`; the only world for tasks, recording and evaluation. `empty`: **debug only**, the `--model` robot fixed in the air (or standing, if floating base) with no table or objects |
+| `-m, --model` | `iCubGazeboV2_5_visuomanip` (default for `manip`), and for **debug only**: `iCubGazeboV2_5_fixed` (default for `empty`), `iCubGazeboV2_7_fixed`, `iCubGazeboV2_5`, `iCubGazeboV2_7` | iCub model. The debug models have **no eyes or hands**: no cameras, no fingers. `iCubGazeboV2_5` and `iCubGazeboV2_7` have a floating base. Choosing any model other than `iCubGazeboV2_5_visuomanip` switches to `--world empty` |
 | `--stop`, `--kill` | flag | Stop and cleanup any running Gazebo Sim (`gz sim`) and YARP (`yarpserver`) processes |
 | `-h, --help` | flag | Show usage help and exit |
 
@@ -251,6 +282,25 @@ pixi run python play.py --backend gazebo --controller id --impedance --control-a
 ```
 
 *(Note: If `teleop_module_sm.py` is not already running on YARP, `play.py` automatically launches it in the background with the selected solver).*
+
+#### Debug models (Gazebo)
+
+To check that the TSID controller works in Gazebo in torque or impedance mode on a robot
+without hands or eyes:
+
+```bash
+# Terminal 1: debug model, without table or objects
+./gazebo_sim/scripts/launch_sim.sh --world empty --model iCubGazeboV2_5_fixed
+
+# Terminal 2: TSID with impedance, teleoperation only
+pixi run python play.py --backend gazebo --controller id --impedance --control-arms both --no-record
+```
+
+`launch_sim.sh` writes the model name to `/tmp/icub_gazebo_model`. The YARP module and `play.py`
+read it from there (or from `--robot-model`) to load the matching kinematics, and they turn the
+cameras off for models other than `visuomanip`. These models only work from the terminal; the Hub
+always uses `iCubGazeboV2_5_visuomanip`. Do not record datasets with them: they have no cameras,
+fingers or task objects.
 
 ---
 
@@ -574,7 +624,7 @@ Modules located in `src/hub_dataset/launcher_gui/`:
 | `dataset_curation.py` | Packaging of the curated dataset (episodes, features and dimensions dropped, instructions) |
 | `hub_push.py` | Upload to Hugging Face Hub |
 | `video_sync.py` | Player for the three cameras, synchronized with the plots |
-| `procman.py` | Long-lived external processes (e.g. the YARP module) and scripts (`launch_sim.sh`) |
+| `procman.py` | Long-lived external processes (e.g. the YARP module) and scripts (`start_sim.sh`, `stop_sim.sh`) |
 | `ports.py` | Checks and frees the VR ports before launching a session |
 | `state.py` | State shared between modules |
 | `ui/` | Construction of each tab, folder picker and numeric field filters |
