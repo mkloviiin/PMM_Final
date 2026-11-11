@@ -34,7 +34,7 @@ yarp = ">=3.8"
 bipedal-locomotion-framework = "*"
 idyntree = ">=12.0"
 manifpy = "*"
-mujoco = "*"
+# mujoco: from PyPI (see [pypi-dependencies]); conda-forge does not ship 4.x yet
 
 # Utilities for VR, math, data analysis, and configuration
 pyyaml = "*"
@@ -58,6 +58,8 @@ extra-index-urls = ["https://download.pytorch.org/whl/cu124"]
 index-strategy = "unsafe-best-match"
 
 [pypi-dependencies]
+# MuJoCo 4 (PyPI only: conda-forge stops at 3.x). mujoco = mujoco-core + mujoco-studio.
+mujoco = ">=4.0.1,<5"
 # ML, VLA, and Imitation Learning Stack with CUDA support (PyPI)
 torch = ">=2.2.0"
 torchvision = "*"
