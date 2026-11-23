@@ -1,5 +1,6 @@
 <?xml version="1.0" ?>
-<!-- GENERADO por tools/door_sdf_from_mujoco.py desde scene_icub_door.xml: no editar a mano.
+<!-- GENERADO por tools/door_sdf_from_mujoco.py --side left desde scene_icub_door.xml: no editar a mano.
+     Manilla a la izquierda del robot.
      Origen = door_mount de MuJoCo; pose del fixture en Gazebo = (-0.47, 0.086, 0.885). -->
 <sdf version="1.7">
   <model name="door">

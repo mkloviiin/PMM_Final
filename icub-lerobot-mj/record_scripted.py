@@ -257,7 +257,7 @@ class PickPlaceTask(Task):
     def plan(self, m, d, tc, rng):
         cube, bin_ = body_pos(m, d, "pick-cube"), body_pos(m, d, "place-bin")
         arm, R, offset = side_grasp(tc, self.args.cube_offset)
-        # Suelta con el cubo 2 cm sobre el borde de las paredes (techo de la caja: 0.04 + 0.02)
+        # Suelta con el cubo 2 cm sobre el borde de las paredes (a 0.0425 del origen de la caja)
         plan = pick_and_place_plan(cube, bin_ + np.array([0.0, 0.0, 0.0225 + 0.02]), rng, release_dz=0.04,
                                    offset=offset, R=R)
         return ({arm: plan, OTHER[arm]: hold_plan(m, d, tc, OTHER[arm])}, (cube + bin_) / 2,

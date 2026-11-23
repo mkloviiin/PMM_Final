@@ -11,13 +11,19 @@ Colisiones (collide_bitmask; el robot choca con todo):
 Así el pestillo solo choca con la traba (como contype/conaffinity 2 en MuJoCo) y la manilla,
 que atraviesa la hoja en su eje, no choca con ella.
 
+Manilla: la del XML queda a la izquierda del robot (models/door). Con --side right se espeja
+con dependencies/door_scene.py de MuJoCo (bisagra a la izquierda) y va a models/door-right.
+reset_objects.sh crea uno u otro con el nombre de entidad "door" (sides en scenes.yaml).
+
 Uso (entorno con mujoco, p. ej. icubenv), desde icub-lerobot-gazebo/:
     python tools/door_sdf_from_mujoco.py
+    python tools/door_sdf_from_mujoco.py --side right
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import mujoco
@@ -25,7 +31,8 @@ import numpy as np
 
 GZ_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_XML = GZ_ROOT.parent / "icub-lerobot-mj" / "dependencies" / "assets" / "scenes" / "scene_icub_door.xml"
-DEFAULT_OUT = GZ_ROOT / "gazebo" / "models" / "door"
+MODELS_DIR = GZ_ROOT / "gazebo" / "models"
+OUT_BY_SIDE = {"left": MODELS_DIR / "door", "right": MODELS_DIR / "door-right"}
 
 RZ180 = np.diag([-1.0, -1.0, 1.0])
 LINKS = {"door_frame": "frame", "door_panel": "panel", "latch": "latch"}
@@ -85,10 +92,17 @@ def geom_sdf(m, gid) -> tuple[str, str]:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--xml", default=str(DEFAULT_XML))
-    p.add_argument("--out", default=str(DEFAULT_OUT))
+    p.add_argument("--side", choices=("left", "right"), default="left",
+                   help="Lado de la manilla visto desde el robot (el XML la tiene a la izquierda)")
+    p.add_argument("--out", default=None, help="Carpeta del modelo (por defecto models/door o door-right)")
     args = p.parse_args()
+    out = Path(args.out) if args.out else OUT_BY_SIDE[args.side]
 
     m = mujoco.MjModel.from_xml_path(args.xml)
+    if args.side == "right":
+        sys.path.insert(0, str(Path(args.xml).resolve().parents[3]))   # icub-lerobot-mj/
+        from dependencies.door_scene import set_handle_side
+        set_handle_side(m, "right")
     d = mujoco.MjData(m)
     mujoco.mj_forward(m, d)
     mount = d.xpos[m.body("door_mount").id].copy()
@@ -131,7 +145,8 @@ def main() -> None:
     hinge = m.joint("door_hinge").id
     handle = m.joint("handle_hinge").id
     sdf = f"""<?xml version="1.0" ?>
-<!-- GENERADO por tools/door_sdf_from_mujoco.py desde {Path(args.xml).name}: no editar a mano.
+<!-- GENERADO por tools/door_sdf_from_mujoco.py --side {args.side} desde {Path(args.xml).name}: no editar a mano.
+     Manilla a la {"izquierda" if args.side == "left" else "derecha"} del robot.
      Origen = door_mount de MuJoCo; pose del fixture en Gazebo = ({-mount[0]:.4g}, {-mount[1]:.4g}, {mount[2]:.4g}). -->
 <sdf version="1.7">
   <model name="door">
@@ -150,15 +165,14 @@ def main() -> None:
   </model>
 </sdf>
 """
-    out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "model.sdf").write_text(sdf, encoding="utf-8")
-    (out / "model.config").write_text("""<?xml version="1.0"?>
+    (out / "model.config").write_text(f"""<?xml version="1.0"?>
 <model>
-  <name>door</name>
+  <name>{out.name}</name>
   <version>1.0</version>
   <sdf version="1.7">model.sdf</sdf>
-  <description>Puerta con pestillo de la tarea Door Opening (generada desde MuJoCo)</description>
+  <description>Puerta con pestillo de la tarea Door Opening, manilla a la {"izquierda" if args.side == "left" else "derecha"} (generada desde MuJoCo)</description>
 </model>
 """, encoding="utf-8")
     print(f"{out / 'model.sdf'}\nPose del fixture (Gazebo): [{-mount[0]:.4g}, {-mount[1]:.4g}, {mount[2]:.4g}]")

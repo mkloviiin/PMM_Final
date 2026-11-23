@@ -1,6 +1,13 @@
 # Piezas fijas de cada escena en Gazebo (las que en MuJoCo estan en el XML pero no en scenes.yaml).
 # Las lee gazebo/scripts/reset_objects.sh. Etiqueta de scenes.yaml -> lista de modelos con su pose
 # en el marco de GAZEBO (el iCub mira hacia -x): (x, y) = (-x, -y) del XML de MuJoCo.
+#
+# Puerta (con `sides` y `door` en scenes.yaml): side_models elige el modelo segun el lado de la
+# manilla (la entidad se llama siempre "door", como la lee eval_gazebo.py) y panel_offset es el
+# centro de la hoja menos door_mount en el marco MuJoCo, igual con la manilla a cualquier lado
+# (door_scene.place_door). Con door.panel_xy la pose se calcula de ahi; `pose` es la del XML.
 "Door Opening":
   - model: door                    # models/door (tools/door_sdf_from_mujoco.py): el giro va en el modelo
     pose: [-0.47, 0.086, 0.885]    # MuJoCo: door_mount en (0.47, -0.086, 0.885)
+    side_models: {left: door, right: door-right}
+    panel_offset: [0.00013, -0.044]

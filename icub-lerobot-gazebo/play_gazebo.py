@@ -287,8 +287,14 @@ def _forward_world_reset(robot, teleop) -> None:
     gazebo/scripts/reset_objects.sh (posición aleatoria sobre la mesa).
     """
     if hasattr(teleop, "consume_world_reset_event") and teleop.consume_world_reset_event():
-        reply = robot.send_rpc_command("reset_scenario")
-        print(f"[Reset] reset_scenario -> {reply}", flush=True)
+        _reset_world(robot)
+
+
+def _reset_world(robot) -> None:
+    """Escena nueva en Gazebo (y el otro lado, con sides: alternate), sin mover el robot.
+    En el robot real el módulo responde que no hay reset y no pasa nada."""
+    reply = robot.send_rpc_command("reset_scenario")
+    print(f"[Reset] reset_scenario -> {reply}", flush=True)
 
 
 def _forward_vr_help(robot, teleop) -> None:
@@ -495,6 +501,8 @@ def _manual_vr_record(
                 precise_sleep(max(1.0 / args.fps - (time.perf_counter() - loop_start), 0.0))
 
             if discard_ev:
+                # Escena nueva (y el otro lado, con sides: alternate), como en play_mujoco.py
+                _reset_world(robot)
                 continue  # Don't save, go back to wait loop
 
             # Sin pool de procesos: con >1 cámara LeRobot hace fork para codificar en
@@ -510,6 +518,9 @@ def _manual_vr_record(
                 _vr_status(robot, "SESION COMPLETA",
                            f"Episodios grabados: {recorded}/{args.num_episodes}")
             print(f"[Manual] Episode saved ({recorded}/{args.num_episodes})", flush=True)
+            # Escena nueva para el siguiente episodio (y el otro lado, con sides: alternate),
+            # sin mover el robot, como el botón Y y como play_mujoco.py
+            _reset_world(robot)
 
     finally:
         fm.close()

@@ -33,7 +33,7 @@
 # in y. Door: side of the handle. alternate = right, left, right... : every reset switches
 # side (N, Y, saved or discarded episode in the Hub, each eval episode).
 # Optional `door: {panel_xy: [x, y], jitter: m}`: door panel center, + uniform ±jitter in x and y.
-# Implemented in dependencies/scene_reset.py (MuJoCo only for now).
+# Implemented in dependencies/scene_reset.py; Gazebo does the same in gazebo/scripts/reset_objects.sh.
 
 - file: scene_icub_lift.xml
   label: "Block Lifting"
