@@ -36,8 +36,10 @@ app.
 | **iCub Simulated MJ** | `robots/icub_sim.py` | Inside the Hub process (MuJoCo 3.3) | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
 | **iCub Real / Gazebo** | `robots/icub_rg.py` | Separate subprocess, connected to the robot through YARP | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
 
-- Tasks are declared once in a shared manifest, `shared/scenes/scenes.yaml`, which both
-  simulators read.
+- Tasks are declared in one `scenes.yaml` manifest per simulator, with the same tasks,
+  spawn ranges, side and cameras: `icub-lerobot-mj/dependencies/assets/scenes/scenes.yaml`
+  (MuJoCo) and `icub-lerobot-gazebo/gazebo/scenes.yaml` (Gazebo, which does not depend on
+  the MuJoCo folder). A change in one goes in the other too.
 - Both backends record **the same dataset**, with the same variables, frame and cameras,
   so a dataset from one platform also works for the other
   (see [Recorded data](#recorded-data)).
@@ -93,9 +95,16 @@ headset's IP in *Configuration*) or over a USB cable.
 |---|---|
 | **A** | Start recording an episode |
 | **B** | Stop recording and save the episode |
-| **X** | Pause or resume teleoperation, to reposition yourself without moving the robot |
+| **B** (hold 1.5 s) | Discard the current episode |
+| **X** | Pause or resume teleoperation and show the button help on the screen |
 | **Y** | Reset the scene (repositions the objects) |
 | **Grip** (lower trigger, middle finger) | Open and close the hand gradually |
+| **Both index triggers** | Clutch: while held, the robot's hands do not move, so you can reposition the controllers |
+
+Saving or discarding an episode resets the scene automatically. In tasks with
+`sides: alternate` (Block Lifting, Block Stacking, Pick-and-Place and Door Opening), every
+reset switches the side of the task: the objects are mirrored in y and the door handle
+moves to the other side. Each session starts on the right.
 
 Without VR, MuJoCo also accepts the viewer's keyboard. `8`/`9` open and close the right
 hand, `6`/`7` the left one, and `N` repositions the objects.
@@ -294,7 +303,10 @@ are interchangeable.
   touch on the thumb, index and middle fingers, and the pose of the scene objects. The
   object poses are simulator *ground truth* and are not available on the real robot.
 - **Cameras.** `left` and `right` are the iCub's eyes and `front` is an external camera,
-  all recorded at 320×240. The real robot has no front camera.
+  all recorded at 320×240. Door Opening records `top` (overhead) instead of `front`. The
+  real robot has no external cameras.
+- **Scene.** Same objects (masses measured on the printed parts), same spawn ranges, same
+  alternating side and automatic reset between episodes in both simulators.
 - **Only the arm chosen** in *Control arms* is recorded.
 - **Gazebo and the real robot also record the eye joints** (`eyes_*`), which MuJoCo does
   not model.
@@ -314,10 +326,11 @@ PMM_Final/
 │   ├── launcher_gui/            # Hub code (see Architecture)
 │   ├── assets/                  # logos and images of the welcome screen
 │   └── logs/                    # full log of each run
-├── icub-lerobot-mj/             # MuJoCo backend: simulation, IK, VR teleoperation, LeRobot plugins
+├── icub-lerobot-mj/             # MuJoCo backend: simulation, IK, VR teleoperation, LeRobot plugins,
+│                                #   recording without VR (record_scripted.py) and evaluation (eval_mujoco.py)
 ├── icub-lerobot-gazebo/         # Gazebo / real robot backend: Gazebo world, YARP module, LeRobot plugins
-├── shared/scenes/               # scene manifest shared by both simulators
-├── metrics/                     # latency, jitter and synchronization of the recordings
+├── metrics/                     # latency, jitter, synchronization and task success criteria
+├── lerobot/                     # LeRobot (git submodule)
 ├── docs/                        # user manual and its screenshots
 ├── docker/                      # Dockerfile, environment lockfiles and their README
 ├── docker-compose.yml

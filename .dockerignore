@@ -17,8 +17,9 @@ lerobot/
 # El controlboard parchado se compila dentro de la imagen
 icub-lerobot-gazebo/gazebo/plugins/*.so
 
-# Código sin uso y archivos personales
+# Código sin uso y archivos personales (offtopic/: notas, pendientes y videos, fuera de git)
 icub-lerobot-gazebo/_unused/
+offtopic/
 *.ipynb
 notas
 comandos entrenamiento.txt

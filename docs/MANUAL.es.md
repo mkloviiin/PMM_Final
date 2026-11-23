@@ -84,9 +84,16 @@ estado de la grabación.
 |---|---|
 | **A** | Iniciar la grabación de un episodio |
 | **B** | Terminar la grabación y guardar el episodio |
-| **X** | Pausar o reanudar la teleoperación, para reacomodarse sin mover el robot |
+| **B** (mantener 1,5 s) | Descartar el episodio en curso |
+| **X** | Pausar o reanudar la teleoperación y mostrar la ayuda de los botones en la pantalla |
 | **Y** | Reiniciar el escenario (reposiciona los objetos) |
 | **Grip** (gatillo inferior, dedo medio) | Abrir y cerrar la mano de forma gradual |
+| **Ambos gatillos índice** | Embrague: mientras están apretados las manos del robot no se desplazan, para acomodar los controles |
+
+Al guardar o descartar un episodio, el escenario se reinicia solo. En las tareas con
+`sides: alternate` (Block Lifting, Block Stacking, Pick-and-Place y Door Opening), cada
+reinicio cambia el lado de la tarea: los objetos se espejan en y y la manilla de la puerta
+pasa al otro lado. Cada sesión empieza por la derecha.
 
 Un episodio típico se graba así.
 

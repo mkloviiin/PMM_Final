@@ -36,8 +36,11 @@ aplicación **BeaVR**.
 | **iCub Simulated MJ** | `robots/icub_sim.py` | Dentro del proceso del Hub (MuJoCo 3.3) | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
 | **iCub Real / Gazebo** | `robots/icub_rg.py` | Subproceso aparte, conectado al robot por YARP | Block Lifting, Block Stacking, Pick-and-Place, Door Opening, Two-Arm Peg-In-Hole, Two-Arm Lifting |
 
-- Las tareas se declaran una sola vez en un manifiesto común, `shared/scenes/scenes.yaml`,
-  que leen ambos simuladores.
+- Las tareas se declaran en un manifiesto `scenes.yaml` por simulador, con las mismas
+  tareas, rangos de aparición, lado y cámaras:
+  `icub-lerobot-mj/dependencies/assets/scenes/scenes.yaml` (MuJoCo) y
+  `icub-lerobot-gazebo/gazebo/scenes.yaml` (Gazebo, que no depende de la carpeta de MuJoCo).
+  Un cambio en uno va también en el otro.
 - Ambos backends graban **el mismo dataset**, con las mismas variables, marco y cámaras,
   por lo que un dataset de una plataforma sirve también para la otra
   (ver [Datos grabados](#datos-grabados)).
@@ -91,9 +94,16 @@ La teleoperación usa la aplicación BeaVR en unas Meta Quest 2, conectadas por 
 |---|---|
 | **A** | Iniciar la grabación de un episodio |
 | **B** | Terminar la grabación y guardar el episodio |
-| **X** | Pausar o reanudar la teleoperación, para reacomodarse sin mover el robot |
+| **B** (mantener 1,5 s) | Descartar el episodio en curso |
+| **X** | Pausar o reanudar la teleoperación y mostrar la ayuda de los botones en la pantalla |
 | **Y** | Reiniciar el escenario (reposiciona los objetos) |
 | **Grip** (gatillo inferior, dedo medio) | Abrir y cerrar la mano de forma gradual |
+| **Ambos gatillos índice** | Embrague: mientras están apretados las manos del robot no se desplazan, para acomodar los controles |
+
+Al guardar o descartar un episodio, el escenario se reinicia solo. En las tareas con
+`sides: alternate` (Block Lifting, Block Stacking, Pick-and-Place y Door Opening), cada
+reinicio cambia el lado de la tarea: los objetos se espejan en y y la manilla de la puerta
+pasa al otro lado. Cada sesión empieza por la derecha.
 
 Sin VR, MuJoCo acepta también el teclado del visor. `8`/`9` abren y cierran la mano
 derecha, `6`/`7` la izquierda, y `N` reposiciona los objetos.
@@ -294,7 +304,10 @@ de Gazebo son intercambiables.
   enviado, tacto en pulgar, índice y medio, y la pose de los objetos de la escena. La pose
   de los objetos es información exacta del simulador y no está disponible en el robot real.
 - **Cámaras.** `left` y `right` son los ojos del iCub y `front` es una cámara externa,
-  todas grabadas a 320×240. El robot real no tiene cámara frontal.
+  todas grabadas a 320×240. Door Opening graba `top` (cenital) en vez de `front`. El robot
+  real no tiene cámaras externas.
+- **Escena.** Mismos objetos (masas medidas de las piezas impresas), mismos rangos de
+  aparición, mismo lado alterno y reinicio automático entre episodios en ambos simuladores.
 - **Solo se graba el brazo elegido** en *Control arms*.
 - **Gazebo y el robot real graban también las articulaciones de los ojos** (`eyes_*`), que
   MuJoCo no modela.
@@ -313,10 +326,11 @@ PMM_Final/
 │   ├── launcher_gui/            # código del Hub (ver Arquitectura)
 │   ├── assets/                  # logos e imágenes de la bienvenida
 │   └── logs/                    # registro completo de cada ejecución
-├── icub-lerobot-mj/             # backend MuJoCo: simulación, IK, teleoperación VR, plugins LeRobot
+├── icub-lerobot-mj/             # backend MuJoCo: simulación, IK, teleoperación VR, plugins LeRobot,
+│                                #   grabación sin VR (record_scripted.py) y evaluación (eval_mujoco.py)
 ├── icub-lerobot-gazebo/         # backend Gazebo / robot real: mundo de Gazebo, módulo YARP, plugins LeRobot
-├── shared/scenes/               # manifiesto de escenas común a ambos simuladores
-├── metrics/                     # latencia, jitter y sincronización de las grabaciones
+├── metrics/                     # latencia, jitter, sincronización y criterios de éxito de las tareas
+├── lerobot/                     # LeRobot (submódulo git)
 ├── docs/                        # manual de uso y sus capturas
 ├── docker/                      # Dockerfile, lockfiles del entorno y su README
 ├── docker-compose.yml

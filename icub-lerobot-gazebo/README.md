@@ -135,9 +135,16 @@ cámaras**:
   (`pose_frame: "root"`) y el robot real.
 - **Brazos:** solo se graba el brazo elegido en el Hub (`control_arms`), en ambos simuladores.
 - **Cámaras:** `left` / `right` (ojos del iCub, pose de iKin) y `front` (cámara externa
-  espejada), todas 320x240 (`camera_shapes`).
+  espejada), todas 320x240 (`camera_shapes`). Door Opening graba `top` (cenital) en vez de
+  `front` (`cameras` en `scenes.yaml`).
 - **Escena:** `gazebo/scenes.yaml` es la copia propia de las tareas y rangos (la misma de
-  `icub-lerobot-mj`; Gazebo no depende de esa carpeta, un cambio va en las dos). Robot a 0.73 m en ambos, mesa con tapa en 0.72, mismo cubo
+  `icub-lerobot-mj`; Gazebo no depende de esa carpeta, un cambio va en las dos). Mismo lado de
+  la tarea (`sides: alternate`: cada reset espeja los objetos en y o cambia la manilla de la
+  puerta de lado, partiendo por la derecha en cada sesión) y misma puerta centrada en
+  (0.47, 0) ± 3 cm (`door`), en `gazebo/scripts/reset_objects.sh` como en
+  `dependencies/scene_reset.py` de MuJoCo; la puerta con la manilla a la derecha es
+  `models/door-right` (`tools/door_sdf_from_mujoco.py --side right`). El escenario se reinicia
+  al guardar o descartar cada episodio en ambos. Robot a 0.73 m en ambos, mesa con tapa en 0.72, mismo cubo
   (5 cm, 0.028 kg medidos del cubo impreso, fricción 5) y mismos límites del torso que el robot real
   (`cart_torso_limits`).
 - **Colores:** cubiertas azul rey (iCub real) y manos gris oscuro en ambos.

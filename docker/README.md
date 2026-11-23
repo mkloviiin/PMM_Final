@@ -104,4 +104,5 @@ aplicando (`build_controlboard.sh` clona la v0.5.3).
 | `GZ_PATCHED_PLUGIN_DIR` | `gazebo/plugins` del repo | carpeta del controlboard parchado |
 | `ICUBENV_SITE_PACKAGES` | `~/miniconda3/envs/icubenv/...` | site-packages extra de los scripts |
 | `ICUBENV_PREFIX` | `~/miniconda3/envs/icubenv` | entorno del `gz` que usan `reset_objects.sh` y los lectores de pose del cubo y tacto (`gz_pose.py`) |
+| `ICUB_SCENE_FILE` | `/tmp/icub_lerobot_scene` | tarea de Gazebo elegida en el Hub, que lee `reset_objects.sh`; el lado del último reset (`sides: alternate`) queda en `<archivo>.side`. Dentro del contenedor, en su propio `/tmp` |
 | `CONDA_ENV` | `icubenv` | entorno que activan `start_sim.sh` y `build_controlboard.sh` |

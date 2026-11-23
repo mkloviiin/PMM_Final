@@ -85,9 +85,16 @@ recording status.
 |---|---|
 | **A** | Start recording an episode |
 | **B** | Stop recording and save the episode |
-| **X** | Pause or resume teleoperation, to reposition yourself without moving the robot |
+| **B** (hold 1.5 s) | Discard the current episode |
+| **X** | Pause or resume teleoperation and show the button help on the screen |
 | **Y** | Reset the scene (repositions the objects) |
 | **Grip** (lower trigger, middle finger) | Open and close the hand gradually |
+| **Both index triggers** | Clutch: while held, the robot's hands do not move, so you can reposition the controllers |
+
+Saving or discarding an episode resets the scene automatically. In tasks with
+`sides: alternate` (Block Lifting, Block Stacking, Pick-and-Place and Door Opening), every
+reset switches the side of the task: the objects are mirrored in y and the door handle
+moves to the other side. Each session starts on the right.
 
 A typical episode goes like this.
 
