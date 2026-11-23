@@ -16,7 +16,7 @@
   <worldbody>
     <!-- Cubos como el de scene_icub_lift.xml (y gazebo/models/blue-cube, red-cube): inercia
          m*a^2/6 y fricción 5. Con fricción 1 e inercia ~15 veces mayor la mano no los levanta.
-         Masas medidas el 20-10-2026 (parametros_fisicos_objetos.txt; antes 0.1 kg): cubos de
+         Masas medidas el 20-10-2026 (antes 0.1 kg): cubos de
          apilado 0.027 kg. El azul usa los valores del cubo de Block Lifting (0.028 kg) porque
          en Gazebo las dos tareas comparten el modelo blue-cube. -->
     <body name="blue-cube" pos="0.4 -0.12 0.745" quat="0 0 0 1">

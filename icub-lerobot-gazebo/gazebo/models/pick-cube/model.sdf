@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
 <sdf version="1.7">
   <!-- pick-cube de la escena Pick-and-Place (scene_icub_pickplace.xml): cubo de 4 cm, 0.012 kg
-       (medido el 20-10-2026, parametros_fisicos_objetos.txt; antes 0.08 kg), inercia m*a^2/6 -->
+       (medido el 20-10-2026; antes 0.08 kg), inercia m*a^2/6 -->
   <model name="pick-cube">
     <link name="link">
       <inertial>

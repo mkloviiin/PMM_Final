@@ -14,7 +14,7 @@
   </visual>
 
   <worldbody>
-    <!-- Masas medidas el 20-10-2026 (parametros_fisicos_objetos.txt): cubo de 4 cm, 0.012 kg
+    <!-- Masas medidas el 20-10-2026: cubo de 4 cm, 0.012 kg
          (antes 0.08 kg), inercia m*a^2/6. Caja de 0.073 kg: density="434" en cada geom para
          que la inercia salga de la geometría (es hueca). La caja va suelta sobre la mesa, como
          la real, y el reset la cambia de lugar (scenes.yaml). -->

@@ -4,7 +4,7 @@
     <link name="link">
       <inertial>
         <mass>0.028</mass>
-        <!-- Cubo sólido: I = m*a^2/6. Masa del cubo de Block Lifting medido el 20-10-2026 (parametros_fisicos_objetos.txt), antes 0.1 kg.
+        <!-- Cubo sólido: I = m*a^2/6. Masa del cubo de Block Lifting medido el 20-10-2026, antes 0.1 kg.
              Block Stacking usa el mismo modelo (sus cubos impresos pesan 0.027 kg) -->
         <inertia>
           <ixx>1.1667e-05</ixx>

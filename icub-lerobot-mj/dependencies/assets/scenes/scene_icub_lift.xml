@@ -17,8 +17,8 @@
   </visual>
 
   <worldbody>
-    <!-- Igual que gazebo/models/blue-cube: 5 cm, 0.028 kg (cubo impreso medido el 20-10-2026,
-         parametros_fisicos_objetos.txt; antes 0.1 kg), inercia m*a^2/6 y fricción 5 (empírica;
+    <!-- Igual que gazebo/models/blue-cube: 5 cm, 0.028 kg (cubo impreso medido el 20-10-2026;
+         antes 0.1 kg), inercia m*a^2/6 y fricción 5 (empírica;
          rugosidad medida Ra = 16.24 µm, solo de referencia).
          quat 180 deg en z = identidad en el frame root, como el cubo de Gazebo (ver scenes.yaml). -->
     <body name="blue-cube" pos="0.4 -0.1 0.745" quat="0 0 0 1">

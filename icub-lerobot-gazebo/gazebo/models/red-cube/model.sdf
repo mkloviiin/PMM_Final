@@ -4,7 +4,7 @@
     <link name="link">
       <inertial>
         <mass>0.027</mass>
-        <!-- Cubo sólido: I = m*a^2/6. Masa del cubo de apilado medido el 20-10-2026 (parametros_fisicos_objetos.txt), antes 0.1 kg -->
+        <!-- Cubo sólido: I = m*a^2/6. Masa del cubo de apilado medido el 20-10-2026, antes 0.1 kg -->
         <inertia>
           <ixx>1.125e-05</ixx>
           <ixy>0</ixy>

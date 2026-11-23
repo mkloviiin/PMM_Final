@@ -4,7 +4,7 @@
        Simetrico respecto de su origen, asi que el giro de 180 grados MuJoCo->Gazebo no lo cambia.
        Suelta sobre la mesa: reset_objects.sh la crea con el origen en z=0.7225 (tapa 0.72 + media
        altura de la base), en el rango de scenes.yaml.
-       Masa medida el 20-10-2026 (parametros_fisicos_objetos.txt): 0.073 kg. La inercia es la que
+       Masa medida el 20-10-2026: 0.073 kg. La inercia es la que
        calcula MuJoCo con density="434" en cada geom (pieza hueca). -->
   <model name="place-bin">
     <static>false</static>
